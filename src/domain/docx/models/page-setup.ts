@@ -1,4 +1,4 @@
-import { NS, childNS } from "../../../core/utils/xml";
+import { NS } from "../../../core/utils/xml";
 
 export interface DocxPageSetup {
   pageWidth: number;

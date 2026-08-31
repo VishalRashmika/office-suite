@@ -146,12 +146,12 @@ function buildDrawingXml(rId: string, widthPx: number, heightPx: number, alt = "
 
 function imageRun(context: IDocxSerializeContext, node: PMNode): Element {
   const r = context.createEl("r");
-  const rId = node.attrs.rId;
+  const rId = (node.attrs.rId as string) || null;
   const width = node.attrs.width ? Number(node.attrs.width) : 300;
   const height = node.attrs.height ? Number(node.attrs.height) : 200;
-  const alt = node.attrs.alt || "Picture";
+  const alt = (node.attrs.alt as string) || "Picture";
 
-  let xml = node.attrs.drawingXml;
+  let xml = (node.attrs.drawingXml as string) || "";
   if (!xml && rId) {
     xml = buildDrawingXml(rId, width, height, alt);
   }
@@ -219,15 +219,15 @@ function buildParagraph(
   listOverride?: { numId: string; ilvl: string }
 ): Element {
   const p = context.createEl("p");
-  const align = node.attrs.align;
-  const styleId = node.attrs.styleId;
-  const level = node.type === schema.nodes.heading ? node.attrs.level : null;
+  const align = (node.attrs.align as string) || null;
+  const styleId = (node.attrs.styleId as string) || null;
+  const level = node.type === schema.nodes.heading ? (node.attrs.level as number) : null;
   const effectiveStyleId = level ? LEVEL_TO_HEADING_STYLE[level] : styleId;
-  const numId = listOverride?.numId ?? node.attrs.numId;
-  const ilvl = listOverride?.ilvl ?? node.attrs.ilvl ?? "0";
-  const lineSpacing = node.attrs.lineSpacing;
-  const indent = node.attrs.indent;
-  const sectPrXml = node.attrs.sectPrXml;
+  const numId = listOverride?.numId ?? ((node.attrs.numId as string) || null);
+  const ilvl = listOverride?.ilvl ?? ((node.attrs.ilvl as string) || "0");
+  const lineSpacing = (node.attrs.lineSpacing as string) || null;
+  const indent = (node.attrs.indent as number | string) || null;
+  const sectPrXml = (node.attrs.sectPrXml as string) || null;
 
   if (effectiveStyleId || align || numId || lineSpacing || indent || sectPrXml) {
     const pPr = context.createEl("pPr");
@@ -437,7 +437,7 @@ function flattenBlock(context: IDocxSerializeContext, node: PMNode, out: Element
   } else if (node.type === schema.nodes.table) {
     out.push(buildTable(context, node));
   } else if (node.type === schema.nodes.bullet_list) {
-    const existingNumId = node.attrs.numId;
+    const existingNumId = (node.attrs.numId as string) || null;
     let numId = "1";
     if (existingNumId && context.getListFormat && context.getListFormat(existingNumId) === "bullet") {
       numId = existingNumId;
@@ -454,7 +454,7 @@ function flattenBlock(context: IDocxSerializeContext, node: PMNode, out: Element
       });
     });
   } else if (node.type === schema.nodes.ordered_list) {
-    const existingNumId = node.attrs.numId;
+    const existingNumId = (node.attrs.numId as string) || null;
     let numId = "2";
     if (existingNumId && context.getListFormat && context.getListFormat(existingNumId) === "ordered") {
       numId = existingNumId;

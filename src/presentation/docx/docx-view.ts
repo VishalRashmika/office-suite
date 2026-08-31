@@ -1,5 +1,5 @@
 import { FileView, TFile, WorkspaceLeaf, Notice } from "obsidian";
-import { EditorState, Transaction } from "prosemirror-state";
+import { EditorState, Transaction, Selection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { history, undo, redo } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
@@ -10,7 +10,6 @@ import { docxSchema as schema, docxToProseMirrorDoc, proseMirrorDocToDocxBody } 
 import { DocxDocument } from "../../infrastructure/docx/docx-document";
 import { DocxToolbar, DocxToolbarDelegate } from "./docx-toolbar";
 import { DocxCommands } from "./docx-commands";
-
 import { DocxImageView } from "./docx-image-view";
 
 export const VIEW_TYPE_DOCX = "docx-editor-view";
@@ -118,7 +117,7 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
     this.editorView = new EditorView(this.editorHostEl, {
       state,
       nodeViews: {
-        image: (node, view, getPos) => new DocxImageView(node, view, getPos as any, this.docxDoc),
+        image: (node, view, getPos) => new DocxImageView(node, view, getPos, this.docxDoc, this.app),
       },
       dispatchTransaction: (tr: Transaction) => {
         if (!this.editorView) return;
@@ -129,7 +128,7 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
       },
       handleDOMEvents: {
         blur: () => {
-          if (this.dirty) this.saveNow();
+          if (this.dirty) void this.saveNow();
           return false;
         },
         paste: (view, event) => {
@@ -139,7 +138,7 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
               const file = files[i];
               if (file.type.startsWith("image/")) {
                 event.preventDefault();
-                DocxCommands.insertImageFile(view, this.docxDoc, file);
+                void DocxCommands.insertImageFile(view, this.docxDoc, file);
                 return true;
               }
             }
@@ -157,11 +156,11 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
                 const pos = view.posAtCoords(coords);
                 if (pos) {
                   const selTr = view.state.tr.setSelection(
-                    (view.state.selection.constructor as any).near(view.state.doc.resolve(pos.pos))
+                    Selection.near(view.state.doc.resolve(pos.pos))
                   );
                   view.dispatch(selTr);
                 }
-                DocxCommands.insertImageFile(view, this.docxDoc, file);
+                void DocxCommands.insertImageFile(view, this.docxDoc, file);
                 return true;
               }
             }
@@ -176,7 +175,7 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
     this.setPaperTheme(this.paperTheme);
 
     // Trigger initial render of pagination decorations after DOM paints
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (this.editorView) {
         this.editorView.dispatch(this.editorView.state.tr);
       }
@@ -184,7 +183,7 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
   }
 
   private onWindowBlur = () => {
-    if (this.dirty) this.saveNow();
+    if (this.dirty) void this.saveNow();
   };
 
   async onUnloadFile(file: TFile): Promise<void> {
@@ -215,7 +214,9 @@ export class DocxView extends FileView implements DocxToolbarDelegate {
   private scheduleSave(): void {
     this.dirty = true;
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => this.saveNow(), 800);
+    this.saveTimer = window.setTimeout(() => {
+      void this.saveNow();
+    }, 800);
   }
 
   private async saveNow(): Promise<void> {

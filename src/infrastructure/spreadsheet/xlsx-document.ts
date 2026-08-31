@@ -130,7 +130,7 @@ export class XlsxDocument {
           const vEl = cEl.getElementsByTagName("v")[0];
 
           let formula: string | undefined;
-          let value: any = null;
+          let value: string | number | boolean | null = null;
 
           if (fEl && fEl.textContent) {
             formula = `=${fEl.textContent.trim()}`;

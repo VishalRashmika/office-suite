@@ -2,16 +2,17 @@ import { SheetData } from "../models/workbook";
 import { cellKey, a1ToCoord } from "../models/coordinates";
 import { defaultFunctionRegistry, FunctionRegistry } from "./functions/registry";
 import { FormulaFunctionContext } from "./functions/math";
+import { CellValue } from "../models/cell";
 
 export interface EvaluationContext {
   sheet: SheetData;
   visited: Set<string>;
   evaluating: Set<string>;
-  evalCell: (key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>) => any;
+  evalCell: (key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>) => CellValue | unknown;
   registry?: FunctionRegistry;
 }
 
-export function evaluateExpression(expr: string, ctx: EvaluationContext): any {
+export function evaluateExpression(expr: string, ctx: EvaluationContext): CellValue | unknown {
   expr = expr.trim();
   if (!expr) return 0;
 
@@ -70,7 +71,7 @@ export function evaluateExpression(expr: string, ctx: EvaluationContext): any {
   if (concatOp) {
     const left = evaluateExpression(expr.slice(0, concatOp.index), ctx);
     const right = evaluateExpression(expr.slice(concatOp.index + 1), ctx);
-    return `${left ?? ""}${right ?? ""}`;
+    return `${(left as string | number | boolean) ?? ""}${(right as string | number | boolean) ?? ""}`;
   }
 
   // 3. Addition / Subtraction: +, -
@@ -164,7 +165,7 @@ export function splitArguments(argsStr: string): string[] {
   return args;
 }
 
-export function getRangeValues(rangeStr: string, ctx: EvaluationContext): any[] {
+export function getRangeValues(rangeStr: string, ctx: EvaluationContext): unknown[] {
   const rangeMatch = rangeStr.match(/^([A-Z]+[0-9]+)\s*:\s*([A-Z]+[0-9]+)$/i);
   if (rangeMatch) {
     const start = a1ToCoord(rangeMatch[1]);
@@ -176,7 +177,7 @@ export function getRangeValues(rangeStr: string, ctx: EvaluationContext): any[] 
     const minCol = Math.min(start.col, end.col);
     const maxCol = Math.max(start.col, end.col);
 
-    const values: any[] = [];
+    const values: unknown[] = [];
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minCol; c <= maxCol; c++) {
         values.push(ctx.evalCell(cellKey(r, c), ctx.sheet, ctx.visited, ctx.evaluating));

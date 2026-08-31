@@ -4,20 +4,20 @@ export function concat(args: string[], ctx: FormulaFunctionContext): string {
   let str = "";
   for (const arg of args) {
     const res = ctx.evaluateExpr(arg);
-    str += res ?? "";
+    str += res !== null && res !== undefined ? String(res) : "";
   }
   return str;
 }
 
 export function textJoin(args: string[], ctx: FormulaFunctionContext): string {
-  const delimiter = ctx.evaluateExpr(args[0]) ?? "";
-  const ignoreEmpty = ctx.evaluateExpr(args[1]);
-  const items: any[] = [];
+  const delimiter = String(ctx.evaluateExpr(args[0]) ?? "");
+  const ignoreEmpty = Boolean(ctx.evaluateExpr(args[1]));
+  const items: string[] = [];
   for (let i = 2; i < args.length; i++) {
     const vals = ctx.getRangeValues(args[i]);
     for (const v of vals) {
       if (ignoreEmpty && (v === "" || v === null || v === undefined)) continue;
-      items.push(v);
+      items.push(v !== null && v !== undefined ? String(v) : "");
     }
   }
   return items.join(delimiter);
@@ -37,9 +37,9 @@ export function right(args: string[], ctx: FormulaFunctionContext): string {
 
 export function mid(args: string[], ctx: FormulaFunctionContext): string {
   const str = String(ctx.evaluateExpr(args[0]) ?? "");
-  const start = Number(ctx.evaluateExpr(args[1])) - 1;
+  const start = Math.max(0, Number(ctx.evaluateExpr(args[1])) - 1);
   const length = Number(ctx.evaluateExpr(args[2]));
-  return str.substr(start, length);
+  return str.substring(start, start + length);
 }
 
 export function len(args: string[], ctx: FormulaFunctionContext): number {

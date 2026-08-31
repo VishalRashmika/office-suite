@@ -1,5 +1,5 @@
 import { SheetData } from "../models/workbook";
-import { formatCellValue } from "../models/cell";
+import { formatCellValue, CellValue } from "../models/cell";
 import { evaluateExpression, EvaluationContext } from "./expression-evaluator";
 
 export class FormulaEngine {
@@ -15,7 +15,7 @@ export class FormulaEngine {
     }
   }
 
-  evalCell(key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>): any {
+  evalCell(key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>): CellValue | unknown {
     if (evaluating.has(key)) {
       return "#CIRCULAR!";
     }
@@ -37,7 +37,7 @@ export class FormulaEngine {
         evaluating,
         evalCell: (k, s, v, e) => this.evalCell(k, s, v, e),
       };
-      const result = evaluateExpression(formulaStr, ctx);
+      const result = evaluateExpression(formulaStr, ctx) as CellValue;
       cell.value = result;
       cell.formatted = formatCellValue(result, cell.style?.numberFormat);
       visited.add(key);
@@ -56,7 +56,7 @@ export class FormulaEngine {
     sheet: SheetData,
     visited = new Set<string>(),
     evaluating = new Set<string>()
-  ): any {
+  ): CellValue | unknown {
     const ctx: EvaluationContext = {
       sheet,
       visited,
@@ -78,6 +78,6 @@ export function evaluateExpressionStandalone(
   sheet: SheetData,
   visited = new Set<string>(),
   evaluating = new Set<string>()
-): any {
+): CellValue | unknown {
   return defaultFormulaEngine.evaluateSingleExpression(expr, sheet, visited, evaluating);
 }

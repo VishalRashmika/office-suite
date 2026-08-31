@@ -3,7 +3,7 @@
   "name": "Office Suite",
   "version": "0.1.0",
   "minAppVersion": "1.4.0",
-  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), and CSV/TSV spreadsheet files directly inside Obsidian with native WYSIWYG editing, formatting, and formulas.",
+  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), and CSV/TSV spreadsheet files directly with native WYSIWYG editing, formatting, and formulas.",
   "author": "Vishal Rashmika",
   "authorUrl": "https://vishalrashmika.com",
   "fundingUrl": "https://buymeacoffee.com/vishalrashmika",

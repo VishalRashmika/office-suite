@@ -162,7 +162,6 @@
   padding: 1.5rem 1rem 3rem 1rem;
   transition: background 0.2s ease;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
 }
 
 .ProseMirror {
@@ -724,7 +723,6 @@
   padding: 0;
   height: 24px;
   box-sizing: border-box;
-  position: relative;
   user-select: none;
 }
 
@@ -742,7 +740,6 @@
   min-width: 45px;
   padding: 0;
   box-sizing: border-box;
-  position: relative;
   user-select: none;
 }
 
@@ -783,12 +780,14 @@
   vertical-align: middle;
 }
 
-.sheet-cell-selected {
-  background: rgba(49, 130, 206, 0.15) !important;
+.sheet-table td.sheet-cell-selected,
+.sheet-grid-container .sheet-cell-selected {
+  background: rgba(49, 130, 206, 0.15);
 }
 
-.sheet-cell-active {
-  outline: 2px solid #1a73e8 !important;
+.sheet-table td.sheet-cell-active,
+.sheet-grid-container .sheet-cell-active {
+  outline: 2px solid #1a73e8;
   outline-offset: -1px;
   z-index: 5;
 }
@@ -992,18 +991,24 @@
 /* --- Universal Caret Color Overrides --- */
 .docx-theme-light .ProseMirror,
 .docx-theme-light input,
+.docx-theme-light textarea,
 .sheet-theme-light .sheet-cell-editor,
 .sheet-theme-light .sheet-formula-input,
-.sheet-theme-light .sheet-address-input {
-  caret-color: #000000 !important;
+.sheet-theme-light .sheet-address-input,
+.workspace-leaf-content .docx-theme-light .ProseMirror,
+.workspace-leaf-content .sheet-theme-light .sheet-cell-editor {
+  caret-color: #000000;
 }
 
 .docx-theme-dark .ProseMirror,
 .docx-theme-dark input,
+.docx-theme-dark textarea,
 .sheet-theme-dark .sheet-cell-editor,
 .sheet-theme-dark .sheet-formula-input,
-.sheet-theme-dark .sheet-address-input {
-  caret-color: #ffffff !important;
+.sheet-theme-dark .sheet-address-input,
+.workspace-leaf-content .docx-theme-dark .ProseMirror,
+.workspace-leaf-content .sheet-theme-dark .sheet-cell-editor {
+  caret-color: #ffffff;
 }
 
 /* --- Scrollbar Styling for Docx and Excel Editors --- */

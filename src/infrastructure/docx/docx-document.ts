@@ -199,7 +199,7 @@ export class DocxDocument implements IDocxParseContext, IDocxSerializeContext {
 
     this.zip.file(zipPath, data);
 
-    const relEl = this.relsXmlDoc.createElement("Relationship");
+    const relEl = this.relsXmlDoc.createElementNS(null, "Relationship");
     relEl.setAttribute("Id", rId);
     relEl.setAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image");
     relEl.setAttribute("Target", `media/${filename}`);
@@ -337,7 +337,7 @@ export class DocxDocument implements IDocxParseContext, IDocxSerializeContext {
             if (!isNaN(num) && num > maxId) maxId = num;
           }
         }
-        const relEl = this.relsXmlDoc.createElement("Relationship");
+        const relEl = this.relsXmlDoc.createElementNS(null, "Relationship");
         relEl.setAttribute("Id", `rId${maxId + 1}`);
         relEl.setAttribute(
           "Type",

@@ -1,14 +1,21 @@
 import esbuild from "esbuild";
 import process from "process";
+import path from "path";
+import { fileURLToPath } from "url";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const prod = process.argv[2] === "production";
 
 const context = await esbuild.context({
   banner: {
-    js: "/* Docx Editor for Obsidian - github.com/you/obsidian-docx-editor */",
+    js: "/* Office Suite for Obsidian - github.com/vishalrashmika/office-suite */",
   },
   entryPoints: ["src/main.ts"],
   bundle: true,
+  alias: {
+    immediate: path.resolve(__dirname, "src/core/shims/immediate.js"),
+    setimmediate: path.resolve(__dirname, "src/core/shims/setimmediate.js"),
+  },
   external: [
     "obsidian",
     "electron",

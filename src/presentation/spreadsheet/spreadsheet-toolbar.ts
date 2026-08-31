@@ -1,18 +1,5 @@
 import { CellStyle } from "../../domain/spreadsheet";
-import { ToolbarBuilder } from "../common/toolbar-builder";
-
-export const FONT_FAMILIES = [
-  "Calibri",
-  "Arial",
-  "Times New Roman",
-  "Georgia",
-  "Courier New",
-  "Verdana",
-  "Segoe UI",
-  "Trebuchet MS",
-];
-
-export const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 36];
+import { ToolbarBuilder, FONT_FAMILIES, FONT_SIZES } from "../common/toolbar-builder";
 
 export interface SpreadsheetToolbarDelegate {
   paperTheme: "light" | "dark";
@@ -94,11 +81,11 @@ export class SpreadsheetToolbar {
       initialColor: "#000000",
       buttonColor: "#007acc",
       onChange: (color) => {
-        textColorPicker.button.style.color = color;
+        textColorPicker.button.setCssStyles({ color });
         delegate.onApplyStyle({ color });
       },
     });
-    textColorPicker.button.style.fontWeight = "bold";
+    textColorPicker.button.setCssStyles({ fontWeight: "bold" });
 
     // 7. Fill Color Picker
     ToolbarBuilder.createColorPicker(container, {

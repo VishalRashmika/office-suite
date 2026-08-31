@@ -3,7 +3,7 @@ import { ifFunc, ifError, andFunc, orFunc, notFunc } from "./logical";
 import { concat, textJoin, left, right, mid, len, trim, upper, lower, proper } from "./text";
 import { today, now } from "./date";
 
-export type FormulaFunction = (args: string[], ctx: FormulaFunctionContext) => any;
+export type FormulaFunction = (args: string[], ctx: FormulaFunctionContext) => unknown;
 
 export class FunctionRegistry {
   private functions = new Map<string, FormulaFunction>();

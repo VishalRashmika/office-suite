@@ -1,6 +1,6 @@
 import { FormulaFunctionContext } from "./math";
 
-export function ifFunc(args: string[], ctx: FormulaFunctionContext): any {
+export function ifFunc(args: string[], ctx: FormulaFunctionContext): unknown {
   const condition = ctx.evaluateExpr(args[0]);
   if (condition && condition !== "0" && condition !== "#ERROR!") {
     return args[1] !== undefined ? ctx.evaluateExpr(args[1]) : true;
@@ -9,7 +9,7 @@ export function ifFunc(args: string[], ctx: FormulaFunctionContext): any {
   }
 }
 
-export function ifError(args: string[], ctx: FormulaFunctionContext): any {
+export function ifError(args: string[], ctx: FormulaFunctionContext): unknown {
   try {
     const res = ctx.evaluateExpr(args[0]);
     if (typeof res === "string" && res.startsWith("#")) {

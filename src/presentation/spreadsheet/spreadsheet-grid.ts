@@ -16,7 +16,7 @@ export interface SpreadsheetGridDelegate {
   onUndo(): void;
   onRedo(): void;
   onCopy(): void;
-  onPaste(): void;
+  onPaste(): void | Promise<void>;
   onClear(): void;
   onToggleStyle(prop: "bold" | "italic" | "underline"): void;
 }
@@ -133,19 +133,22 @@ export class SpreadsheetGrid {
   applyCellStylesToDOM(td: HTMLTableCellElement, cell?: CellData): void {
     if (!cell || !cell.style) return;
     const s = cell.style;
-    if (s.bold) td.style.fontWeight = "bold";
-    if (s.italic) td.style.fontStyle = "italic";
-    if (s.underline) td.style.textDecoration = "underline";
-    if (s.strike) td.style.textDecoration = "line-through";
-    if (s.color) td.style.color = s.color;
-    if (s.background) td.style.backgroundColor = s.background;
-    if (s.align) td.style.textAlign = s.align;
-    if (s.fontSize) td.style.fontSize = `${s.fontSize}pt`;
-    if (s.fontFamily) td.style.fontFamily = s.fontFamily;
-    if (s.borderTop) td.style.borderTop = s.borderTop;
-    if (s.borderBottom) td.style.borderBottom = s.borderBottom;
-    if (s.borderLeft) td.style.borderLeft = s.borderLeft;
-    if (s.borderRight) td.style.borderRight = s.borderRight;
+    const styles: Partial<CSSStyleDeclaration> = {};
+    if (s.bold) styles.fontWeight = "bold";
+    if (s.italic) styles.fontStyle = "italic";
+    if (s.underline && s.strike) styles.textDecoration = "underline line-through";
+    else if (s.underline) styles.textDecoration = "underline";
+    else if (s.strike) styles.textDecoration = "line-through";
+    if (s.color) styles.color = s.color;
+    if (s.background) styles.backgroundColor = s.background;
+    if (s.align) styles.textAlign = s.align;
+    if (s.fontSize) styles.fontSize = `${s.fontSize}pt`;
+    if (s.fontFamily) styles.fontFamily = s.fontFamily;
+    if (s.borderTop) styles.borderTop = s.borderTop;
+    if (s.borderBottom) styles.borderBottom = s.borderBottom;
+    if (s.borderLeft) styles.borderLeft = s.borderLeft;
+    if (s.borderRight) styles.borderRight = s.borderRight;
+    td.setCssStyles(styles);
   }
 
   updateCellDOM(r: number, c: number, sheet: SheetData): void {

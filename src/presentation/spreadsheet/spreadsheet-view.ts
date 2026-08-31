@@ -17,6 +17,7 @@ import { FormulaBar, FormulaBarDelegate } from "./formula-bar";
 import { SpreadsheetTabs, SpreadsheetTabsDelegate } from "./spreadsheet-tabs";
 import { SpreadsheetGrid, SpreadsheetGridDelegate } from "./spreadsheet-grid";
 import { SpreadsheetToolbar, SpreadsheetToolbarDelegate } from "./spreadsheet-toolbar";
+import { TextPromptModal } from "../common/text-prompt-modal";
 
 export const VIEW_TYPE_SHEET = "spreadsheet-editor-view";
 
@@ -94,7 +95,7 @@ export class SpreadsheetView
   }
 
   private onWindowBlur = () => {
-    if (this.dirty) this.saveNow();
+    if (this.dirty) void this.saveNow();
   };
 
   async onUnloadFile(file: TFile): Promise<void> {
@@ -200,11 +201,15 @@ export class SpreadsheetView
     this.renderTabs();
   }
 
-  onRenameSheet(index: number, newName: string): void {
+  onRenameSheet(index: number, currentName: string): void {
     if (!this.workbook || !this.workbook.sheets[index]) return;
-    this.workbook.sheets[index].name = newName;
-    this.renderTabs();
-    this.scheduleSave();
+    new TextPromptModal(this.app, "Rename Sheet", currentName, (newName) => {
+      if (newName && newName.trim() && this.workbook && this.workbook.sheets[index]) {
+        this.workbook.sheets[index].name = newName.trim();
+        this.renderTabs();
+        this.scheduleSave();
+      }
+    }).open();
   }
 
   onAddSheet(): void {
@@ -372,7 +377,7 @@ export class SpreadsheetView
       rows.push(rowVals.join("\t"));
     }
 
-    navigator.clipboard.writeText(rows.join("\n"));
+    void navigator.clipboard.writeText(rows.join("\n"));
   }
 
   async onPaste(): Promise<void> {
@@ -528,7 +533,9 @@ export class SpreadsheetView
     this.dirty = true;
     this.toolbar.updateSaveStatus(this.dirty);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
-    this.saveTimer = window.setTimeout(() => this.saveNow(), 600);
+    this.saveTimer = window.setTimeout(() => {
+      void this.saveNow();
+    }, 600);
   }
 
   private async saveNow(): Promise<void> {
