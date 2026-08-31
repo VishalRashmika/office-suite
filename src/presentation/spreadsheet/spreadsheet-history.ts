@@ -1,4 +1,4 @@
-import { WorkbookData } from "../../domain/spreadsheet";
+import { WorkbookData, SheetData } from "../../domain/spreadsheet";
 
 export interface HistoryEntry {
   sheetsJson: string;
@@ -26,7 +26,7 @@ export class SpreadsheetHistory {
     const current = this.undoStack.pop()!;
     this.redoStack.push(current);
     const prev = this.undoStack[this.undoStack.length - 1];
-    workbook.sheets = JSON.parse(prev.sheetsJson);
+    workbook.sheets = JSON.parse(prev.sheetsJson) as SheetData[];
     workbook.activeSheetIndex = prev.activeSheetIndex;
     return true;
   }
@@ -35,7 +35,7 @@ export class SpreadsheetHistory {
     if (!this.redoStack.length) return false;
     const next = this.redoStack.pop()!;
     this.undoStack.push(next);
-    workbook.sheets = JSON.parse(next.sheetsJson);
+    workbook.sheets = JSON.parse(next.sheetsJson) as SheetData[];
     workbook.activeSheetIndex = next.activeSheetIndex;
     return true;
   }

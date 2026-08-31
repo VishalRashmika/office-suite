@@ -285,8 +285,14 @@ async function parseParagraph(p: Element, context: IDocxParseContext): Promise<P
     null;
   const jc =
     childNS(pPr ?? p, NS.w, "jc")?.getAttributeNS(NS.w, "val") ??
-    childNS(pPr ?? p, NS.w, "jc")?.getAttribute("w:val");
-  const align = jc === "both" ? "justify" : (jc as any) ?? null;
+    childNS(pPr ?? p, NS.w, "jc")?.getAttribute("w:val") ??
+    null;
+  const align =
+    jc === "both"
+      ? "justify"
+      : jc === "left" || jc === "center" || jc === "right" || jc === "justify"
+      ? jc
+      : null;
   const { numId, ilvl } = paragraphListInfo(pPr);
   const lineSpacing = parseLineSpacing(pPr);
   const indent = parseIndent(pPr);
@@ -514,9 +520,9 @@ function groupLists(blocks: PMNode[], numFmtOf: (numId: string) => "bullet" | "o
   while (i < blocks.length) {
     const b = blocks[i];
     if (b.type === schema.nodes.paragraph && b.attrs.numId) {
-      const numId = b.attrs.numId;
+      const numId = String(b.attrs.numId);
       const items: PMNode[] = [];
-      while (i < blocks.length && blocks[i].type === schema.nodes.paragraph && blocks[i].attrs.numId === numId) {
+      while (i < blocks.length && blocks[i].type === schema.nodes.paragraph && String(blocks[i].attrs.numId) === numId) {
         items.push(schema.nodes.list_item.create(null, blocks[i]));
         i++;
       }

@@ -1,3 +1,18 @@
+export const FONT_FAMILIES = [
+  "Calibri",
+  "Arial",
+  "Times New Roman",
+  "Georgia",
+  "Courier New",
+  "Verdana",
+  "Segoe UI",
+  "Trebuchet MS",
+  "Tahoma",
+  "Comic Sans MS",
+];
+
+export const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
+
 export interface ButtonOptions {
   label: string;
   title: string;
@@ -76,8 +91,12 @@ export class ToolbarBuilder {
       cls: `docx-toolbar-btn ${opts.className || ""}`.trim(),
     });
     btn.setAttribute("title", opts.title);
-    if (opts.buttonColor) btn.style.color = opts.buttonColor;
-    if (opts.buttonBackground) btn.style.background = opts.buttonBackground;
+    if (opts.buttonColor || opts.buttonBackground) {
+      btn.setCssStyles({
+        color: opts.buttonColor,
+        background: opts.buttonBackground,
+      });
+    }
 
     const input = wrap.createEl("input", {
       type: "color",

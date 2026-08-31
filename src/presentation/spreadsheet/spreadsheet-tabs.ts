@@ -2,7 +2,7 @@ import { WorkbookData } from "../../domain/spreadsheet";
 
 export interface SpreadsheetTabsDelegate {
   onSelectSheet(index: number): void;
-  onRenameSheet(index: number, newName: string): void;
+  onRenameSheet(index: number, currentName: string): void;
   onAddSheet(): void;
 }
 
@@ -26,10 +26,7 @@ export class SpreadsheetTabs {
 
       tab.ondblclick = (e) => {
         e.stopPropagation();
-        const newName = prompt("Rename sheet:", sheet.name);
-        if (newName && newName.trim()) {
-          delegate.onRenameSheet(i, newName.trim());
-        }
+        delegate.onRenameSheet(i, sheet.name);
       };
     }
 

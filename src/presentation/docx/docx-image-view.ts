@@ -1,6 +1,8 @@
+import { App } from "obsidian";
 import { Node as PMNode } from "prosemirror-model";
 import { EditorView, NodeView } from "prosemirror-view";
 import { DocxDocument } from "../../infrastructure/docx/docx-document";
+import { TextPromptModal } from "../common/text-prompt-modal";
 
 export class DocxImageView implements NodeView {
   dom: HTMLElement;
@@ -15,30 +17,35 @@ export class DocxImageView implements NodeView {
   constructor(
     private node: PMNode,
     private view: EditorView,
-    private getPos: () => number | undefined,
-    private docxDoc: DocxDocument | null
+    private getPos: (() => number | undefined) | boolean,
+    private docxDoc: DocxDocument | null,
+    private app?: App
   ) {
-    this.dom = document.createElement("span");
-    this.dom.className = "docx-image-wrapper-outer";
-    this.dom.setAttribute("contenteditable", "false");
+    this.dom = createSpan({
+      cls: "docx-image-wrapper-outer",
+      attr: { contenteditable: "false" },
+    });
 
-    this.wrapper = document.createElement("span");
-    this.wrapper.className = `docx-image-container docx-image-align-${this.node.attrs.align || "center"}`;
-    this.dom.appendChild(this.wrapper);
+    const align = (this.node.attrs.align as string) || "center";
+    this.wrapper = this.dom.createSpan({
+      cls: `docx-image-container docx-image-align-${align}`,
+    });
 
-    this.img = document.createElement("img");
-    this.img.className = "docx-image-element";
-    this.img.src = this.node.attrs.src || "";
-    this.img.alt = this.node.attrs.alt || "";
+    const src = (this.node.attrs.src as string) || "";
+    const alt = (this.node.attrs.alt as string) || "";
+    this.img = this.wrapper.createEl("img", {
+      cls: "docx-image-element",
+      attr: { src, alt },
+    });
 
-    if (this.node.attrs.width) {
-      this.img.style.width = `${this.node.attrs.width}px`;
+    const width = this.node.attrs.width as number | null;
+    const height = this.node.attrs.height as number | null;
+    if (width) {
+      this.img.setCssStyles({ width: `${width}px` });
     }
-    if (this.node.attrs.height) {
-      this.img.style.height = `${this.node.attrs.height}px`;
+    if (height) {
+      this.img.setCssStyles({ height: `${height}px` });
     }
-
-    this.wrapper.appendChild(this.img);
 
     // Natural dimension capture if not yet stored
     this.img.onload = () => {
@@ -48,14 +55,15 @@ export class DocxImageView implements NodeView {
         if (nw && nh) {
           const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
           if (pos !== undefined) {
+            const currentWidth = (this.node.attrs.width as number) || Math.min(nw, 680);
             const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
               ...this.node.attrs,
               naturalWidth: nw,
               naturalHeight: nh,
-              width: this.node.attrs.width || Math.min(nw, 680),
+              width: currentWidth,
               height:
-                this.node.attrs.height ||
-                Math.round(((this.node.attrs.width || Math.min(nw, 680)) / nw) * nh),
+                (this.node.attrs.height as number) ||
+                Math.round((currentWidth / nw) * nh),
             });
             this.view.dispatch(tr);
           }
@@ -70,11 +78,11 @@ export class DocxImageView implements NodeView {
   private createHandles(): void {
     const corners = ["nw", "ne", "se", "sw"] as const;
     for (const corner of corners) {
-      const handle = document.createElement("span");
-      handle.className = `docx-image-resize-handle handle-${corner}`;
-      handle.setAttribute("data-corner", corner);
+      const handle = this.wrapper.createSpan({
+        cls: `docx-image-resize-handle handle-${corner}`,
+        attr: { "data-corner": corner },
+      });
       handle.addEventListener("mousedown", (e) => this.onHandleMouseDown(e, corner));
-      this.wrapper.appendChild(handle);
       this.handles.push(handle);
     }
   }
@@ -95,14 +103,14 @@ export class DocxImageView implements NodeView {
   select(): void {
     if (this.isSelected) return;
     this.isSelected = true;
-    this.wrapper.classList.add("is-selected");
+    this.wrapper.addClass("is-selected");
     this.showToolbar();
   }
 
   deselect(): void {
     if (!this.isSelected) return;
     this.isSelected = false;
-    this.wrapper.classList.remove("is-selected");
+    this.wrapper.removeClass("is-selected");
     this.hideToolbar();
   }
 
@@ -117,12 +125,10 @@ export class DocxImageView implements NodeView {
   private showToolbar(): void {
     if (this.toolbar) return;
 
-    this.toolbar = document.createElement("div");
-    this.toolbar.className = "docx-image-toolbar";
+    this.toolbar = this.wrapper.createDiv({ cls: "docx-image-toolbar" });
 
     // Size presets
-    const presetsGroup = document.createElement("div");
-    presetsGroup.className = "docx-img-toolbar-group";
+    const presetsGroup = this.toolbar.createDiv({ cls: "docx-img-toolbar-group" });
 
     const presets = [
       { label: "25%", val: 0.25 },
@@ -133,10 +139,11 @@ export class DocxImageView implements NodeView {
     ] as const;
 
     for (const p of presets) {
-      const btn = document.createElement("button");
-      btn.className = "docx-img-btn";
-      btn.textContent = p.label;
-      btn.title = `Scale to ${p.label}`;
+      const btn = presetsGroup.createEl("button", {
+        cls: "docx-img-btn",
+        text: p.label,
+        attr: { title: `Scale to ${p.label}` },
+      });
       btn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -146,18 +153,13 @@ export class DocxImageView implements NodeView {
           this.applyScalePreset(p.val);
         }
       };
-      presetsGroup.appendChild(btn);
     }
-    this.toolbar.appendChild(presetsGroup);
 
     // Separator
-    const sep1 = document.createElement("span");
-    sep1.className = "docx-img-toolbar-sep";
-    this.toolbar.appendChild(sep1);
+    this.toolbar.createSpan({ cls: "docx-img-toolbar-sep" });
 
     // Alignment buttons
-    const alignGroup = document.createElement("div");
-    alignGroup.className = "docx-img-toolbar-group";
+    const alignGroup = this.toolbar.createDiv({ cls: "docx-img-toolbar-group" });
 
     const aligns = [
       { label: "Left", align: "left", title: "Align Left" },
@@ -167,63 +169,57 @@ export class DocxImageView implements NodeView {
     ] as const;
 
     for (const a of aligns) {
-      const btn = document.createElement("button");
-      btn.className = `docx-img-btn ${this.node.attrs.align === a.align ? "is-active" : ""}`;
-      btn.textContent = a.label;
-      btn.title = a.title;
+      const isActive = this.node.attrs.align === a.align;
+      const btn = alignGroup.createEl("button", {
+        cls: `docx-img-btn ${isActive ? "is-active" : ""}`.trim(),
+        text: a.label,
+        attr: { title: a.title },
+      });
       btn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         this.setAlignment(a.align);
       };
-      alignGroup.appendChild(btn);
     }
-    this.toolbar.appendChild(alignGroup);
 
     // Separator
-    const sep2 = document.createElement("span");
-    sep2.className = "docx-img-toolbar-sep";
-    this.toolbar.appendChild(sep2);
+    this.toolbar.createSpan({ cls: "docx-img-toolbar-sep" });
 
     // Action buttons (Alt text, Replace, Delete)
-    const actionsGroup = document.createElement("div");
-    actionsGroup.className = "docx-img-toolbar-group";
+    const actionsGroup = this.toolbar.createDiv({ cls: "docx-img-toolbar-group" });
 
-    const altBtn = document.createElement("button");
-    altBtn.className = "docx-img-btn";
-    altBtn.textContent = "Alt Text";
-    altBtn.title = "Edit Alt Text / Caption";
+    const altBtn = actionsGroup.createEl("button", {
+      cls: "docx-img-btn",
+      text: "Alt Text",
+      attr: { title: "Edit Alt Text / Caption" },
+    });
     altBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.promptAltText();
     };
-    actionsGroup.appendChild(altBtn);
 
-    const replaceBtn = document.createElement("button");
-    replaceBtn.className = "docx-img-btn";
-    replaceBtn.textContent = "Replace";
-    replaceBtn.title = "Replace with another image";
+    const replaceBtn = actionsGroup.createEl("button", {
+      cls: "docx-img-btn",
+      text: "Replace",
+      attr: { title: "Replace with another image" },
+    });
     replaceBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.replaceImage();
     };
-    actionsGroup.appendChild(replaceBtn);
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "docx-img-btn docx-img-btn-danger";
-    delBtn.textContent = "✕";
-    delBtn.title = "Delete image";
+    const delBtn = actionsGroup.createEl("button", {
+      cls: "docx-img-btn docx-img-btn-danger",
+      text: "✕",
+      attr: { title: "Delete image" },
+    });
     delBtn.onclick = (e) => {
       e.preventDefault();
       e.stopPropagation();
       this.deleteImage();
     };
-    actionsGroup.appendChild(delBtn);
-
-    this.toolbar.appendChild(actionsGroup);
-    this.wrapper.appendChild(this.toolbar);
   }
 
   private hideToolbar(): void {
@@ -239,11 +235,10 @@ export class DocxImageView implements NodeView {
     this.isResizing = true;
 
     const startX = e.clientX;
-    const startY = e.clientY;
     const startWidth = this.img.offsetWidth;
     const startHeight = this.img.offsetHeight;
-    const naturalWidth = this.node.attrs.naturalWidth || this.img.naturalWidth || startWidth;
-    const naturalHeight = this.node.attrs.naturalHeight || this.img.naturalHeight || startHeight;
+    const naturalWidth = (this.node.attrs.naturalWidth as number) || this.img.naturalWidth || startWidth;
+    const naturalHeight = (this.node.attrs.naturalHeight as number) || this.img.naturalHeight || startHeight;
     const aspectRatio = naturalWidth / (naturalHeight || 1);
 
     this.showTooltip(`${startWidth} × ${startHeight}px`);
@@ -251,7 +246,6 @@ export class DocxImageView implements NodeView {
     const onMouseMove = (moveEvent: MouseEvent) => {
       moveEvent.preventDefault();
       const deltaX = moveEvent.clientX - startX;
-      const deltaY = moveEvent.clientY - startY;
 
       let newWidth = startWidth;
 
@@ -269,8 +263,10 @@ export class DocxImageView implements NodeView {
       newWidth = Math.min(newWidth, 800);
       const newHeight = Math.round(newWidth / aspectRatio);
 
-      this.img.style.width = `${newWidth}px`;
-      this.img.style.height = `${newHeight}px`;
+      this.img.setCssStyles({
+        width: `${newWidth}px`,
+        height: `${newHeight}px`,
+      });
 
       const pct = Math.round((newWidth / naturalWidth) * 100);
       this.showTooltip(`${newWidth} × ${newHeight}px (${pct}%)`);
@@ -302,11 +298,9 @@ export class DocxImageView implements NodeView {
 
   private showTooltip(text: string): void {
     if (!this.tooltip) {
-      this.tooltip = document.createElement("div");
-      this.tooltip.className = "docx-img-dimension-badge";
-      this.wrapper.appendChild(this.tooltip);
+      this.tooltip = this.wrapper.createDiv({ cls: "docx-img-dimension-badge" });
     }
-    this.tooltip.textContent = text;
+    this.tooltip.setText(text);
   }
 
   private hideTooltip(): void {
@@ -320,8 +314,8 @@ export class DocxImageView implements NodeView {
     const parent = this.dom.closest(".ProseMirror") || this.dom.parentElement;
     const containerWidth = parent ? (parent as HTMLElement).clientWidth - 64 : 680;
     const targetWidth = Math.round(Math.min(containerWidth, Math.max(60, containerWidth * factor)));
-    const nw = this.node.attrs.naturalWidth || this.img.naturalWidth || targetWidth;
-    const nh = this.node.attrs.naturalHeight || this.img.naturalHeight || targetWidth;
+    const nw = (this.node.attrs.naturalWidth as number) || this.img.naturalWidth || targetWidth;
+    const nh = (this.node.attrs.naturalHeight as number) || this.img.naturalHeight || targetWidth;
     const targetHeight = Math.round((targetWidth / nw) * nh);
 
     const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
@@ -336,8 +330,8 @@ export class DocxImageView implements NodeView {
   }
 
   private resetOriginalSize(): void {
-    const nw = this.node.attrs.naturalWidth || this.img.naturalWidth;
-    const nh = this.node.attrs.naturalHeight || this.img.naturalHeight;
+    const nw = (this.node.attrs.naturalWidth as number) || this.img.naturalWidth;
+    const nh = (this.node.attrs.naturalHeight as number) || this.img.naturalHeight;
     if (!nw || !nh) return;
 
     const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
@@ -363,58 +357,71 @@ export class DocxImageView implements NodeView {
   }
 
   private promptAltText(): void {
-    const currentAlt = this.node.attrs.alt || "";
-    const newAlt = window.prompt("Image description / Alt text:", currentAlt);
-    if (newAlt === null) return;
-
-    const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
-    if (pos !== undefined) {
-      const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
-        ...this.node.attrs,
-        alt: newAlt,
-      });
-      this.view.dispatch(tr);
+    const currentAlt = (this.node.attrs.alt as string) || "";
+    if (this.app) {
+      new TextPromptModal(this.app, "Image Description / Alt Text", currentAlt, (newAlt) => {
+        const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
+        if (pos !== undefined) {
+          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+            ...this.node.attrs,
+            alt: newAlt,
+          });
+          this.view.dispatch(tr);
+        }
+      }).open();
     }
   }
 
   private replaceImage(): void {
     if (!this.docxDoc) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.style.display = "none";
-    input.onchange = async () => {
+    const input = createEl("input", {
+      type: "file",
+      attr: { accept: "image/*" },
+      cls: "office-hidden-file-input",
+    });
+    input.setCssStyles({ display: "none" });
+    input.onchange = () => {
       const file = input.files?.[0];
-      if (!file) return;
+      if (!file) {
+        input.remove();
+        return;
+      }
 
-      const buffer = await file.arrayBuffer();
-      const ext = file.name.split(".").pop() || "png";
-      const { rId, dataUrl } = await this.docxDoc!.addMediaFile(buffer, ext);
+      void (async () => {
+        try {
+          const buffer = await file.arrayBuffer();
+          const ext = file.name.split(".").pop() || "png";
+          const { rId, dataUrl } = await this.docxDoc!.addMediaFile(buffer, ext);
 
-      const tempImg = new Image();
-      tempImg.onload = () => {
-        const nw = tempImg.naturalWidth;
-        const nh = tempImg.naturalHeight;
-        const targetWidth = Math.min(nw, 680);
-        const targetHeight = Math.round((targetWidth / nw) * nh);
+          const tempImg = new Image();
+          tempImg.onload = () => {
+            const nw = tempImg.naturalWidth;
+            const nh = tempImg.naturalHeight;
+            const targetWidth = Math.min(nw, 680);
+            const targetHeight = Math.round((targetWidth / nw) * nh);
 
-        const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
-        if (pos !== undefined) {
-          const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
-            ...this.node.attrs,
-            rId,
-            src: dataUrl,
-            drawingXml: "", // will be regenerated cleanly
-            width: targetWidth,
-            height: targetHeight,
-            naturalWidth: nw,
-            naturalHeight: nh,
-          });
-          this.view.dispatch(tr);
+            const pos = typeof this.getPos === "function" ? this.getPos() : undefined;
+            if (pos !== undefined) {
+              const tr = this.view.state.tr.setNodeMarkup(pos, undefined, {
+                ...this.node.attrs,
+                rId,
+                src: dataUrl,
+                drawingXml: "", // will be regenerated cleanly
+                width: targetWidth,
+                height: targetHeight,
+                naturalWidth: nw,
+                naturalHeight: nh,
+              });
+              this.view.dispatch(tr);
+            }
+          };
+          tempImg.src = dataUrl;
+        } finally {
+          input.remove();
         }
-      };
-      tempImg.src = dataUrl;
+      })();
     };
+    document.body.appendChild(input);
     input.click();
   }
 
@@ -430,17 +437,22 @@ export class DocxImageView implements NodeView {
     if (node.type !== this.node.type) return false;
     this.node = node;
 
-    this.img.src = this.node.attrs.src || "";
-    this.img.alt = this.node.attrs.alt || "";
+    const src = (this.node.attrs.src as string) || "";
+    const alt = (this.node.attrs.alt as string) || "";
+    this.img.src = src;
+    this.img.alt = alt;
 
-    if (this.node.attrs.width) {
-      this.img.style.width = `${this.node.attrs.width}px`;
+    const width = this.node.attrs.width as number | null;
+    const height = this.node.attrs.height as number | null;
+    if (width) {
+      this.img.setCssStyles({ width: `${width}px` });
     }
-    if (this.node.attrs.height) {
-      this.img.style.height = `${this.node.attrs.height}px`;
+    if (height) {
+      this.img.setCssStyles({ height: `${height}px` });
     }
 
-    this.wrapper.className = `docx-image-container docx-image-align-${this.node.attrs.align || "center"}${
+    const align = (this.node.attrs.align as string) || "center";
+    this.wrapper.className = `docx-image-container docx-image-align-${align}${
       this.isSelected ? " is-selected" : ""
     }`;
 

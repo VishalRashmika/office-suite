@@ -1,3 +1,5 @@
+export type CellValue = string | number | boolean | null | undefined;
+
 export interface CellStyle {
   bold?: boolean;
   italic?: boolean;
@@ -18,13 +20,13 @@ export interface CellStyle {
 }
 
 export interface CellData {
-  value?: string | number | boolean | null;
+  value?: CellValue;
   formula?: string; // e.g. "=SUM(A1:B5)"
   formatted?: string;
   style?: CellStyle;
 }
 
-export function formatCellValue(val: any, numFormat?: string): string {
+export function formatCellValue(val: CellValue | unknown, numFormat?: string): string {
   if (val === undefined || val === null) return "";
   if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
 

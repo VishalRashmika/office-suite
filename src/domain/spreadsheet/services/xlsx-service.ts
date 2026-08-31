@@ -1,7 +1,8 @@
-import { WorkbookData, SheetData } from "../models/workbook";
-import { cellKey, coordToA1 } from "../models/coordinates";
+import { WorkbookData } from "../models/workbook";
+import { coordToA1 } from "../models/coordinates";
 import { evaluateSheetFormulas } from "../formula/formula-engine";
 import { escapeXml } from "../../../core/utils/xml";
+import { CellValue } from "../models/cell";
 
 export interface SerializedXlsxXmls {
   worksheets: { path: string; xml: string }[];
@@ -32,7 +33,7 @@ export class XlsxService {
       evaluateSheetFormulas(sheet);
 
       // Group cells by row
-      const rowMap = new Map<number, { col: number; val: any; formula?: string }[]>();
+      const rowMap = new Map<number, { col: number; val: CellValue; formula?: string }[]>();
       for (const key in sheet.cells) {
         const [r, c] = key.split(",").map((n) => parseInt(n, 10));
         const cell = sheet.cells[key];

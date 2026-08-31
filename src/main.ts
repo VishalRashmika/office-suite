@@ -2,7 +2,7 @@ import { Plugin, WorkspaceLeaf } from "obsidian";
 import { DocxView, VIEW_TYPE_DOCX } from "./presentation/docx/docx-view";
 import { SpreadsheetView, VIEW_TYPE_SHEET } from "./presentation/spreadsheet/spreadsheet-view";
 
-export default class DocxEditorPlugin extends Plugin {
+export default class OfficeSuitePlugin extends Plugin {
   async onload() {
     // 1. Docx Editor View
     this.registerView(VIEW_TYPE_DOCX, (leaf: WorkspaceLeaf) => new DocxView(leaf));
@@ -15,16 +15,19 @@ export default class DocxEditorPlugin extends Plugin {
 
     // Flush any pending debounced save when Obsidian is closing/reloading.
     this.registerEvent(
-      this.app.workspace.on("quit" as any, async () => {
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DOCX)) {
-          const view = leaf.view as DocxView;
-          await view.requestSave?.();
+      (this.app.workspace as { on(name: string, cb: () => Promise<void>): import("obsidian").EventRef }).on(
+        "quit",
+        async () => {
+          for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DOCX)) {
+            const view = leaf.view as DocxView;
+            await view.requestSave?.();
+          }
+          for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SHEET)) {
+            const view = leaf.view as SpreadsheetView;
+            await view.requestSave?.();
+          }
         }
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SHEET)) {
-          const view = leaf.view as SpreadsheetView;
-          await view.requestSave?.();
-        }
-      })
+      )
     );
   }
 

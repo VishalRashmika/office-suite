@@ -13,8 +13,10 @@ export class DocxTableMenu {
     const modal = document.body.createDiv({ cls: "docx-table-menu-modal" });
     this.activeModal = modal;
     const rect = anchorBtn.getBoundingClientRect();
-    modal.style.top = `${rect.bottom + 4}px`;
-    modal.style.left = `${rect.left}px`;
+    modal.setCssStyles({
+      top: `${rect.bottom + 4}px`,
+      left: `${rect.left}px`,
+    });
 
     const addItem = (label: string, action: () => void, isDanger = false) => {
       const item = modal.createEl("button", {
@@ -50,7 +52,7 @@ export class DocxTableMenu {
         document.removeEventListener("click", onDocClick);
       }
     };
-    setTimeout(() => document.addEventListener("click", onDocClick), 10);
+    window.setTimeout(() => document.addEventListener("click", onDocClick), 10);
   }
 
   close(): void {

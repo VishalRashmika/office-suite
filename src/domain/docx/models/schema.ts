@@ -163,8 +163,8 @@ export const docxSchema = new Schema({
         return [
           "td",
           {
-            colspan: node.attrs.colspan,
-            rowspan: node.attrs.rowspan,
+            colspan: (node.attrs.colspan as number) || 1,
+            rowspan: (node.attrs.rowspan as number) || 1,
             style: styles.join(";"),
           },
           0,
@@ -195,7 +195,8 @@ export const docxSchema = new Schema({
         {
           tag: "img[data-docx-drawing]",
           getAttrs(dom) {
-            const el = dom as HTMLElement;
+            if (typeof dom === "string") return false;
+            const el = dom;
             return {
               src: el.getAttribute("src") || "",
               width: el.getAttribute("width") ? parseInt(el.getAttribute("width")!, 10) : null,
@@ -211,11 +212,11 @@ export const docxSchema = new Schema({
           "img",
           {
             "data-docx-drawing": "1",
-            src: node.attrs.src,
-            width: node.attrs.width || undefined,
-            height: node.attrs.height || undefined,
-            alt: node.attrs.alt || undefined,
-            "data-align": node.attrs.align || "center",
+            src: (node.attrs.src as string) || "",
+            width: (node.attrs.width as number) || undefined,
+            height: (node.attrs.height as number) || undefined,
+            alt: (node.attrs.alt as string) || undefined,
+            "data-align": (node.attrs.align as string) || "center",
             class: `docx-image-node docx-image-align-${node.attrs.align || "center"}`,
           },
         ];

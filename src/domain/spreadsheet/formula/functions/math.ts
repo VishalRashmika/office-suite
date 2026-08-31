@@ -1,6 +1,6 @@
 export interface FormulaFunctionContext {
-  getRangeValues(arg: string): any[];
-  evaluateExpr(expr: string): any;
+  getRangeValues(arg: string): unknown[];
+  evaluateExpr(expr: string): unknown;
 }
 
 export function sum(args: string[], ctx: FormulaFunctionContext): number {

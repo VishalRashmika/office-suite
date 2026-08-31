@@ -1,28 +1,15 @@
 import { EditorView } from "prosemirror-view";
 import { undo, redo } from "prosemirror-history";
 import { toggleMark, setBlockType } from "prosemirror-commands";
-import { wrapInList, liftListItem } from "prosemirror-schema-list";
+import { liftListItem } from "prosemirror-schema-list";
 import { docxSchema as schema } from "../../domain/docx";
-import { ToolbarBuilder } from "../common/toolbar-builder";
+import { ToolbarBuilder, FONT_FAMILIES, FONT_SIZES } from "../common/toolbar-builder";
 import { DocxCommands } from "./docx-commands";
 import { DocxTableMenu } from "./docx-table-menu";
-
-export const FONT_FAMILIES = [
-  "Calibri",
-  "Arial",
-  "Times New Roman",
-  "Georgia",
-  "Courier New",
-  "Verdana",
-  "Segoe UI",
-  "Trebuchet MS",
-  "Tahoma",
-  "Comic Sans MS",
-];
-
-export const FONT_SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
+import { DocxDocument } from "../../infrastructure/docx/docx-document";
 
 export interface DocxToolbarDelegate {
+  docxDoc: DocxDocument | null;
   paperTheme: "light" | "dark";
   setPaperTheme(theme: "light" | "dark"): void;
 }
@@ -118,12 +105,12 @@ export class DocxToolbar {
       initialColor: "#000000",
       buttonColor: "#007acc",
       onChange: (color) => {
-        textColorPicker.button.style.color = color;
+        textColorPicker.button.setCssStyles({ color });
         DocxCommands.applyMark(view, schema.marks.color, { color });
         view.focus();
       },
     });
-    textColorPicker.button.style.fontWeight = "bold";
+    textColorPicker.button.setCssStyles({ fontWeight: "bold" });
 
     // 7. Highlight Color Picker
     const hlColorPicker = ToolbarBuilder.createColorPicker(container, {
@@ -132,7 +119,7 @@ export class DocxToolbar {
       initialColor: "#ffff00",
       buttonBackground: "#fffb8f",
       onChange: (color) => {
-        hlColorPicker.button.style.background = color;
+        hlColorPicker.button.setCssStyles({ background: color });
         DocxCommands.applyMark(view, schema.marks.highlight, { color });
         view.focus();
       },
@@ -196,7 +183,7 @@ export class DocxToolbar {
 
     // 14. Media & Breaks
     addBtn("Image", "Insert Image from file", () => {
-      DocxCommands.promptInsertImage(view, (delegate as any).docxDoc);
+      DocxCommands.promptInsertImage(view, delegate.docxDoc);
     });
     addBtn("Page Break", "Insert Page Break (Ctrl+Enter)", () => {
       DocxCommands.insertPageBreak(view.state, view.dispatch);

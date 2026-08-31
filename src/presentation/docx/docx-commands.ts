@@ -114,7 +114,7 @@ export class DocxCommands {
     view.dispatch(tr);
   }
 
-  static applyMark(view: EditorView, markType: MarkType, attrs?: Record<string, any>): void {
+  static applyMark(view: EditorView, markType: MarkType, attrs?: Record<string, unknown>): void {
     const { state, dispatch } = view;
     const { from, to, empty } = state.selection;
     const mark = markType.create(attrs);
@@ -356,16 +356,20 @@ export class DocxCommands {
 
   static promptInsertImage(view: EditorView, docxDoc: DocxDocument | null): void {
     if (!docxDoc) return;
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.style.display = "none";
+    const input = createEl("input", {
+      type: "file",
+      attr: { accept: "image/*" },
+      cls: "office-hidden-file-input",
+    });
+    input.setCssStyles({ display: "none" });
     input.onchange = () => {
       const file = input.files?.[0];
       if (file) {
-        DocxCommands.insertImageFile(view, docxDoc, file);
+        void DocxCommands.insertImageFile(view, docxDoc, file);
       }
+      input.remove();
     };
+    document.body.appendChild(input);
     input.click();
   }
 }
