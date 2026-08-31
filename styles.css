@@ -1,0 +1,1059 @@
+.docx-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+.docx-editor-status {
+  padding: 2rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* Toolbar */
+.docx-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-wrap: wrap;
+  user-select: none;
+  z-index: 10;
+}
+
+.docx-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.docx-toolbar-btn {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-normal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.docx-toolbar-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.docx-toolbar-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.docx-toolbar-btn.bold { font-weight: 700; }
+.docx-toolbar-btn.italic { font-style: italic; }
+.docx-toolbar-btn.underline { text-decoration: underline; }
+.docx-toolbar-btn.strike { text-decoration: line-through; }
+
+.docx-toolbar-select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  color: var(--text-normal);
+  height: 26px;
+  cursor: pointer;
+  outline: none;
+}
+
+.docx-toolbar-select:focus,
+.docx-toolbar-select:hover {
+  border-color: var(--interactive-accent);
+}
+
+.docx-toolbar-color-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.docx-toolbar-color-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.docx-toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--background-modifier-border);
+  margin: 0 4px;
+}
+
+.docx-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docx-view-mode-toggle {
+  display: inline-flex;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.docx-view-mode-btn {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.docx-view-mode-btn:hover {
+  color: var(--text-normal);
+}
+
+.docx-view-mode-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.docx-save-indicator {
+  font-size: 11px;
+  color: var(--text-faint);
+  min-width: 45px;
+  text-align: right;
+}
+
+/* Editor Container */
+.docx-editor-host {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  justify-content: center;
+  background: var(--background-primary);
+  padding: 1.5rem 1rem 3rem 1rem;
+  transition: background 0.2s ease;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.ProseMirror {
+  background: transparent;
+  width: 100%;
+  max-width: 860px;
+  min-height: calc(100vh - 120px);
+  padding: 1.5rem 2rem;
+  box-shadow: none;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  line-height: 1.6;
+  color: var(--text-normal);
+  box-sizing: border-box;
+}
+
+/* --- THEME MODES (Editing Preview Colors) --- */
+
+/* 1. Light Theme */
+.docx-theme-light.docx-editor-root,
+.docx-theme-light .docx-editor-host {
+  background: #ffffff;
+}
+.docx-theme-light .ProseMirror {
+  background: #ffffff;
+  color: #1a1a1a;
+  caret-color: #000000;
+  box-shadow: none;
+  border: none;
+}
+.docx-theme-light .ProseMirror h1,
+.docx-theme-light .ProseMirror h2,
+.docx-theme-light .ProseMirror h3,
+.docx-theme-light .ProseMirror h4,
+.docx-theme-light .ProseMirror h5,
+.docx-theme-light .ProseMirror h6 {
+  color: #111827;
+}
+.docx-theme-light .ProseMirror blockquote {
+  background: #f3f4f6;
+  color: #4b5563;
+  border-left-color: #2563eb;
+}
+.docx-theme-light .ProseMirror code {
+  background: #f3f4f6;
+  color: #111827;
+}
+.docx-theme-light .ProseMirror hr {
+  border-top-color: #e5e7eb;
+}
+.docx-theme-light .ProseMirror table {
+  border-color: #d1d5db;
+}
+.docx-theme-light .ProseMirror td,
+.docx-theme-light .ProseMirror th {
+  border-color: #d1d5db;
+  color: #111827;
+}
+.docx-theme-light .docx-page-break::before {
+  border-top-color: #d1d5db;
+}
+.docx-theme-light .docx-page-break-label {
+  background: #ffffff;
+  color: #6b7280;
+  border-color: #d1d5db;
+}
+
+/* 2. Dark Theme */
+.docx-theme-dark.docx-editor-root,
+.docx-theme-dark .docx-editor-host {
+  background: #1e1e1e;
+}
+.docx-theme-dark .ProseMirror {
+  background: #1e1e1e;
+  color: #e5e7eb;
+  caret-color: #ffffff;
+  box-shadow: none;
+  border: none;
+}
+.docx-theme-dark .ProseMirror h1,
+.docx-theme-dark .ProseMirror h2,
+.docx-theme-dark .ProseMirror h3,
+.docx-theme-dark .ProseMirror h4,
+.docx-theme-dark .ProseMirror h5,
+.docx-theme-dark .ProseMirror h6 {
+  color: #f3f4f6;
+}
+.docx-theme-dark .ProseMirror blockquote {
+  background: #262626;
+  color: #9ca3af;
+  border-left-color: #3b82f6;
+}
+.docx-theme-dark .ProseMirror code {
+  background: #262626;
+  color: #f3f4f6;
+}
+.docx-theme-dark .ProseMirror hr {
+  border-top-color: #374151;
+}
+.docx-theme-dark .ProseMirror table {
+  border-color: #374151;
+}
+.docx-theme-dark .ProseMirror td,
+.docx-theme-dark .ProseMirror th {
+  border-color: #374151;
+  color: #e5e7eb;
+}
+.docx-theme-dark .docx-page-break::before {
+  border-top-color: #4b5563;
+}
+.docx-theme-dark .docx-page-break-label {
+  background: #1e1e1e;
+  color: #9ca3af;
+  border-color: #4b5563;
+}
+
+/* ProseMirror Elements */
+.ProseMirror p {
+  margin: 0.4em 0;
+}
+
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6 {
+  margin-top: 1.2em;
+  margin-bottom: 0.4em;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.ProseMirror h1 { font-size: 1.9em; }
+.ProseMirror h2 { font-size: 1.5em; }
+.ProseMirror h3 { font-size: 1.25em; }
+.ProseMirror h4 { font-size: 1.1em; }
+
+.ProseMirror blockquote {
+  border-left: 3px solid var(--interactive-accent);
+  padding: 0.4em 1em;
+  margin: 0.8em 0;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  border-radius: 0 4px 4px 0;
+}
+
+.ProseMirror code {
+  font-family: var(--font-monospace);
+  background: var(--background-secondary);
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+  margin: 1.5em 0;
+}
+
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1.25em 0;
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.ProseMirror td,
+.ProseMirror th {
+  border: 1px solid var(--background-modifier-border);
+  padding: 8px 12px;
+  vertical-align: top;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.ProseMirror sub {
+  font-size: 0.75em;
+  vertical-align: sub;
+}
+
+.ProseMirror sup {
+  font-size: 0.75em;
+  vertical-align: super;
+}
+
+/* Page Break Element */
+.docx-page-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 3rem 0;
+  position: relative;
+  user-select: none;
+  page-break-before: always;
+}
+
+.docx-page-break::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 2px dashed var(--background-modifier-border, #9ca3af);
+}
+
+.docx-page-break-label {
+  position: relative;
+  background: var(--background-primary, #ffffff);
+  padding: 4px 16px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted, #6b7280);
+  border: 1px solid var(--background-modifier-border, #d1d5db);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* --- INTERACTIVE IMAGE CONTROLS --- */
+.docx-image-wrapper-outer {
+  display: inline-block;
+  vertical-align: middle;
+  max-width: 100%;
+  position: relative;
+  user-select: none;
+}
+
+.docx-image-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 4px;
+  line-height: 0;
+  transition: outline 0.15s ease, box-shadow 0.15s ease;
+}
+
+.docx-image-container.docx-image-align-left {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.75rem 0;
+  width: 100%;
+}
+
+.docx-image-container.docx-image-align-center {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem auto;
+  width: 100%;
+}
+
+.docx-image-container.docx-image-align-right {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0.75rem 0;
+  width: 100%;
+}
+
+.docx-image-container.docx-image-align-inline {
+  display: inline-block;
+  vertical-align: middle;
+  margin: 0 4px;
+}
+
+.docx-image-element {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+.docx-image-container.is-selected {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
+}
+
+.docx-image-container.is-selected .docx-image-resize-handle {
+  display: block;
+}
+
+/* Resize Handles */
+.docx-image-resize-handle {
+  display: none;
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #2563eb;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  z-index: 10;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.docx-image-resize-handle.handle-nw {
+  top: -5px;
+  left: -5px;
+  cursor: nwse-resize;
+}
+
+.docx-image-resize-handle.handle-ne {
+  top: -5px;
+  right: -5px;
+  cursor: nesw-resize;
+}
+
+.docx-image-resize-handle.handle-se {
+  bottom: -5px;
+  right: -5px;
+  cursor: nwse-resize;
+}
+
+.docx-image-resize-handle.handle-sw {
+  bottom: -5px;
+  left: -5px;
+  cursor: nesw-resize;
+}
+
+/* Dimension Badge */
+.docx-img-dimension-badge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(17, 24, 39, 0.85);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 20;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  font-family: monospace;
+}
+
+/* Floating Image Toolbar */
+.docx-image-toolbar {
+  position: absolute;
+  top: -46px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  padding: 4px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 50;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.docx-img-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.docx-img-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.2);
+  margin: 0 3px;
+}
+
+.docx-img-btn {
+  background: transparent;
+  border: none;
+  color: #d1d5db;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1.2;
+  transition: all 0.12s ease;
+}
+
+.docx-img-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.docx-img-btn.is-active {
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.docx-img-btn.docx-img-btn-danger:hover {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+/* Table Actions Popup Menu */
+.docx-table-menu-modal {
+  position: absolute;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  border-radius: 6px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 100;
+  min-width: 160px;
+}
+
+.docx-table-menu-item {
+  background: transparent;
+  border: none;
+  padding: 5px 10px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--text-normal);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.docx-table-menu-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.docx-table-menu-item.danger {
+  color: var(--text-error, #e53e3e);
+}
+
+/* ==========================================================================
+   SPREADSHEET EDITOR (CSV & XLSX) STYLES
+   ========================================================================== */
+
+.sheet-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--background-primary);
+  user-select: none;
+}
+
+/* --- Formula Bar --- */
+.sheet-formula-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--background-primary-alt, var(--background-secondary));
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 13px;
+  height: 36px;
+  box-sizing: border-box;
+}
+
+.sheet-address-box {
+  width: 65px;
+  flex-shrink: 0;
+}
+
+.sheet-address-input {
+  width: 100%;
+  text-align: center;
+  font-weight: 600;
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 4px;
+  padding: 2px 4px;
+  color: var(--text-normal);
+}
+
+.sheet-fx-symbol {
+  font-style: italic;
+  font-weight: bold;
+  font-family: serif;
+  color: var(--text-muted);
+  font-size: 14px;
+  user-select: none;
+}
+
+.sheet-formula-input-wrap {
+  flex: 1;
+  display: flex;
+}
+
+.sheet-formula-input {
+  width: 100%;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-family: var(--font-interface);
+  font-size: 12px;
+  color: var(--text-normal);
+  outline: none;
+}
+
+.sheet-formula-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+/* --- Interactive Grid --- */
+.sheet-grid-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--background-primary);
+  outline: none;
+}
+
+.sheet-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  background: var(--background-primary);
+  font-size: 12px;
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+}
+
+/* Headers */
+.sheet-corner-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  width: 45px;
+  min-width: 45px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.sheet-col-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0;
+  height: 24px;
+  box-sizing: border-box;
+  position: relative;
+  user-select: none;
+}
+
+.sheet-row-header {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--background-secondary);
+  border-right: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  width: 45px;
+  min-width: 45px;
+  padding: 0;
+  box-sizing: border-box;
+  position: relative;
+  user-select: none;
+}
+
+/* Header Resizers */
+.sheet-col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 25;
+}
+
+.sheet-row-resizer {
+  position: absolute;
+  bottom: -3px;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 15;
+}
+
+/* Grid Cells */
+.sheet-cell {
+  border-right: 1px solid var(--background-modifier-border);
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 2px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+  position: relative;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.sheet-cell-selected {
+  background: rgba(49, 130, 206, 0.15) !important;
+}
+
+.sheet-cell-active {
+  outline: 2px solid #1a73e8 !important;
+  outline-offset: -1px;
+  z-index: 5;
+}
+
+/* In-Cell Editor */
+.sheet-cell-editor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: inherit;
+  outline: 2px solid #1a73e8;
+  z-index: 10;
+  box-sizing: border-box;
+}
+
+/* --- Bottom Sheet Tab Bar --- */
+.sheet-tab-bar {
+  display: flex;
+  align-items: center;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  height: 32px;
+  padding: 0 8px;
+  gap: 4px;
+  box-sizing: border-box;
+}
+
+.sheet-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+}
+
+.sheet-tab {
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.sheet-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.sheet-tab.is-active {
+  background: var(--background-primary);
+  color: var(--interactive-accent);
+  font-weight: 600;
+  border-top: 2px solid var(--interactive-accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.sheet-add-tab-btn {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--text-muted);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.sheet-add-tab-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+/* --- SPREADSHEET THEME MODES --- */
+
+/* 1. Light Spreadsheet Theme */
+.sheet-theme-light.sheet-editor-root,
+.sheet-theme-light .sheet-editor-root {
+  background: #f8f9fa;
+}
+.sheet-theme-light .sheet-formula-bar {
+  background: #f1f3f4;
+  border-color: #dadce0;
+}
+.sheet-theme-light .sheet-address-input,
+.sheet-theme-light .sheet-formula-input {
+  background: #ffffff;
+  color: #202124;
+  caret-color: #000000;
+  border-color: #dadce0;
+}
+.sheet-theme-light .sheet-grid-container {
+  background: #f8f9fa;
+}
+.sheet-theme-light .sheet-table {
+  background: #ffffff;
+  color: #202124;
+}
+.sheet-theme-light .sheet-corner-header,
+.sheet-theme-light .sheet-col-header,
+.sheet-theme-light .sheet-row-header {
+  background: #f8f9fa;
+  color: #5f6368;
+  border-color: #e0e0e0;
+}
+.sheet-theme-light .sheet-cell {
+  border-color: #e0e0e0;
+  background: #ffffff;
+  color: #202124;
+}
+.sheet-theme-light .sheet-cell-editor {
+  background: #ffffff;
+  color: #202124;
+  caret-color: #000000;
+  outline-color: #1a73e8;
+}
+.sheet-theme-light .sheet-tab-bar {
+  background: #f1f3f4;
+  border-color: #dadce0;
+}
+.sheet-theme-light .sheet-tab {
+  color: #5f6368;
+}
+.sheet-theme-light .sheet-tab.is-active {
+  background: #ffffff;
+  color: #1a73e8;
+  border-top-color: #1a73e8;
+}
+
+/* 2. Dark Spreadsheet Theme */
+.sheet-theme-dark.sheet-editor-root,
+.sheet-theme-dark .sheet-editor-root {
+  background: #1e1e1e;
+}
+.sheet-theme-dark .sheet-formula-bar {
+  background: #252526;
+  border-color: #333333;
+}
+.sheet-theme-dark .sheet-address-input,
+.sheet-theme-dark .sheet-formula-input {
+  background: #1e1e1e;
+  color: #e0e0e0;
+  caret-color: #ffffff;
+  border-color: #3e3e42;
+}
+.sheet-theme-dark .sheet-grid-container {
+  background: #1e1e1e;
+}
+.sheet-theme-dark .sheet-table {
+  background: #1e1e1e;
+  color: #e0e0e0;
+}
+.sheet-theme-dark .sheet-corner-header,
+.sheet-theme-dark .sheet-col-header,
+.sheet-theme-dark .sheet-row-header {
+  background: #2d2d2d;
+  color: #aaaaaa;
+  border-color: #3e3e42;
+}
+.sheet-theme-dark .sheet-cell {
+  border-color: #333333;
+  background: #1e1e1e;
+  color: #e0e0e0;
+}
+.sheet-theme-dark .sheet-cell-editor {
+  background: #1e1e1e;
+  color: #e0e0e0;
+  caret-color: #ffffff;
+  outline-color: #569cd6;
+}
+.sheet-theme-dark .sheet-tab-bar {
+  background: #252526;
+  border-color: #333333;
+}
+.sheet-theme-dark .sheet-tab {
+  color: #aaaaaa;
+}
+.sheet-theme-dark .sheet-tab.is-active {
+  background: #1e1e1e;
+  color: #569cd6;
+  border-top-color: #569cd6;
+}
+
+/* --- Universal Caret Color Overrides --- */
+.docx-theme-light .ProseMirror,
+.docx-theme-light input,
+.sheet-theme-light .sheet-cell-editor,
+.sheet-theme-light .sheet-formula-input,
+.sheet-theme-light .sheet-address-input {
+  caret-color: #000000 !important;
+}
+
+.docx-theme-dark .ProseMirror,
+.docx-theme-dark input,
+.sheet-theme-dark .sheet-cell-editor,
+.sheet-theme-dark .sheet-formula-input,
+.sheet-theme-dark .sheet-address-input {
+  caret-color: #ffffff !important;
+}
+
+/* --- Scrollbar Styling for Docx and Excel Editors --- */
+.docx-editor-host::-webkit-scrollbar,
+.sheet-grid-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  display: block;
+}
+
+.docx-editor-host::-webkit-scrollbar-track,
+.sheet-grid-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 5px;
+}
+
+.docx-theme-dark .docx-editor-host::-webkit-scrollbar-track,
+.sheet-theme-dark .sheet-grid-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.docx-editor-host::-webkit-scrollbar-thumb,
+.sheet-grid-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.docx-editor-host::-webkit-scrollbar-thumb:hover,
+.sheet-grid-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.48);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.docx-theme-dark .docx-editor-host::-webkit-scrollbar-thumb,
+.sheet-theme-dark .sheet-grid-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.docx-theme-dark .docx-editor-host::-webkit-scrollbar-thumb:hover,
+.sheet-theme-dark .sheet-grid-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.48);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+
+
+
