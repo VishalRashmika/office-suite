@@ -25,7 +25,11 @@ const ci =
         clearTimeout(id);
       };
 
-module.exports = {
-  setImmediate: si,
-  clearImmediate: ci,
-};
+if (typeof g.setImmediate !== "function") {
+  g.setImmediate = si;
+  g.clearImmediate = ci;
+}
+
+module.exports = si;
+module.exports.setImmediate = si;
+module.exports.clearImmediate = ci;

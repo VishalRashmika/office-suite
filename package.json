@@ -1,6 +1,6 @@
 {
   "name": "obsidian-office-suite",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), and CSV/TSV spreadsheet files natively inside Obsidian.",
   "author": "Vishal Rashmika",
   "homepage": "https://vishalrashmika.com",
