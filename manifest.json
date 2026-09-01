@@ -1,7 +1,7 @@
 {
   "id": "office-suite",
   "name": "Office Suite",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "minAppVersion": "1.4.0",
   "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), and CSV/TSV spreadsheet files directly with native WYSIWYG editing, formatting, and formulas.",
   "author": "Vishal Rashmika",
