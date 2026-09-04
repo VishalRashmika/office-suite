@@ -3,7 +3,7 @@
 <p align="center">
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-v1.4.0+-purple.svg?style=for-the-badge&logo=obsidian" alt="Obsidian Version" /></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/Version-v0.1.3--beta-blue.svg?style=for-the-badge" alt="Release Version" /></a>
-  <a href="https://github.com"><img src="https://img.shields.io/badge/Community%20Plugins-Available-success.svg?style=for-the-badge&logo=obsidian" alt="Community Plugins" /></a>
+  <a href="https://community.obsidian.md/plugins/office-suite"><img src="https://img.shields.io/badge/Community%20Plugins-Available-success.svg?style=for-the-badge&logo=obsidian" alt="Community Plugins" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-Strict-blue?style=for-the-badge&logo=typescript" alt="TypeScript" /></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT" /></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=for-the-badge" alt="PRs Welcome" /></a>
@@ -187,4 +187,4 @@ Created by [Vishal Rashmika](https://vishalrashmika.com).
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GPL V3](LICENSE).
