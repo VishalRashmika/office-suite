@@ -8,11 +8,11 @@ export interface EvaluationContext {
   sheet: SheetData;
   visited: Set<string>;
   evaluating: Set<string>;
-  evalCell: (key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>) => CellValue | unknown;
+  evalCell: (key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>) => CellValue;
   registry?: FunctionRegistry;
 }
 
-export function evaluateExpression(expr: string, ctx: EvaluationContext): CellValue | unknown {
+export function evaluateExpression(expr: string, ctx: EvaluationContext): CellValue {
   expr = expr.trim();
   if (!expr) return 0;
 
@@ -165,7 +165,7 @@ export function splitArguments(argsStr: string): string[] {
   return args;
 }
 
-export function getRangeValues(rangeStr: string, ctx: EvaluationContext): unknown[] {
+export function getRangeValues(rangeStr: string, ctx: EvaluationContext): CellValue[] {
   const rangeMatch = rangeStr.match(/^([A-Z]+[0-9]+)\s*:\s*([A-Z]+[0-9]+)$/i);
   if (rangeMatch) {
     const start = a1ToCoord(rangeMatch[1]);
@@ -177,7 +177,7 @@ export function getRangeValues(rangeStr: string, ctx: EvaluationContext): unknow
     const minCol = Math.min(start.col, end.col);
     const maxCol = Math.max(start.col, end.col);
 
-    const values: unknown[] = [];
+    const values: CellValue[] = [];
     for (let r = minRow; r <= maxRow; r++) {
       for (let c = minCol; c <= maxCol; c++) {
         values.push(ctx.evalCell(cellKey(r, c), ctx.sheet, ctx.visited, ctx.evaluating));

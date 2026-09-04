@@ -1,9 +1,10 @@
+import { CellValue } from "../../models/cell";
 import { FormulaFunctionContext, sum, average, count, counta, min, max, product, round, sqrt, abs } from "./math";
 import { ifFunc, ifError, andFunc, orFunc, notFunc } from "./logical";
 import { concat, textJoin, left, right, mid, len, trim, upper, lower, proper } from "./text";
 import { today, now } from "./date";
 
-export type FormulaFunction = (args: string[], ctx: FormulaFunctionContext) => unknown;
+export type FormulaFunction = (args: string[], ctx: FormulaFunctionContext) => CellValue;
 
 export class FunctionRegistry {
   private functions = new Map<string, FormulaFunction>();

@@ -26,7 +26,7 @@ export interface CellData {
   style?: CellStyle;
 }
 
-export function formatCellValue(val: CellValue | unknown, numFormat?: string): string {
+export function formatCellValue(val: CellValue, numFormat?: string): string {
   if (val === undefined || val === null) return "";
   if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
 

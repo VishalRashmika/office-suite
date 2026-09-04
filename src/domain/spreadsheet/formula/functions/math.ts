@@ -1,7 +1,10 @@
+import { CellValue } from "../../models/cell";
+
 export interface FormulaFunctionContext {
-  getRangeValues(arg: string): unknown[];
-  evaluateExpr(expr: string): unknown;
+  getRangeValues(arg: string): CellValue[];
+  evaluateExpr(expr: string): CellValue;
 }
+
 
 export function sum(args: string[], ctx: FormulaFunctionContext): number {
   let total = 0;

@@ -15,7 +15,7 @@ export class FormulaEngine {
     }
   }
 
-  evalCell(key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>): CellValue | unknown {
+  evalCell(key: string, sheet: SheetData, visited: Set<string>, evaluating: Set<string>): CellValue {
     if (evaluating.has(key)) {
       return "#CIRCULAR!";
     }
@@ -56,7 +56,7 @@ export class FormulaEngine {
     sheet: SheetData,
     visited = new Set<string>(),
     evaluating = new Set<string>()
-  ): CellValue | unknown {
+  ): CellValue {
     const ctx: EvaluationContext = {
       sheet,
       visited,
@@ -78,6 +78,6 @@ export function evaluateExpressionStandalone(
   sheet: SheetData,
   visited = new Set<string>(),
   evaluating = new Set<string>()
-): CellValue | unknown {
+): CellValue {
   return defaultFormulaEngine.evaluateSingleExpression(expr, sheet, visited, evaluating);
 }
