@@ -140,6 +140,7 @@ You can test the latest beta releases using the [Obsidian BRAT](https://github.c
 | **Bold** | `Ctrl + B` / `Cmd + B` |
 | **Italic** | `Ctrl + I` / `Cmd + I` |
 | **Underline** | `Ctrl + U` / `Cmd + U` |
+| **Edit Cell (Spreadsheet)** | `F2` |
 | **Page Break (Docx)** | `Ctrl + Enter` / `Cmd + Enter` |
 
 ---
