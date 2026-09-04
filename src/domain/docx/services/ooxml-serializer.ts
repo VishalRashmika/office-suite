@@ -319,7 +319,7 @@ function buildTable(context: IDocxSerializeContext, node: PMNode): Element {
 
   if (node.attrs.align) {
     const jc = context.createEl("jc");
-    context.setAttr(jc, "val", node.attrs.align);
+    context.setAttr(jc, "val", String(node.attrs.align));
     tblPr.appendChild(jc);
   }
 

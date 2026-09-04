@@ -312,7 +312,7 @@ export class SpreadsheetGrid {
         } else if (e.key === "c" || e.key === "C") {
           delegate.onCopy();
         } else if (e.key === "v" || e.key === "V") {
-          delegate.onPaste();
+          void delegate.onPaste();
         } else if (e.key === "b" || e.key === "B") {
           e.preventDefault();
           delegate.onToggleStyle("bold");

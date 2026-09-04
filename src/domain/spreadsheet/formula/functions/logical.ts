@@ -1,6 +1,7 @@
+import { CellValue } from "../../models/cell";
 import { FormulaFunctionContext } from "./math";
 
-export function ifFunc(args: string[], ctx: FormulaFunctionContext): unknown {
+export function ifFunc(args: string[], ctx: FormulaFunctionContext): CellValue {
   const condition = ctx.evaluateExpr(args[0]);
   if (condition && condition !== "0" && condition !== "#ERROR!") {
     return args[1] !== undefined ? ctx.evaluateExpr(args[1]) : true;
@@ -9,7 +10,7 @@ export function ifFunc(args: string[], ctx: FormulaFunctionContext): unknown {
   }
 }
 
-export function ifError(args: string[], ctx: FormulaFunctionContext): unknown {
+export function ifError(args: string[], ctx: FormulaFunctionContext): CellValue {
   try {
     const res = ctx.evaluateExpr(args[0]);
     if (typeof res === "string" && res.startsWith("#")) {

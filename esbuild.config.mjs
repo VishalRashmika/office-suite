@@ -15,6 +15,10 @@ const context = await esbuild.context({
   alias: {
     immediate: path.resolve(__dirname, "src/core/shims/immediate.js"),
     setimmediate: path.resolve(__dirname, "src/core/shims/setimmediate.js"),
+    lie: path.resolve(__dirname, "src/core/shims/lie.js"),
+    jszip: path.resolve(__dirname, "node_modules/jszip/lib/index.js"),
+    "readable-stream": path.resolve(__dirname, "node_modules/jszip/lib/readable-stream-browser.js"),
+    stream: path.resolve(__dirname, "src/core/shims/stream.js"),
   },
   external: [
     "obsidian",
