@@ -323,8 +323,17 @@ export class SpreadsheetGrid {
           e.preventDefault();
           delegate.onToggleStyle("underline");
         }
+      } else if (e.key === "F2") {
+        e.preventDefault();
+        const td = this.tableEl?.querySelector(
+          `td[data-row="${this.activeCell.row}"][data-col="${this.activeCell.col}"]`
+        ) as HTMLTableCellElement;
+        if (td) {
+          this.startInCellEdit(this.activeCell.row, this.activeCell.col, td, sheet, delegate);
+        }
       } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         // Alphanumeric typing -> start edit with initial char
+        e.preventDefault();
         const td = this.tableEl?.querySelector(
           `td[data-row="${this.activeCell.row}"][data-col="${this.activeCell.col}"]`
         ) as HTMLTableCellElement;
