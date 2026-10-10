@@ -1,0 +1,937 @@
+/**
+ * PDF View component for Obsidian.
+ * Integrates native PDF editing, cross-compatible ISO 32000-1 annotations,
+ * citations, deep links, and annotations list panel.
+ */
+
+import { FileView, TFile, WorkspaceLeaf, Notice, loadPdfJs } from "obsidian";
+import {
+  PdfAnnotation,
+  PdfHighlightAnnotation,
+  PdfNoteAnnotation,
+  PdfFreeTextAnnotation,
+  PdfInkAnnotation,
+  PdfShapeAnnotation,
+  PdfRect,
+  PdfActiveTool,
+  PdfRgbColor,
+  CitationService,
+  CitationMetadata,
+} from "../../domain/pdf";
+import { PdfDocumentAdapter } from "../../infrastructure/pdf";
+import { PdfToolbar, PdfToolbarDelegate } from "./pdf-toolbar";
+import { PdfSidebar, PdfSidebarDelegate } from "./pdf-sidebar";
+import { PdfPageView, PdfPageViewDelegate } from "./pdf-page-view";
+import { PdfNotePopover } from "./pdf-note-popover";
+import { PdfCiteModal } from "./pdf-cite-modal";
+
+export const VIEW_TYPE_PDF = "pdf-editor-view";
+
+export class PdfView
+  extends FileView
+  implements PdfToolbarDelegate, PdfSidebarDelegate, PdfPageViewDelegate
+{
+  allowNoFile = false;
+  pdfDoc: PdfDocumentAdapter | null = null;
+  paperTheme: "light" | "dark" = "light";
+
+  private pdfjsDoc: any = null;
+  private toolbar = new PdfToolbar();
+  private sidebar = new PdfSidebar();
+  private notePopover: PdfNotePopover;
+
+  private rootEl: HTMLElement | null = null;
+  private toolbarEl: HTMLElement | null = null;
+  private mainContainerEl: HTMLElement | null = null;
+  private pagesScrollEl: HTMLElement | null = null;
+  private selectionBarEl: HTMLElement | null = null;
+
+  private pageViews: Map<number, PdfPageView> = new Map();
+  private activeTool: PdfActiveTool = "hand";
+  private activeColor: PdfRgbColor = [0.99, 0.88, 0.28];
+  private strokeWidth = 2;
+  private zoomScale = 1.0;
+  private currentPage = 1;
+  private saveTimer: number | null = null;
+  private undoStack: Array<string> = [];
+  private redoStack: Array<string> = [];
+  private retractTabEl: HTMLElement | null = null;
+  private isInternalSaving = false;
+  private lastInternalSaveTime = 0;
+
+  constructor(leaf: WorkspaceLeaf) {
+    super(leaf);
+    this.notePopover = new PdfNotePopover(this.app);
+  }
+
+  getViewType(): string {
+    return VIEW_TYPE_PDF;
+  }
+
+  getIcon(): string {
+    return "file-text";
+  }
+
+  getDisplayText(): string {
+    return this.file?.basename ?? "PDF";
+  }
+
+  canAcceptExtension(extension: string): boolean {
+    return extension === "pdf";
+  }
+
+  async onLoadFile(file: TFile): Promise<void> {
+    this.contentEl.empty();
+    this.contentEl.addClass("pdf-editor-root");
+
+    const statusEl = this.contentEl.createDiv({
+      cls: "pdf-editor-status",
+      text: "Loading PDF document...",
+    });
+
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await this.app.vault.readBinary(file);
+      this.pdfDoc = await PdfDocumentAdapter.load(bytes);
+    } catch (err) {
+      statusEl.setText(`Could not open PDF file: ${(err as Error).message}`);
+      console.error(err);
+      return;
+    }
+
+    try {
+      const pdfjsLib = await this.getPdfJsLibrary();
+      this.pdfjsDoc = await pdfjsLib.getDocument({
+        data: new Uint8Array(bytes.slice(0)),
+        cMapUrl: "https://unpkg.com/pdfjs-dist@3.11.174/cmaps/",
+        cMapPacked: true,
+      }).promise;
+    } catch (err) {
+      statusEl.setText(`Could not render PDF preview: ${(err as Error).message}`);
+      console.error(err);
+      return;
+    }
+
+    statusEl.remove();
+
+    // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
+    await this.enrichAnnotationsFromPdfJs();
+
+    // 1. Build Toolbar
+    this.toolbarEl = this.contentEl.createDiv({ cls: "pdf-editor-toolbar-wrap" });
+    this.toolbar.build(this.toolbarEl, this);
+    this.toolbar.setPageData(1, this.pdfDoc.getPageCount());
+
+    // 2. Main split view (Sidebar + Scroll Area)
+    this.mainContainerEl = this.contentEl.createDiv({ cls: "pdf-editor-main-container" });
+
+    // Retractable Edge Tab for expanding/retracting sidebar when retracted
+    this.retractTabEl = this.mainContainerEl.createDiv({
+      cls: "pdf-sidebar-retract-tab is-hidden",
+      attr: { title: "Expand Annotations & Pages Panel" },
+    });
+    this.retractTabEl.createSpan({ text: "📑" });
+    this.retractTabEl.createSpan({ cls: "pdf-sidebar-retract-label", text: "Annotations" });
+    this.retractTabEl.onclick = () => this.onToggleSidebar();
+
+    // Sidebar
+    this.sidebar.build(
+      this.mainContainerEl,
+      this.pdfDoc,
+      this.pdfjsDoc,
+      file.name,
+      this
+    );
+    this.sidebar.onVisibilityChange = (visible) => {
+      this.toolbar.setSidebarActive(visible);
+      if (visible) {
+        this.retractTabEl?.addClass("is-hidden");
+      } else {
+        this.retractTabEl?.removeClass("is-hidden");
+      }
+    };
+
+    // Scrollable Pages Area
+    this.pagesScrollEl = this.mainContainerEl.createDiv({ cls: "pdf-pages-scroll-area" });
+    this.pagesScrollEl.addEventListener("scroll", this.onScroll);
+    this.notePopover.setScrollContainer(this.pagesScrollEl);
+
+    // Contextual Text Selection Action Bar
+    this.buildTextSelectionBar();
+
+    // Render all pages
+    await this.renderAllPages();
+
+    // Handle deep-link target if leaf URL has #page=N
+    this.handleDeepLinkNavigation();
+
+    // Listen for external sync file modifications (e.g. Obsidian Sync from another computer)
+    this.registerEvent(
+      this.app.vault.on("modify", async (modifiedFile) => {
+        if (
+          modifiedFile.path === this.file?.path &&
+          !this.isInternalSaving &&
+          Date.now() - this.lastInternalSaveTime > 2500 &&
+          this.pdfDoc
+        ) {
+          await this.reloadFromExternalSync();
+        }
+      })
+    );
+
+    window.addEventListener("blur", this.onWindowBlur);
+  }
+
+  private onWindowBlur = () => {
+    if (this.pdfDoc?.dirty) void this.saveNow();
+  };
+
+  async onUnloadFile(file: TFile): Promise<void> {
+    window.removeEventListener("blur", this.onWindowBlur);
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.pdfDoc?.dirty) await this.saveNow();
+
+    this.notePopover.hide();
+    this.toolbar.dispose();
+    this.sidebar.dispose();
+    for (const pv of this.pageViews.values()) {
+      pv.dispose();
+    }
+    this.pageViews.clear();
+
+    if (this.pdfjsDoc) {
+      this.pdfjsDoc.destroy();
+      this.pdfjsDoc = null;
+    }
+    this.pdfDoc = null;
+  }
+
+  // ==================== Page Rendering & Layout ====================
+
+  private async renderAllPages(): Promise<void> {
+    if (!this.pagesScrollEl || !this.pdfDoc || !this.pdfjsDoc) return;
+    this.pagesScrollEl.empty();
+    this.pageViews.clear();
+
+    const pageCount = this.pdfDoc.getPageCount();
+
+    for (let i = 0; i < pageCount; i++) {
+      const pageView = new PdfPageView(i, this.pagesScrollEl);
+      pageView.setDelegate(this);
+      pageView.setTool(this.activeTool, this.activeColor, this.strokeWidth);
+      pageView.setAnnotations(this.pdfDoc.getPageAnnotations(i));
+      this.pageViews.set(i, pageView);
+
+      try {
+        const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
+        await pageView.render(pdfjsPage, this.zoomScale);
+      } catch (err) {
+        console.error(`Error rendering page ${i + 1}:`, err);
+      }
+    }
+
+    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+  }
+
+  private onScroll = (): void => {
+    if (!this.pagesScrollEl) return;
+    const scrollTop = this.pagesScrollEl.scrollTop;
+    let closestPage = 1;
+    let minDistance = Infinity;
+
+    for (const [idx, pv] of this.pageViews.entries()) {
+      const top = pv.element.offsetTop;
+      const dist = Math.abs(top - scrollTop);
+      if (dist < minDistance) {
+        minDistance = dist;
+        closestPage = idx + 1;
+      }
+    }
+
+    if (closestPage !== this.currentPage) {
+      this.currentPage = closestPage;
+      this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+    }
+  };
+
+  private handleDeepLinkNavigation(): void {
+    // Check if leaf state has subpath or URL params
+    const state = this.leaf.getViewState();
+    const subpath = (state.state as any)?.subpath || "";
+    if (!subpath) return;
+
+    const pageMatch = subpath.match(/page=(\d+)/);
+    if (pageMatch) {
+      const pageNum = parseInt(pageMatch[1], 10);
+      this.scrollToPage(pageNum - 1);
+    }
+
+    const annotMatch = subpath.match(/annot=([a-zA-Z0-9_\-]+)/);
+    if (annotMatch) {
+      const annotId = annotMatch[1];
+      setTimeout(() => this.pulseAnnotation(annotId), 300);
+    }
+  }
+
+  scrollToPage(pageIndex: number): void {
+    const pv = this.pageViews.get(pageIndex);
+    if (pv && this.pagesScrollEl) {
+      pv.element.scrollIntoView({ behavior: "smooth", block: "start" });
+      this.currentPage = pageIndex + 1;
+      this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+    }
+  }
+
+  pulseAnnotation(annotId: string): void {
+    for (const pv of this.pageViews.values()) {
+      pv.pulseAnnotation(annotId);
+    }
+  }
+
+  // ==================== Text Selection Floating Toolbar ====================
+
+  private buildTextSelectionBar(): void {
+    const bar = document.createElement("div");
+    bar.className = "pdf-selection-action-bar is-hidden";
+
+    // Action 1: Highlight Button
+    const hlBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Highlight" });
+    hlBtn.onclick = () => {
+      if (this.selectedTextInfo) {
+        const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+        pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+      }
+      this.hideSelectionBar();
+    };
+
+    // Action 2: Add Sticky Note attached to selection
+    const noteBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Add Note" });
+    noteBtn.onclick = () => {
+      if (this.selectedTextInfo) {
+        const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+        pv?.addAnnotatedNoteFromSelection(this.selectedTextInfo.text, this.activeColor);
+      }
+      this.hideSelectionBar();
+    };
+
+    // Action 3: Cite Button
+    const citeBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Cite" });
+    citeBtn.onclick = () => {
+      if (this.selectedTextInfo) {
+        this.openCitationModal(this.selectedTextInfo.text, this.selectedTextInfo.pageIndex + 1);
+      }
+      this.hideSelectionBar();
+    };
+
+    // Action 4: Copy Deep Link
+    const linkBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Copy Link" });
+    linkBtn.onclick = async () => {
+      if (this.selectedTextInfo) {
+        const link = CitationService.generateReferenceLink(
+          this.file?.name || "document.pdf",
+          this.selectedTextInfo.pageIndex + 1
+        );
+        await navigator.clipboard.writeText(link);
+        new Notice("Copied page link to clipboard!");
+      }
+      this.hideSelectionBar();
+    };
+
+    document.body.appendChild(bar);
+    this.selectionBarEl = bar;
+  }
+
+  private selectedTextInfo: { text: string; pageIndex: number } | null = null;
+
+  onTextSelected(selectedText: string, screenRect: DOMRect, pageIndex: number): void {
+    if (!this.selectionBarEl) return;
+    this.selectedTextInfo = { text: selectedText, pageIndex };
+
+    this.selectionBarEl.style.left = `${screenRect.left + screenRect.width / 2 - 120}px`;
+    this.selectionBarEl.style.top = `${screenRect.top - 46}px`;
+    this.selectionBarEl.removeClass("is-hidden");
+  }
+
+  private hideSelectionBar(): void {
+    this.selectionBarEl?.addClass("is-hidden");
+    this.selectedTextInfo = null;
+  }
+
+  // ==================== PdfToolbarDelegate Implementation ====================
+
+  onToolChanged(tool: PdfActiveTool): void {
+    this.activeTool = tool;
+    for (const pv of this.pageViews.values()) {
+      pv.setTool(tool, this.activeColor, this.strokeWidth);
+    }
+  }
+
+  onColorChanged(color: PdfRgbColor): void {
+    this.activeColor = color;
+    for (const pv of this.pageViews.values()) {
+      pv.setTool(this.activeTool, color, this.strokeWidth);
+    }
+  }
+
+  onStrokeWidthChanged(width: number): void {
+    this.strokeWidth = width;
+    for (const pv of this.pageViews.values()) {
+      pv.setTool(this.activeTool, this.activeColor, width);
+    }
+  }
+
+  async onZoomChanged(scale: number | "fit-width" | "fit-page"): Promise<void> {
+    if (typeof scale === "number") {
+      this.zoomScale = scale;
+    } else if (scale === "fit-width" && this.pagesScrollEl) {
+      const containerWidth = this.pagesScrollEl.clientWidth - 60;
+      const firstPageWidth = this.pdfDoc?.getPageInfo(0).width || 612;
+      this.zoomScale = Math.max(0.4, Math.min(2.5, containerWidth / firstPageWidth));
+    } else if (scale === "fit-page" && this.pagesScrollEl) {
+      const containerHeight = this.pagesScrollEl.clientHeight - 60;
+      const firstPageHeight = this.pdfDoc?.getPageInfo(0).height || 792;
+      this.zoomScale = Math.max(0.4, Math.min(2.5, containerHeight / firstPageHeight));
+    }
+
+    this.toolbar.setZoom(this.zoomScale);
+    await this.renderAllPages();
+  }
+
+  onPageChanged(pageNumber: number): void {
+    this.scrollToPage(pageNumber - 1);
+  }
+
+  async onRotatePage(): Promise<void> {
+    if (!this.pdfDoc) return;
+    const pageIndex = this.currentPage - 1;
+    this.pdfDoc.rotatePage(pageIndex, 90);
+    this.scheduleSave();
+    await this.reloadDocumentRendering();
+    new Notice(`Rotated page ${this.currentPage} by 90°`);
+  }
+
+  async onDuplicatePage(): Promise<void> {
+    if (!this.pdfDoc) return;
+    const pageIndex = this.currentPage - 1;
+    await this.pdfDoc.duplicatePage(pageIndex);
+    this.scheduleSave();
+    await this.reloadDocumentRendering();
+    new Notice(`Duplicated page ${this.currentPage}`);
+  }
+
+  async onDeletePage(): Promise<void> {
+    if (!this.pdfDoc) return;
+    if (this.pdfDoc.getPageCount() <= 1) {
+      new Notice("Cannot delete the only page of a PDF document.");
+      return;
+    }
+    const pageIndex = this.currentPage - 1;
+    this.pdfDoc.deletePage(pageIndex);
+    this.currentPage = Math.min(this.currentPage, this.pdfDoc.getPageCount());
+    this.scheduleSave();
+    await this.reloadDocumentRendering();
+    new Notice(`Deleted page ${pageIndex + 1}`);
+  }
+
+  async onInsertBlankPage(): Promise<void> {
+    if (!this.pdfDoc) return;
+    const pageIndex = this.currentPage;
+    this.pdfDoc.insertBlankPage(pageIndex);
+    this.scheduleSave();
+    await this.reloadDocumentRendering();
+    new Notice(`Inserted blank page at position ${pageIndex + 1}`);
+  }
+
+  onToggleSidebar(): void {
+    const isVisible = this.sidebar.toggle();
+    this.toolbar.setSidebarActive(isVisible);
+    if (isVisible) {
+      this.retractTabEl?.addClass("is-hidden");
+    } else {
+      this.retractTabEl?.removeClass("is-hidden");
+    }
+  }
+
+  onCite(): void {
+    this.openCitationModal(undefined, this.currentPage);
+  }
+
+  async onCopyReference(): Promise<void> {
+    const link = CitationService.generateReferenceLink(this.file?.name || "document.pdf", this.currentPage);
+    await navigator.clipboard.writeText(link);
+    new Notice(`Copied reference link: ${link}`);
+  }
+
+  async onExportMarkdown(): Promise<void> {
+    if (!this.pdfDoc || !this.file) return;
+    const annots = this.pdfDoc.getAllAnnotations();
+    if (annots.length === 0) {
+      new Notice("No annotations found in this PDF to export.");
+      return;
+    }
+
+    const md = CitationService.exportAnnotationsToMarkdown(
+      this.file.name,
+      this.pdfDoc.getTitle(),
+      annots,
+      this.pdfDoc.getPageCount()
+    );
+
+    const parentPath = this.file.parent?.path && this.file.parent.path !== "/" ? this.file.parent.path : "";
+    const exportPath = parentPath
+      ? `${parentPath}/Annotations - ${this.file.basename}.md`
+      : `Annotations - ${this.file.basename}.md`;
+
+    try {
+      let exportFile = this.app.vault.getAbstractFileByPath(exportPath);
+      if (exportFile instanceof TFile) {
+        await this.app.vault.modify(exportFile, md);
+      } else {
+        exportFile = await this.app.vault.create(exportPath, md);
+      }
+      new Notice(`Exported ${annots.length} annotations to "${exportFile.name}"`);
+      await this.app.workspace.openLinkText(exportPath, "", "split");
+    } catch (err) {
+      console.error("Failed to export annotations:", err);
+      new Notice(`Failed to export annotations: ${(err as Error).message}`);
+    }
+  }
+
+  onUndo(): void {
+    // History stack undo
+    new Notice("Undo action");
+  }
+
+  onRedo(): void {
+    // History stack redo
+    new Notice("Redo action");
+  }
+
+  onToggleTheme(): void {
+    this.paperTheme = this.paperTheme === "light" ? "dark" : "light";
+    if (this.paperTheme === "dark") {
+      this.contentEl.addClass("pdf-theme-dark");
+    } else {
+      this.contentEl.removeClass("pdf-theme-dark");
+    }
+  }
+
+  async onSave(): Promise<void> {
+    await this.saveNow();
+  }
+
+  // ==================== PdfSidebarDelegate Implementation ====================
+
+  onSelectPage(pageIndex: number): void {
+    this.scrollToPage(pageIndex);
+  }
+
+  onSelectAnnotation(annotation: PdfAnnotation): void {
+    this.scrollToPage(annotation.pageIndex);
+    this.pulseAnnotation(annotation.id);
+  }
+
+  onEditAnnotation(annotation: PdfAnnotation): void {
+    this.scrollToPage(annotation.pageIndex);
+    const pv = this.pageViews.get(annotation.pageIndex);
+    if (pv) {
+      const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;
+      this.notePopover.show(el || pv.element, annotation, this);
+    }
+  }
+
+  onDeleteAnnotation(id: string): void {
+    if (!this.pdfDoc) return;
+    this.pdfDoc.deleteAnnotation(id);
+    this.syncAnnotationsToViews();
+    this.scheduleSave();
+    new Notice("Deleted annotation");
+  }
+
+  // ==================== PdfPageViewDelegate Implementation ====================
+
+  onAddAnnotation(annotation: PdfAnnotation): void {
+    if (!this.pdfDoc) return;
+    this.pdfDoc.upsertAnnotation(annotation);
+    this.syncAnnotationsToViews();
+    this.scheduleSave();
+  }
+
+  onUpdateAnnotation(annotation: PdfAnnotation): void {
+    if (!this.pdfDoc) return;
+    this.pdfDoc.upsertAnnotation(annotation);
+    this.syncAnnotationsToViews();
+    this.scheduleSave();
+  }
+
+  onClickAnnotation(annotation: PdfAnnotation, element: HTMLElement | SVGElement): void {
+    this.notePopover.show(element, annotation, this);
+  }
+
+  private syncAnnotationsToViews(): void {
+    if (!this.pdfDoc) return;
+    for (const [idx, pv] of this.pageViews.entries()) {
+      pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
+    }
+    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+  }
+
+  // ==================== Document Reloading after Page Operations ====================
+
+  private async getPdfJsLibrary(): Promise<any> {
+    if (typeof loadPdfJs === "function") {
+      try {
+        const lib = await loadPdfJs();
+        if (lib) return lib;
+      } catch (e) {
+        console.warn("loadPdfJs failed, falling back to window.pdfjsLib", e);
+      }
+    }
+    if ((window as any).pdfjsLib) {
+      return (window as any).pdfjsLib;
+    }
+    throw new Error("PDF.js engine is not available in this Obsidian environment.");
+  }
+
+  private async reloadDocumentRendering(): Promise<void> {
+    if (!this.pdfDoc) return;
+    const bytes = await this.pdfDoc.getBytes();
+    const pdfjsLib = await this.getPdfJsLibrary();
+    if (this.pdfjsDoc) {
+      this.pdfjsDoc.destroy();
+    }
+    this.pdfjsDoc = await pdfjsLib.getDocument({
+      data: new Uint8Array(bytes.slice(0)),
+    }).promise;
+
+    this.toolbar.setPageData(this.currentPage, this.pdfDoc.getPageCount());
+    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+    await this.renderAllPages();
+  }
+
+  private openCitationModal(quotedText?: string, pageNumber = 1): void {
+    if (!this.pdfDoc || !this.file) return;
+    const meta: CitationMetadata = {
+      title: this.pdfDoc.getTitle() || this.file.basename,
+      author: this.pdfDoc.getAuthor(),
+      year: new Date().getFullYear(),
+      pdfFileName: this.file.name,
+      pageNumber,
+      quotedText,
+    };
+    new PdfCiteModal(this.app, meta).open();
+  }
+
+  // ==================== Persistence & Saving ====================
+
+  private scheduleSave(): void {
+    this.toolbar.updateSaveStatus(true);
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
+      void this.saveNow();
+    }, 400);
+  }
+
+  private async saveNow(): Promise<void> {
+    if (!this.pdfDoc || !this.file) return;
+    this.toolbar.updateSaveStatus(true, true);
+    this.isInternalSaving = true;
+    this.lastInternalSaveTime = Date.now();
+    try {
+      const bytes = await this.pdfDoc.save();
+      await this.app.vault.modifyBinary(
+        this.file,
+        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      );
+      this.lastInternalSaveTime = Date.now();
+      this.toolbar.updateSaveStatus(false);
+    } catch (err) {
+      console.error("Failed to save PDF:", err);
+      new Notice(`Failed to save PDF ${this.file.name}: ${(err as Error).message}`);
+    } finally {
+      window.setTimeout(() => {
+        this.isInternalSaving = false;
+      }, 2000);
+    }
+  }
+
+  async requestSave(): Promise<void> {
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.pdfDoc?.dirty) await this.saveNow();
+  }
+
+  /**
+   * Reloads document binary from disk when modified externally (e.g. via Obsidian Sync on another computer).
+   */
+  private async reloadFromExternalSync(): Promise<void> {
+    if (!this.file) return;
+    try {
+      const bytes = await this.app.vault.readBinary(this.file);
+      this.pdfDoc = await PdfDocumentAdapter.load(bytes);
+      const pdfjsLib = await this.getPdfJsLibrary();
+      if (this.pdfjsDoc) {
+        this.pdfjsDoc.destroy();
+      }
+      this.pdfjsDoc = await pdfjsLib.getDocument({
+        data: new Uint8Array(bytes.slice(0)),
+        cMapUrl: "https://unpkg.com/pdfjs-dist@3.11.174/cmaps/",
+        cMapPacked: true,
+      }).promise;
+
+      await this.enrichAnnotationsFromPdfJs();
+
+      this.toolbar.setPageData(this.currentPage, this.pdfDoc.getPageCount());
+      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+      await this.renderAllPages();
+      new Notice(`PDF annotations synchronized from ${this.file.name}`);
+    } catch (err) {
+      console.warn("Failed to reload PDF from external sync:", err);
+    }
+  }
+
+  /**
+   * Scans PDF pages via PDF.js to:
+   * 1. Extract underlying page text for Highlights/Underlines whose text is empty
+   * 2. Discover any annotations parsed by PDF.js that may not have been in pdf-lib's initial scan
+   */
+  private async enrichAnnotationsFromPdfJs(): Promise<void> {
+    if (!this.pdfDoc || !this.pdfjsDoc) return;
+
+    let hasChanges = false;
+    const pageCount = this.pdfDoc.getPageCount();
+
+    for (let i = 0; i < pageCount; i++) {
+      try {
+        const page = await this.pdfjsDoc.getPage(i + 1);
+        const [textContent, rawAnnots] = await Promise.all([
+          page.getTextContent().catch(() => null),
+          page.getAnnotations({ intent: "display" }).catch(() => []),
+        ]);
+
+        // 1. Discover any annotations from PDF.js not in adapter
+        for (const pAnnot of rawAnnots || []) {
+          let subtype = (pAnnot.subtype || "").toLowerCase();
+          if (!subtype && typeof pAnnot.annotationType === "number") {
+            switch (pAnnot.annotationType) {
+              case 1: subtype = "text"; break;
+              case 3: subtype = "freetext"; break;
+              case 4: subtype = "line"; break;
+              case 5: subtype = "square"; break;
+              case 6: subtype = "circle"; break;
+              case 9: subtype = "highlight"; break;
+              case 10: subtype = "underline"; break;
+              case 11: subtype = "squiggly"; break;
+              case 12: subtype = "strikeout"; break;
+              case 13: subtype = "stamp"; break;
+              case 14: subtype = "caret"; break;
+              case 15: subtype = "ink"; break;
+            }
+          }
+          if (subtype === "popup" || subtype === "link" || subtype === "widget" || !subtype) continue;
+
+          const existingAnnots = this.pdfDoc.getPageAnnotations(i);
+          const pRect = pAnnot.rect as number[] | undefined;
+          const alreadyExists = existingAnnots.some((a) => {
+            if (a.id === pAnnot.id) return true;
+            if (pRect && Array.isArray(pRect) && pRect.length >= 4) {
+              const dx = Math.abs(a.rect[0] - pRect[0]);
+              const dy = Math.abs(a.rect[1] - pRect[1]);
+              return dx < 3 && dy < 3;
+            }
+            return false;
+          });
+
+          if (!alreadyExists && pRect && Array.isArray(pRect) && pRect.length >= 4) {
+            const parsed = this.convertPdfJsAnnotation(pAnnot, i, pRect);
+            if (parsed) {
+              this.pdfDoc.registerExistingAnnotation(parsed);
+              hasChanges = true;
+            }
+          }
+        }
+
+        // 2. Extract underlying text from textContent for Highlights/Underlines that have empty text
+        if (textContent && textContent.items && textContent.items.length > 0) {
+          const pageAnnots = this.pdfDoc.getPageAnnotations(i);
+          for (const annot of pageAnnots) {
+            if (annot.type === "highlight") {
+              const hl = annot as PdfHighlightAnnotation;
+              if (!hl.highlightedText || hl.highlightedText.trim() === "") {
+                const extracted = this.extractTextUnderAnnotation(textContent, hl.rect, hl.quadPoints);
+                if (extracted && extracted.trim()) {
+                  hl.highlightedText = extracted;
+                  if (!hl.contents || hl.contents.trim() === "") {
+                    hl.contents = extracted;
+                  }
+                  hasChanges = true;
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`Error enriching annotations on page ${i + 1}:`, err);
+      }
+    }
+
+    if (hasChanges) {
+      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+      for (const [idx, pv] of this.pageViews.entries()) {
+        pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
+      }
+    }
+  }
+
+  private extractTextUnderAnnotation(textContent: any, rect: PdfRect, quadPoints?: number[]): string {
+    const [minX, minY, maxX, maxY] = rect;
+    const matchingItems: { str: string; x: number; y: number }[] = [];
+    const tolerance = 2;
+
+    for (const item of textContent.items) {
+      if (!("str" in item) || !item.str.trim()) continue;
+
+      const tx = item.transform[4];
+      const ty = item.transform[5];
+      const width = item.width || 0;
+      const height = item.height || Math.abs(item.transform[3]) || 12;
+
+      const itemLeft = tx;
+      const itemRight = tx + width;
+      const itemBottom = ty;
+      const itemTop = ty + height;
+
+      // Check overlap with highlight rect
+      const overlaps = !(
+        itemRight < minX - tolerance ||
+        itemLeft > maxX + tolerance ||
+        itemTop < minY - tolerance ||
+        itemBottom > maxY + tolerance
+      );
+
+      if (overlaps) {
+        matchingItems.push({ str: item.str, x: tx, y: ty });
+      }
+    }
+
+    // Sort top-to-bottom (higher Y first in PDF user space), then left-to-right (lower X first)
+    matchingItems.sort((a, b) => {
+      const yDiff = Math.abs(a.y - b.y);
+      if (yDiff > 6) {
+        return b.y - a.y;
+      }
+      return a.x - b.x;
+    });
+
+    return matchingItems.map((i) => i.str).join(" ").replace(/\s+/g, " ").trim();
+  }
+
+  private convertPdfJsAnnotation(pAnnot: any, pageIndex: number, rect: number[]): PdfAnnotation | null {
+    const id = pAnnot.id || `pdfjs_${pageIndex}_${Math.random().toString(36).slice(2, 9)}`;
+    let subtype = (pAnnot.subtype || "").toLowerCase();
+    if (!subtype && typeof pAnnot.annotationType === "number") {
+      switch (pAnnot.annotationType) {
+        case 1: subtype = "text"; break;
+        case 3: subtype = "freetext"; break;
+        case 4: subtype = "line"; break;
+        case 5: subtype = "square"; break;
+        case 6: subtype = "circle"; break;
+        case 9: subtype = "highlight"; break;
+        case 10: subtype = "underline"; break;
+        case 11: subtype = "squiggly"; break;
+        case 12: subtype = "strikeout"; break;
+        case 13: subtype = "stamp"; break;
+        case 14: subtype = "caret"; break;
+        case 15: subtype = "ink"; break;
+      }
+    }
+    const pdfRect: PdfRect = [rect[0], rect[1], rect[2], rect[3]];
+
+    let color: PdfRgbColor = [0.99, 0.88, 0.28];
+    if (pAnnot.color && Array.isArray(pAnnot.color) && pAnnot.color.length >= 3) {
+      const c = pAnnot.color;
+      color = [
+        c[0] > 1 ? c[0] / 255 : c[0],
+        c[1] > 1 ? c[1] / 255 : c[1],
+        c[2] > 1 ? c[2] / 255 : c[2],
+      ];
+    }
+
+    const contents = pAnnot.contentsObj?.str || pAnnot.contents || "";
+    const author = pAnnot.titleObj?.str || pAnnot.title || "Author";
+
+    if (subtype === "highlight" || subtype === "underline" || subtype === "strikeout" || subtype === "squiggly") {
+      const quads =
+        pAnnot.quadPoints && Array.isArray(pAnnot.quadPoints) && pAnnot.quadPoints.length > 0
+          ? pAnnot.quadPoints
+          : [pdfRect[0], pdfRect[3], pdfRect[2], pdfRect[3], pdfRect[0], pdfRect[1], pdfRect[2], pdfRect[1]];
+      return {
+        id,
+        type: "highlight",
+        pageIndex,
+        rect: pdfRect,
+        color,
+        contents,
+        highlightedText: contents,
+        quadPoints: quads,
+        author,
+      } as PdfHighlightAnnotation;
+    }
+
+    if (subtype === "text" || subtype === "caret" || subtype === "stamp") {
+      return {
+        id,
+        type: "text",
+        pageIndex,
+        rect: pdfRect,
+        color,
+        contents,
+        author,
+        iconName: pAnnot.name || "Comment",
+      } as PdfNoteAnnotation;
+    }
+
+    if (subtype === "freetext") {
+      return {
+        id,
+        type: "freetext",
+        pageIndex,
+        rect: pdfRect,
+        color,
+        contents,
+        fontSize: pAnnot.fontSize || 12,
+        textColor: color,
+        author,
+      } as PdfFreeTextAnnotation;
+    }
+
+    if (subtype === "ink") {
+      return {
+        id,
+        type: "ink",
+        pageIndex,
+        rect: pdfRect,
+        color,
+        contents,
+        paths: pAnnot.inkLists || [],
+        strokeWidth: 2,
+        author,
+      } as PdfInkAnnotation;
+    }
+
+    if (subtype === "square" || subtype === "circle" || subtype === "line") {
+      return {
+        id,
+        type: subtype as any,
+        pageIndex,
+        rect: pdfRect,
+        color,
+        strokeColor: color,
+        strokeWidth: 2,
+        contents,
+        author,
+      } as PdfShapeAnnotation;
+    }
+
+    return null;
+  }
+}
