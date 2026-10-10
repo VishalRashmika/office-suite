@@ -31,6 +31,7 @@ No external applications, no converting your files to Markdown, and no loss of f
 
 - **Native Word (.docx) Editor**: Full WYSIWYG rich-text editing with true OOXML lossless round-tripping.
 - **Native Spreadsheet (.xlsx, .csv, .tsv) Editor**: Interactive multi-sheet grid interface with formula engine and number formatting.
+- **Native PDF (.pdf) Editor & Annotator**: Cross-compatible ISO 32000-1 annotations (Sticky Notes, Highlights, Ink drawings, Text boxes, Shapes), Acrobat-like page operations, citations, and vault note linking.
 - **Adaptive Theme Support**: Toggle between Obsidian Dark Paper mode and true White Paper mode for optimal readability.
 - **Instant Debounced Autosave**: Changes write straight to your vault files on disk without interrupting your writing flow.
 - **100% Local & Privacy-First**: Everything runs locally inside your Obsidian workspace. No cloud services or external dependencies required.
@@ -82,6 +83,26 @@ View, edit, calculate, and format Excel spreadsheets and tabular files seamlessl
 | **Multi-Sheet Workbooks**| Workbook tab bar: switch sheets, create new sheet (`+`), and double-click to rename sheet tabs |
 | **CSV & TSV Support** | Native parsing and serialization of comma-separated and tab-separated files with full grid capabilities |
 | **History Stack** | Full undo (`Ctrl+Z`) and redo (`Ctrl+Y`) history stack for spreadsheet edits |
+
+---
+
+### 3. Native PDF Editor & Cross-Compatible Annotator (.pdf)
+
+View, annotate, and edit PDF documents natively with standard **ISO 32000-1 compliance** (100% cross-compatible with Adobe Acrobat, Apple Preview, Google Chrome, Microsoft Edge, and Foxit).
+
+| Category | Supported Features |
+| :--- | :--- |
+| **Sticky Notes** | Place standard Sticky Notes (`/Subtype /Text`) anywhere on pages with author, timestamp, Markdown comment editor, and customizable color |
+| **Text Highlights** | Highlight text in 8 preset colors encoded with exact `/QuadPoints` for standard Acrobat/Preview rendering |
+| **Freehand Draw (Ink)** | Smooth vector pen and marker markup (`/Subtype /Ink`) with customizable stroke width, opacity, and eraser tool |
+| **Text Boxes** | Add editable text blocks directly onto PDF pages (`/Subtype /FreeText`) with custom font size and color |
+| **Geometric Shapes** | Insert Rectangles, Circles/Ovals, and Lines (`/Subtype /Square`, `/Circle`, `/Line`) with stroke and fill styles |
+| **Acrobat-like Page Ops** | Rotate pages 90° clockwise/counter-clockwise, duplicate page, insert blank page, and delete page |
+| **Annotations List Panel** | Collapsible sidebar with real-time text search, type filters (All, Highlights, Notes, Drawings, Shapes), and jump-to-annotation navigation |
+| **Cite & Academic Citations**| Generate formatted citations in **APA**, **MLA**, **Chicago**, **BibTeX**, and **Obsidian Markdown Blockquotes** from selections or pages |
+| **Refer & Deep Linking** | Create Obsidian deep links (`[[document.pdf#page=N&annot=ID]]`) that smoothly scroll to the exact page and pulse/highlight the target annotation |
+| **Link Annotations with Notes**| Connect any PDF annotation to vault Markdown notes (`[[Notes/Summary.md]]`), create new notes with one click, and export all annotations to Markdown |
+| **High-DPI Rendering** | Crisp Retina/4K canvas rendering via Obsidian's built-in PDF.js engine with interactive selectable text layer |
 
 ---
 
