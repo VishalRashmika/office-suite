@@ -1,2 +1,4 @@
 node_modules/
 *.log
+# agyq runtime state and transcripts
+.agyq/

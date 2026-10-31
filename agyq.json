@@ -1,0 +1,11 @@
+{
+  "recovery": "resume",
+  "on_failure": "stop",
+  "prompt_timeout": "90m",
+  "agy": {
+    "binary": "agy",
+    "model": "gemini-3.8-flash-high",
+    "effort": "high",
+    "permission_mode": "dangerously-skip-permissions"
+  }
+}
