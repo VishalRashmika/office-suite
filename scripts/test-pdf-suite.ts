@@ -10,7 +10,17 @@ import {
   PdfShapeAnnotation,
   CitationService,
   CitationBuilder,
+  ZOTERO_DEFAULT_PROFILE,
+  ACADEMIC_RESEARCH_PROFILE,
+  LITERATURE_REVIEW_PROFILE,
+  LEGAL_ANALYSIS_PROFILE,
+  findTagForColor,
+  cloneProfile,
+  ensureValidProfile,
+  normalizeHexColor,
+  PdfColorSchemeProfile,
 } from "../src/domain/pdf";
+import { normalizeSettings, DEFAULT_OFFICE_SETTINGS } from "../src/settings/office-settings";
 
 async function runTestSuite() {
   console.log("=== RUNNING PDF EDITOR & ANNOTATIONS TEST SUITE ===");
@@ -463,6 +473,196 @@ async function runTestSuite() {
     throw new Error(`Expected transformed dimensions 250x80, got ${reloadedTb.rect[2] - reloadedTb.rect[0]}x${reloadedTb.rect[3] - reloadedTb.rect[1]}`);
   }
   console.log("✓ Verified Zotero Text Box transform (width/height resize) persisted across PDF save/load");
+
+  // ==================== Testing Zotero Color Schemes, Profiles & Semantic Tagging ====================
+  console.log("\n--- Testing Zotero Color Schemes, Profiles & Semantic Tagging ---");
+
+  // 1. Verify Standard Zotero Profile tags: Green = New Info, Red = Important Points, Yellow = Processes
+  const greenTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#5fb236");
+  if (!greenTag || greenTag.tag !== "New Info") {
+    throw new Error(`Expected Green to be tagged 'New Info', got '${greenTag?.tag}'`);
+  }
+  const redTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#ff6666");
+  if (!redTag || redTag.tag !== "Important Points") {
+    throw new Error(`Expected Red to be tagged 'Important Points', got '${redTag?.tag}'`);
+  }
+  const yellowTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#ffd400");
+  if (!yellowTag || yellowTag.tag !== "Processes") {
+    throw new Error(`Expected Yellow to be tagged 'Processes', got '${yellowTag?.tag}'`);
+  }
+  console.log("✓ Verified Zotero default palette tags: Green (New Info), Red (Important Points), Yellow (Processes)");
+
+  // 2. Verify Built-in Templates
+  if (!ACADEMIC_RESEARCH_PROFILE || ACADEMIC_RESEARCH_PROFILE.colors.length < 8) {
+    throw new Error("Academic Research template is missing or incomplete!");
+  }
+  if (!LITERATURE_REVIEW_PROFILE || LITERATURE_REVIEW_PROFILE.colors.length < 8) {
+    throw new Error("Literature Review template is missing or incomplete!");
+  }
+  if (!LEGAL_ANALYSIS_PROFILE || LEGAL_ANALYSIS_PROFILE.colors.length < 8) {
+    throw new Error("Legal Analysis template is missing or incomplete!");
+  }
+  console.log("✓ Verified Built-in Template Profiles: Academic Research, Literature Review, Legal Analysis");
+
+  // 3. Test Profile Cloning & ensureValidProfile
+  const clonedProfile = cloneProfile(ACADEMIC_RESEARCH_PROFILE, "custom-thesis", "My Thesis Scheme");
+  if (clonedProfile.id !== "custom-thesis" || clonedProfile.name !== "My Thesis Scheme") {
+    throw new Error(`Failed to clone profile correctly: ${clonedProfile.id}, ${clonedProfile.name}`);
+  }
+  if (clonedProfile.isBuiltIn) {
+    throw new Error("Cloned profile should not be marked as built-in");
+  }
+  // Modify a tag in custom profile
+  clonedProfile.colors[0].tag = "Crucial Breakthrough";
+  const verifiedThesisTag = findTagForColor(clonedProfile, clonedProfile.colors[0].hex);
+  if (verifiedThesisTag?.tag !== "Crucial Breakthrough") {
+    throw new Error(`Expected 'Crucial Breakthrough', got '${verifiedThesisTag?.tag}'`);
+  }
+  console.log("✓ Verified Template Profile cloning, validation, and custom tag customization");
+
+  // 4. Test Per-PDF Custom Color Scheme Embedding in PDF Binary
+  console.log("--- Testing Per-PDF Custom Color Scheme Embedding in PDF Binary ---");
+  const pdfForScheme = await PDFDocument.create();
+  pdfForScheme.addPage([612, 792]);
+  const pdfForSchemeBytes = await pdfForScheme.save();
+  const schemeAdapter = await PdfDocumentAdapter.load(pdfForSchemeBytes.buffer);
+
+  // Define per-PDF custom color scheme manually
+  const perPdfScheme: PdfColorSchemeProfile = {
+    id: "biology-paper-scheme",
+    name: "Biology Lab Notes",
+    description: "Specific color tags for cell biology research",
+    colors: [
+      { id: "c1", hex: "#5fb236", name: "Green", tag: "Enzyme Reactions", rgb: [0.37, 0.70, 0.22] },
+      { id: "c2", hex: "#ff6666", name: "Red", tag: "Toxic Inhibitors", rgb: [1.0, 0.40, 0.40] },
+      { id: "c3", hex: "#ffd400", name: "Yellow", tag: "Incubation Phase", rgb: [1.0, 0.83, 0.0] },
+      { id: "c4", hex: "#2ea8e5", name: "Blue", tag: "Control Samples", rgb: [0.18, 0.66, 0.90] },
+    ],
+  };
+
+  schemeAdapter.setColorScheme(perPdfScheme);
+  // Add an annotation tagged with this scheme
+  schemeAdapter.upsertAnnotation({
+    id: "bio_hl_1",
+    type: "highlight",
+    pageIndex: 0,
+    rect: [100, 600, 300, 620],
+    quadPoints: [100, 620, 300, 620, 100, 600, 300, 600],
+    color: [0.37, 0.70, 0.22], // Green -> "Enzyme Reactions"
+    highlightedText: "Taq polymerase showed 98% catalytic efficiency under 72°C.",
+    contents: "Key experimental observation",
+  });
+
+  const savedSchemePdfBytes = await schemeAdapter.save();
+
+  // Reload PDF in brand new adapter and verify scheme survived lossless binary round-trip
+  const reloadedSchemeAdapter = await PdfDocumentAdapter.load(savedSchemePdfBytes.buffer);
+  const reloadedScheme = reloadedSchemeAdapter.getColorScheme();
+
+  if (!reloadedScheme) {
+    throw new Error("Failed to reload embedded color scheme from PDF catalog!");
+  }
+  if (reloadedScheme.name !== "Biology Lab Notes") {
+    throw new Error(`Expected scheme name 'Biology Lab Notes', got '${reloadedScheme.name}'`);
+  }
+  if (reloadedScheme.colors.length !== 4) {
+    throw new Error(`Expected 4 colors, got ${reloadedScheme.colors.length}`);
+  }
+  const enzymeTag = findTagForColor(reloadedScheme, "#5fb236");
+  if (!enzymeTag || enzymeTag.tag !== "Enzyme Reactions") {
+    throw new Error(`Expected 'Enzyme Reactions', got '${enzymeTag?.tag}'`);
+  }
+  const inhibitorTag = findTagForColor(reloadedScheme, "#ff6666");
+  if (!inhibitorTag || inhibitorTag.tag !== "Toxic Inhibitors") {
+    throw new Error(`Expected 'Toxic Inhibitors', got '${inhibitorTag?.tag}'`);
+  }
+  console.log("✓ Verified Per-PDF Color Scheme embeds into PDF binary catalog and reloads losslessly with all tags");
+
+  // 5. Test Plugin Settings Normalization & Persistence
+  console.log("--- Testing Settings Normalization & Template Persistence ---");
+  const normalized = normalizeSettings({
+    pdfDefaultProfileId: "academic-research",
+    pdfProfiles: [
+      clonedProfile,
+    ],
+    pdfFileSchemes: {
+      "Vault/Bio.pdf": perPdfScheme,
+    },
+  });
+
+  if (normalized.pdfDefaultProfileId !== "academic-research") {
+    throw new Error(`Expected default profile 'academic-research', got '${normalized.pdfDefaultProfileId}'`);
+  }
+  // Check that built-ins were preserved
+  if (!normalized.pdfProfiles.some((p) => p.id === "zotero-default")) {
+    throw new Error("Missing built-in zotero-default profile after normalization");
+  }
+  // Check that custom profile was preserved
+  if (!normalized.pdfProfiles.some((p) => p.id === "custom-thesis")) {
+    throw new Error("Missing custom-thesis profile after normalization");
+  }
+  // Check that per-file scheme override was preserved
+  if (!normalized.pdfFileSchemes["Vault/Bio.pdf"] || normalized.pdfFileSchemes["Vault/Bio.pdf"].name !== "Biology Lab Notes") {
+    throw new Error("Missing per-file scheme override after normalization");
+  }
+  console.log("✓ Verified Settings normalization preserves built-ins, custom templates, and per-file schemes");
+
+  // 6. Test Markdown Export with Color Scheme Legend and Semantic Tag Callouts
+  console.log("--- Testing Markdown Export with Color Scheme Legend & Tags ---");
+  const exportAnnotations: any[] = [
+    {
+      id: "exp_hl_1",
+      type: "highlight",
+      pageIndex: 0,
+      color: [0.37, 0.70, 0.22], // Green -> "Enzyme Reactions"
+      highlightedText: "Taq polymerase showed 98% catalytic efficiency under 72°C.",
+      contents: "Note on PCR amplification",
+    },
+    {
+      id: "exp_ul_1",
+      type: "underline",
+      pageIndex: 0,
+      color: [1.0, 0.40, 0.40], // Red -> "Toxic Inhibitors"
+      highlightedText: "EDTA chelated free magnesium ions, quenching the enzymatic activity.",
+      contents: "Critical inhibitor finding",
+    },
+    {
+      id: "exp_txt_1",
+      type: "text",
+      pageIndex: 1,
+      color: [1.0, 0.83, 0.0], // Yellow -> "Incubation Phase"
+      author: "Researcher",
+      contents: "Maintain 37°C for minimum 45 minutes",
+    },
+  ];
+
+  const exportedSchemeMd = CitationService.exportAnnotationsToMarkdown(
+    "BiologyPaper.pdf",
+    "Cellular Biology Lab",
+    exportAnnotations,
+    2,
+    perPdfScheme
+  );
+
+  // Check legend presence
+  if (!exportedSchemeMd.includes("Color Scheme: Biology Lab Notes")) {
+    throw new Error("Exported markdown missing Color Scheme header!");
+  }
+  if (!exportedSchemeMd.includes("Enzyme Reactions") || !exportedSchemeMd.includes("Toxic Inhibitors") || !exportedSchemeMd.includes("Incubation Phase")) {
+    throw new Error("Exported markdown missing color scheme tag entries in table!");
+  }
+
+  // Check callout tags
+  if (!exportedSchemeMd.includes("[!quote] Highlight [Enzyme Reactions]")) {
+    throw new Error("Exported markdown missing tagged highlight callout!");
+  }
+  if (!exportedSchemeMd.includes("[!quote] Underline [Toxic Inhibitors]")) {
+    throw new Error("Exported markdown missing tagged underline callout!");
+  }
+  if (!exportedSchemeMd.includes("[!note] Sticky Note [Incubation Phase]")) {
+    throw new Error("Exported markdown missing tagged sticky note callout!");
+  }
+  console.log("✓ Verified Markdown export includes color scheme legend table and semantic tag callouts");
 
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");

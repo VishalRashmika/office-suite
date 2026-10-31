@@ -42,7 +42,7 @@ export class PdfAnnotationParser {
     if (!annots) {
       const rawAnnots = page.node.get(PDFName.of("Annots"));
       if (rawAnnots) {
-        let lookedUp = rawAnnots;
+        let lookedUp: any = rawAnnots;
         while (lookedUp instanceof PDFRef && context) {
           lookedUp = context.lookup(lookedUp);
         }
@@ -57,7 +57,7 @@ export class PdfAnnotationParser {
     const annotCount = annots.size();
     for (let i = 0; i < annotCount; i++) {
       try {
-        let item = annots.get(i);
+        let item: any = annots.get(i);
         while (item instanceof PDFRef && context) {
           item = context.lookup(item);
         }
@@ -82,7 +82,7 @@ export class PdfAnnotationParser {
     const raw = dict.get(PDFName.of(key));
     if (!raw) return undefined;
     const ctx = context || dict.context;
-    let current = raw;
+    let current: any = raw;
     while (current instanceof PDFRef && ctx) {
       current = ctx.lookup(current);
     }
@@ -275,7 +275,7 @@ export class PdfAnnotationParser {
     const ctx = context || dict.context;
     const nums: number[] = [];
     for (let i = 0; i < 4; i++) {
-      let item = rectArr.get(i);
+      let item: any = rectArr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
@@ -294,7 +294,7 @@ export class PdfAnnotationParser {
     const ctx = context || dict.context;
     const nums: number[] = [];
     for (let i = 0; i < 3; i++) {
-      let item = cArr.get(i);
+      let item: any = cArr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
@@ -310,7 +310,7 @@ export class PdfAnnotationParser {
     const res: number[] = [];
     const size = arr.size();
     for (let i = 0; i < size; i++) {
-      let item = arr.get(i);
+      let item: any = arr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
@@ -326,7 +326,7 @@ export class PdfAnnotationParser {
     const paths: number[][][] = [];
     const count = inkList.size();
     for (let i = 0; i < count; i++) {
-      let strokeArr = inkList.get(i);
+      let strokeArr: any = inkList.get(i);
       while (strokeArr instanceof PDFRef && ctx) {
         strokeArr = ctx.lookup(strokeArr);
       }
@@ -334,8 +334,8 @@ export class PdfAnnotationParser {
       const strokeCoords: number[][] = [];
       const coordCount = strokeArr.size();
       for (let j = 0; j < coordCount; j += 2) {
-        let xItem = strokeArr.get(j);
-        let yItem = strokeArr.get(j + 1);
+        let xItem: any = strokeArr.get(j);
+        let yItem: any = strokeArr.get(j + 1);
         while (xItem instanceof PDFRef && ctx) xItem = ctx.lookup(xItem);
         while (yItem instanceof PDFRef && ctx) yItem = ctx.lookup(yItem);
         const x = xItem instanceof PDFNumber ? xItem.asNumber() : 0;

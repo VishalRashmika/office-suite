@@ -4,7 +4,14 @@
  */
 
 import { setIcon, Notice } from "obsidian";
-import { PdfAnnotation, PdfAnnotationType, rgbToHex, CitationBuilder } from "../../domain/pdf";
+import {
+  PdfAnnotation,
+  PdfAnnotationType,
+  rgbToHex,
+  CitationBuilder,
+  PdfColorSchemeProfile,
+  findTagForColor,
+} from "../../domain/pdf";
 import { PdfDocumentAdapter } from "../../infrastructure/pdf";
 
 export interface PdfSidebarDelegate {
@@ -25,6 +32,7 @@ export class PdfSidebar {
   private contentEl: HTMLElement | null = null;
   private activeTab: SidebarTab = "annotations";
   private filterType: "all" | PdfAnnotationType = "all";
+  private filterTag = "all";
   private searchQuery = "";
   private delegate: PdfSidebarDelegate | null = null;
   private pdfAdapter: PdfDocumentAdapter | null = null;
@@ -32,19 +40,30 @@ export class PdfSidebar {
   private fileName = "";
   private isVisible = true;
   private annotTabBtn: HTMLElement | null = null;
+  private colorScheme?: PdfColorSchemeProfile;
   public onVisibilityChange?: (visible: boolean) => void;
+
+  setColorScheme(scheme: PdfColorSchemeProfile): void {
+    this.colorScheme = scheme;
+    if (this.activeTab === "annotations" && this.contentEl) {
+      this.contentEl.empty();
+      this.renderAnnotationsList();
+    }
+  }
 
   build(
     parentEl: HTMLElement,
     pdfAdapter: PdfDocumentAdapter,
     pdfjsDoc: any,
     fileName: string,
-    delegate: PdfSidebarDelegate
+    delegate: PdfSidebarDelegate,
+    colorScheme?: PdfColorSchemeProfile
   ): void {
     this.pdfAdapter = pdfAdapter;
     this.pdfjsDoc = pdfjsDoc;
     this.fileName = fileName;
     this.delegate = delegate;
+    this.colorScheme = colorScheme;
 
     this.containerEl = parentEl.createDiv({ cls: "pdf-sidebar-container" });
 
@@ -300,6 +319,40 @@ export class PdfSidebar {
       };
     }
 
+    // Semantic Tag filter pills
+    if (this.colorScheme && this.colorScheme.colors && this.colorScheme.colors.some((c) => c.tag)) {
+      const tagRow = listWrap.createDiv({ cls: "pdf-annot-tag-filter-row" });
+      tagRow.createSpan({ cls: "pdf-annot-tag-filter-label", text: "Tag:" });
+
+      const allTagPill = tagRow.createSpan({
+        cls: `pdf-annot-tag-pill ${this.filterTag === "all" ? "is-active" : ""}`,
+        text: "All",
+      });
+      allTagPill.onclick = () => {
+        this.filterTag = "all";
+        tagRow.querySelectorAll(".pdf-annot-tag-pill").forEach((p) => p.removeClass("is-active"));
+        allTagPill.addClass("is-active");
+        this.renderAnnotationCards(cardsContainer);
+      };
+
+      for (const col of this.colorScheme.colors) {
+        if (!col.tag) continue;
+        const tagPill = tagRow.createSpan({
+          cls: `pdf-annot-tag-pill ${this.filterTag === col.tag ? "is-active" : ""}`,
+        });
+        const miniDot = tagPill.createSpan({ cls: "pdf-annot-tag-pill-dot" });
+        miniDot.style.backgroundColor = col.hex;
+        tagPill.createSpan({ text: col.tag });
+
+        tagPill.onclick = () => {
+          this.filterTag = col.tag;
+          tagRow.querySelectorAll(".pdf-annot-tag-pill").forEach((p) => p.removeClass("is-active"));
+          tagPill.addClass("is-active");
+          this.renderAnnotationCards(cardsContainer);
+        };
+      }
+    }
+
     const cardsContainer = listWrap.createDiv({ cls: "pdf-annot-cards-container" });
     this.renderAnnotationCards(cardsContainer);
   }
@@ -317,6 +370,14 @@ export class PdfSidebar {
       } else {
         annots = annots.filter((a) => a.type === this.filterType);
       }
+    }
+
+    // Semantic Tag filter
+    if (this.filterTag !== "all") {
+      annots = annots.filter((a) => {
+        const tagged = findTagForColor(this.colorScheme, a.color);
+        return tagged?.tag === this.filterTag;
+      });
     }
 
     // Search query filter
@@ -348,7 +409,7 @@ export class PdfSidebar {
         this.delegate?.onSelectAnnotation(annot);
       };
 
-      // Header: Dot, Type Name, Page badge, Actions
+      // Header: Dot, Type Name, Tag Badge, Page badge, Actions
       const cardHeader = card.createDiv({ cls: "pdf-annot-card-header" });
 
       const leftInfo = cardHeader.createDiv({ cls: "pdf-annot-card-left" });
@@ -357,6 +418,17 @@ export class PdfSidebar {
 
       const typeLabel = this.formatTypeLabel(annot.type);
       leftInfo.createSpan({ cls: "pdf-annot-card-type", text: typeLabel });
+
+      // Semantic Tag Badge
+      const tagged = findTagForColor(this.colorScheme, annot.color);
+      if (tagged?.tag) {
+        const tagBadge = leftInfo.createSpan({
+          cls: "pdf-annot-card-tag-badge",
+          text: tagged.tag,
+        });
+        tagBadge.style.color = tagged.hex;
+        tagBadge.style.borderColor = tagged.hex;
+      }
 
       const pageBadge = leftInfo.createSpan({
         cls: "pdf-annot-card-page-badge",

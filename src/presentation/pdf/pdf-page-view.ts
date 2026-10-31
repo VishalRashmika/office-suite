@@ -18,6 +18,9 @@ import {
   PdfRect,
   PDF_COLOR_PRESETS,
   rgbToHex,
+  hexToRgb,
+  PdfColorSchemeProfile,
+  normalizeHexColor,
 } from "../../domain/pdf";
 import { PdfActiveTool } from "./pdf-toolbar";
 
@@ -59,6 +62,7 @@ export class PdfPageView {
   private strokeWidth = 2;
   private isRendering = false;
   private annotations: PdfAnnotation[] = [];
+  private colorScheme?: PdfColorSchemeProfile;
 
   // Selection & Drag State
   private selectedAnnotId: string | null = null;
@@ -99,6 +103,10 @@ export class PdfPageView {
 
   setDelegate(delegate: PdfPageViewDelegate): void {
     this.delegate = delegate;
+  }
+
+  setColorScheme(scheme: PdfColorSchemeProfile): void {
+    this.colorScheme = scheme;
   }
 
   setTool(tool: PdfActiveTool, color: PdfRgbColor, width: number): void {
@@ -669,17 +677,32 @@ export class PdfPageView {
     });
 
     // Color swatch dot
-    const colorBtn = formatWrap.createSpan({ cls: "pdf-annot-freetext-color-dot", attr: { title: "Change text color" } });
+    const colors =
+      this.colorScheme?.colors && this.colorScheme.colors.length > 0
+        ? this.colorScheme.colors
+        : PDF_COLOR_PRESETS.map((p) => ({
+            id: p.name.toLowerCase(),
+            hex: p.hex,
+            name: p.name,
+            tag: "",
+            rgb: p.rgb,
+          }));
+
+    const colorBtn = formatWrap.createSpan({
+      cls: "pdf-annot-freetext-color-dot",
+      attr: { title: "Change text color" },
+    });
     colorBtn.style.backgroundColor = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
     colorBtn.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       e.preventDefault();
-      const currentHex = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]).toLowerCase();
-      const idx = PDF_COLOR_PRESETS.findIndex((p) => p.hex.toLowerCase() === currentHex);
-      const nextPreset = PDF_COLOR_PRESETS[(idx + 1) % PDF_COLOR_PRESETS.length];
-      annot.textColor = nextPreset.rgb;
-      colorBtn.style.backgroundColor = nextPreset.hex;
-      contentEl.style.color = nextPreset.hex;
+      const currentHex = normalizeHexColor(rgbToHex(annot.textColor || [0.1, 0.1, 0.1]));
+      const idx = colors.findIndex((c) => normalizeHexColor(c.hex) === currentHex);
+      const nextItem = colors[(idx + 1) % colors.length];
+      annot.textColor = nextItem.rgb || hexToRgb(nextItem.hex);
+      colorBtn.style.backgroundColor = nextItem.hex;
+      contentEl.style.color = nextItem.hex;
+      colorBtn.title = `Change text color (${nextItem.name}${nextItem.tag ? `: ${nextItem.tag}` : ""})`;
       this.delegate?.onUpdateAnnotation(annot);
     });
 
@@ -947,7 +970,7 @@ export class PdfPageView {
           startPdfRect: [...annot.rect] as PdfRect,
           startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
           startQuadPoints: (annot.type === "highlight" || annot.type === "underline") ? [...(annot as any).quadPoints] : undefined,
-          startLinePoints: (annot as any).linePoints ? [...(annot as any).linePoints] : undefined,
+          startLinePoints: (annot as any).linePoints ? ([...(annot as any).linePoints] as [number, number, number, number]) : undefined,
           hasMoved: false,
         };
 

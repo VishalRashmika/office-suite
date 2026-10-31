@@ -7,7 +7,8 @@
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
-    "build": "node esbuild.config.mjs production"
+    "build": "node esbuild.config.mjs production",
+    "test": "node -e \"require('esbuild').buildSync({ entryPoints: ['scripts/test-pdf-suite.ts'], outfile: 'scripts/test-pdf-suite.cjs', bundle: true, format: 'cjs', platform: 'node', external: ['obsidian', 'electron'] }); try { require('./scripts/test-pdf-suite.cjs'); } finally { try { require('fs').unlinkSync('scripts/test-pdf-suite.cjs'); } catch(e){} }\""
   },
   "dependencies": {
     "jszip": "^3.10.1",

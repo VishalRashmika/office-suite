@@ -3,13 +3,15 @@
  * annotation synchronization, and page manipulation.
  */
 
-import { PDFDocument, PDFPage, degrees, PDFObjectStreamParser, PDFRef } from "pdf-lib";
+import { PDFDocument, PDFPage, degrees, PDFObjectStreamParser, PDFRef, PDFName, PDFString } from "pdf-lib";
 import {
   PdfAnnotation,
   PdfPageInfo,
   PdfRotation,
   PdfAnnotationParser,
   PdfAnnotationSerializer,
+  PdfColorSchemeProfile,
+  ensureValidProfile,
 } from "../../domain/pdf";
 
 // Resilient Object Stream patch for pdf-lib:
@@ -50,6 +52,7 @@ export class PdfDocumentAdapter {
   private annotations: Map<string, PdfAnnotation> = new Map();
   private originalBytes: ArrayBuffer;
   private isDirty = false;
+  private colorScheme?: PdfColorSchemeProfile;
 
   private constructor(pdfDoc: PDFDocument, originalBytes: ArrayBuffer) {
     this.pdfDoc = pdfDoc;
@@ -59,12 +62,40 @@ export class PdfDocumentAdapter {
   /**
    * Loads a PDF document from binary bytes.
    */
-  static async load(bytes: ArrayBuffer): Promise<PdfDocumentAdapter> {
+  static async load(bytes: ArrayBuffer | ArrayBufferLike | Uint8Array): Promise<PdfDocumentAdapter> {
     patchPdfLibObjectStreamParser();
-    const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true });
-    const adapter = new PdfDocumentAdapter(pdfDoc, bytes);
+    const pdfDoc = await PDFDocument.load(bytes as any, { ignoreEncryption: true });
+    const buffer = bytes instanceof Uint8Array ? (bytes.buffer as ArrayBuffer) : (bytes as ArrayBuffer);
+    const adapter = new PdfDocumentAdapter(pdfDoc, buffer);
     adapter.loadExistingAnnotations();
+    adapter.loadEmbeddedColorScheme();
     return adapter;
+  }
+
+  /**
+   * Loads custom color scheme embedded in the PDF catalog, if present.
+   */
+  private loadEmbeddedColorScheme(): void {
+    try {
+      const raw =
+        this.pdfDoc.catalog.lookup(PDFName.of("OfficeSuiteColorScheme")) ||
+        this.pdfDoc.catalog.get(PDFName.of("OfficeSuiteColorScheme"));
+      if (raw) {
+        let str = "";
+        if (typeof (raw as any).asString === "function") {
+          str = (raw as any).asString();
+        } else if (typeof (raw as any).decodeText === "function") {
+          str = (raw as any).decodeText();
+        } else if ((raw as any).value) {
+          str = String((raw as any).value);
+        }
+        if (str) {
+          this.colorScheme = ensureValidProfile(JSON.parse(str));
+        }
+      }
+    } catch (e) {
+      // Gracefully ignore if malformed
+    }
   }
 
   /**
@@ -79,6 +110,23 @@ export class PdfDocumentAdapter {
       for (const annot of annots) {
         this.annotations.set(annot.id, annot);
       }
+    }
+  }
+
+  getColorScheme(): PdfColorSchemeProfile | undefined {
+    return this.colorScheme;
+  }
+
+  setColorScheme(scheme: PdfColorSchemeProfile): void {
+    this.colorScheme = scheme;
+    try {
+      this.pdfDoc.catalog.set(
+        PDFName.of("OfficeSuiteColorScheme"),
+        PDFString.of(JSON.stringify(scheme))
+      );
+      this.isDirty = true;
+    } catch (err) {
+      console.warn("Could not embed color scheme into PDF catalog:", err);
     }
   }
 
@@ -270,7 +318,7 @@ export class PdfDocumentAdapter {
     this.originalBytes = savedBytes.buffer.slice(
       savedBytes.byteOffset,
       savedBytes.byteOffset + savedBytes.byteLength
-    );
+    ) as ArrayBuffer;
     this.isDirty = false;
     return savedBytes;
   }

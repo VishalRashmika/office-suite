@@ -14,19 +14,27 @@ import {
   PdfInkAnnotation,
   PdfShapeAnnotation,
   PdfRect,
-  PdfActiveTool,
   PdfRgbColor,
   PDF_COLOR_PRESETS,
   rgbToHex,
+  hexToRgb,
   CitationService,
   CitationMetadata,
+  PdfColorSchemeProfile,
+  ZOTERO_DEFAULT_PROFILE,
+  cloneProfile,
+  ensureValidProfile,
+  findTagForColor,
+  normalizeHexColor,
 } from "../../domain/pdf";
 import { PdfDocumentAdapter } from "../../infrastructure/pdf";
-import { PdfToolbar, PdfToolbarDelegate } from "./pdf-toolbar";
+import { PdfToolbar, PdfToolbarDelegate, PdfActiveTool } from "./pdf-toolbar";
 import { PdfSidebar, PdfSidebarDelegate } from "./pdf-sidebar";
 import { PdfPageView, PdfPageViewDelegate } from "./pdf-page-view";
 import { PdfNotePopover } from "./pdf-note-popover";
 import { PdfCiteModal } from "./pdf-cite-modal";
+import { PdfColorSchemeModal } from "./pdf-color-scheme-modal";
+import type OfficeSuitePlugin from "../../main";
 
 export const VIEW_TYPE_PDF = "pdf-editor-view";
 
@@ -39,6 +47,10 @@ export class PdfView
   readerTheme: "light" | "sepia" | "dark" = "light";
   paperTheme: "light" | "dark" = "light";
 
+  private plugin?: OfficeSuitePlugin;
+  private activeColorScheme: PdfColorSchemeProfile = ZOTERO_DEFAULT_PROFILE;
+  private unregisterColorSchemeListener?: () => void;
+
   private pdfjsDoc: any = null;
   private toolbar = new PdfToolbar();
   private sidebar = new PdfSidebar();
@@ -49,6 +61,7 @@ export class PdfView
   private mainContainerEl: HTMLElement | null = null;
   private pagesScrollEl: HTMLElement | null = null;
   private selectionBarEl: HTMLElement | null = null;
+  private selectionColorsWrap: HTMLElement | null = null;
 
   private pageViews: Map<number, PdfPageView> = new Map();
   private activeTool: PdfActiveTool = "hand";
@@ -63,9 +76,18 @@ export class PdfView
   private isInternalSaving = false;
   private lastInternalSaveTime = 0;
 
-  constructor(leaf: WorkspaceLeaf) {
+  constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
+    this.plugin = plugin;
     this.notePopover = new PdfNotePopover(this.app);
+  }
+
+  getPlugin(): OfficeSuitePlugin | undefined {
+    if (this.plugin) return this.plugin;
+    return (
+      (this.app as any).plugins?.getPlugin?.("office-suite") ||
+      (this.app as any).plugins?.plugins?.["office-suite"]
+    );
   }
 
   getViewType(): string {
@@ -121,9 +143,13 @@ export class PdfView
     // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
     await this.enrichAnnotationsFromPdfJs();
 
+    // Initialize active color scheme for this PDF
+    this.initColorSchemeForFile(file.path);
+
     // 1. Build Toolbar
     this.toolbarEl = this.contentEl.createDiv({ cls: "pdf-editor-toolbar-wrap" });
     this.toolbar.build(this.toolbarEl, this);
+    this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
     this.toolbar.setPageData(1, this.pdfDoc.getPageCount());
 
     // 2. Main split view (Sidebar + Scroll Area)
@@ -144,7 +170,8 @@ export class PdfView
       this.pdfDoc,
       this.pdfjsDoc,
       file.name,
-      this
+      this,
+      this.activeColorScheme
     );
     this.sidebar.onVisibilityChange = (visible) => {
       this.toolbar.setSidebarActive(visible);
@@ -154,6 +181,23 @@ export class PdfView
         this.retractTabEl?.removeClass("is-hidden");
       }
     };
+
+    // Note Popover
+    this.notePopover.setColorScheme(this.activeColorScheme);
+
+    // Register color scheme listener from plugin
+    this.unregisterColorSchemeListener?.();
+    this.unregisterColorSchemeListener = this.getPlugin()?.onColorSchemeChanged(() => {
+      const plugin = this.getPlugin();
+      if (this.file && plugin) {
+        const fileScheme = plugin.settings.pdfFileSchemes[this.file.path];
+        if (fileScheme) {
+          this.applyColorScheme(fileScheme, false);
+        } else {
+          this.toolbar.setColorScheme(this.activeColorScheme, plugin.settings.pdfProfiles);
+        }
+      }
+    });
 
     // Scrollable Pages Area
     this.pagesScrollEl = this.mainContainerEl.createDiv({ cls: "pdf-pages-scroll-area" });
@@ -222,6 +266,7 @@ export class PdfView
     for (let i = 0; i < pageCount; i++) {
       const pageView = new PdfPageView(i, this.pagesScrollEl);
       pageView.setDelegate(this);
+      pageView.setColorScheme(this.activeColorScheme);
       pageView.setTool(this.activeTool, this.activeColor, this.strokeWidth);
       pageView.setAnnotations(this.pdfDoc.getPageAnnotations(i));
       this.pageViews.set(i, pageView);
@@ -298,28 +343,9 @@ export class PdfView
     const bar = document.createElement("div");
     bar.className = "pdf-selection-action-bar is-hidden";
 
-    // Quick Color Swatches (Zotero palette)
-    const colorWrap = bar.createDiv({ cls: "pdf-selection-colors" });
-    for (const preset of PDF_COLOR_PRESETS) {
-      const dot = colorWrap.createSpan({ cls: "pdf-selection-color-dot" });
-      dot.style.backgroundColor = preset.hex;
-      dot.title = preset.name;
-      if (rgbToHex(this.activeColor).toLowerCase() === preset.hex.toLowerCase()) {
-        dot.addClass("is-active");
-      }
-      dot.onclick = (e) => {
-        e.stopPropagation();
-        this.activeColor = preset.rgb;
-        colorWrap.querySelectorAll(".pdf-selection-color-dot").forEach((d) => d.removeClass("is-active"));
-        dot.addClass("is-active");
-        this.toolbar.setActiveTool(this.activeTool);
-        if (this.selectedTextInfo) {
-          const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-          pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
-          this.hideSelectionBar();
-        }
-      };
-    }
+    // Quick Color Swatches from active Scheme
+    this.selectionColorsWrap = bar.createDiv({ cls: "pdf-selection-colors" });
+    this.renderSelectionBarColors();
 
     // Action 1: Highlight Button
     const hlBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Highlight" });
@@ -528,7 +554,8 @@ export class PdfView
       this.file.name,
       this.pdfDoc.getTitle(),
       annots,
-      this.pdfDoc.getPageCount()
+      this.pdfDoc.getPageCount(),
+      this.activeColorScheme
     );
 
     const parentPath = this.file.parent?.path && this.file.parent.path !== "/" ? this.file.parent.path : "";
@@ -579,6 +606,189 @@ export class PdfView
     await this.saveNow();
   }
 
+  // ==================== Color Scheme & Tag Delegate Methods ====================
+
+  initColorSchemeForFile(filePath: string): void {
+    // 1. Embedded scheme in PDF catalog
+    const embeddedScheme = this.pdfDoc?.getColorScheme();
+    if (embeddedScheme) {
+      this.activeColorScheme = embeddedScheme;
+      return;
+    }
+
+    // 2. File-specific scheme in plugin settings
+    const plugin = this.getPlugin();
+    if (plugin && plugin.settings.pdfFileSchemes[filePath]) {
+      this.activeColorScheme = plugin.settings.pdfFileSchemes[filePath];
+      return;
+    }
+
+    // 3. Default template profile from plugin settings
+    if (plugin) {
+      const defaultProfile =
+        plugin.settings.pdfProfiles.find((p) => p.id === plugin.settings.pdfDefaultProfileId) ||
+        plugin.settings.pdfProfiles[0];
+      if (defaultProfile) {
+        this.activeColorScheme = cloneProfile(defaultProfile);
+        return;
+      }
+    }
+
+    // 4. Fallback to built-in Zotero Default
+    this.activeColorScheme = cloneProfile(ZOTERO_DEFAULT_PROFILE);
+  }
+
+  private renderSelectionBarColors(): void {
+    if (!this.selectionColorsWrap) return;
+    this.selectionColorsWrap.empty();
+
+    const colors =
+      this.activeColorScheme.colors && this.activeColorScheme.colors.length > 0
+        ? this.activeColorScheme.colors
+        : PDF_COLOR_PRESETS.map((p) => ({
+            id: p.name.toLowerCase(),
+            hex: p.hex,
+            name: p.name,
+            tag: "",
+            rgb: p.rgb,
+          }));
+
+    for (const item of colors) {
+      const dot = this.selectionColorsWrap.createSpan({ cls: "pdf-selection-color-dot" });
+      dot.style.backgroundColor = item.hex;
+      const tagText = item.tag ? ` (${item.tag})` : "";
+      dot.title = `${item.name}${tagText}`;
+
+      if (rgbToHex(this.activeColor).toLowerCase() === normalizeHexColor(item.hex)) {
+        dot.addClass("is-active");
+      }
+
+      dot.onclick = (e) => {
+        e.stopPropagation();
+        this.activeColor = item.rgb || hexToRgb(item.hex);
+        this.selectionColorsWrap
+          ?.querySelectorAll(".pdf-selection-color-dot")
+          .forEach((d) => d.removeClass("is-active"));
+        dot.addClass("is-active");
+        this.toolbar.setActiveTool(this.activeTool);
+        if (this.selectedTextInfo) {
+          const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+          pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+          this.hideSelectionBar();
+        }
+      };
+    }
+  }
+
+  onSelectProfile(profileId: string): void {
+    const plugin = this.getPlugin();
+    const profile = plugin?.settings.pdfProfiles.find((p) => p.id === profileId);
+    if (!profile) return;
+
+    this.applyColorScheme(cloneProfile(profile, undefined, profile.name), true);
+    new Notice(`Applied color scheme template "${profile.name}"`);
+  }
+
+  onOpenColorSchemeModal(): void {
+    const plugin = this.getPlugin();
+    const available = plugin ? plugin.settings.pdfProfiles : [this.activeColorScheme];
+
+    new PdfColorSchemeModal(this.app, {
+      fileName: this.file?.name || "document.pdf",
+      currentScheme: this.activeColorScheme,
+      availableProfiles: available,
+      onApply: (newScheme) => {
+        this.applyColorScheme(newScheme, true);
+      },
+      onSaveAsTemplate: async (newProfile) => {
+        if (plugin) {
+          plugin.settings.pdfProfiles.push(newProfile);
+          await plugin.saveSettings();
+          plugin.notifyColorSchemeChanged();
+        }
+        this.applyColorScheme(newProfile, true);
+      },
+    }).open();
+  }
+
+  async onSaveSchemeAsProfile(): Promise<void> {
+    const name = prompt("Enter a name for this new reusable template profile:", this.activeColorScheme.name);
+    if (!name || !name.trim()) return;
+
+    const plugin = this.getPlugin();
+    if (!plugin) return;
+
+    const newProfile = cloneProfile(this.activeColorScheme, undefined, name.trim());
+    plugin.settings.pdfProfiles.push(newProfile);
+    await plugin.saveSettings();
+    plugin.notifyColorSchemeChanged();
+    new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+  }
+
+  async onResetSchemeToDefault(): Promise<void> {
+    const plugin = this.getPlugin();
+    const defaultProfile =
+      plugin?.settings.pdfProfiles.find((p) => p.id === plugin?.settings.pdfDefaultProfileId) ||
+      ZOTERO_DEFAULT_PROFILE;
+
+    this.applyColorScheme(cloneProfile(defaultProfile), true);
+    new Notice(`Reset color scheme to "${defaultProfile.name}" default`);
+  }
+
+  applyColorScheme(scheme: PdfColorSchemeProfile, persist = true): void {
+    this.activeColorScheme = scheme;
+
+    // Ensure active tool color matches one in the scheme, else default to first
+    const activeHex = rgbToHex(this.activeColor).toLowerCase();
+    const hasColor = scheme.colors.some((c) => normalizeHexColor(c.hex) === activeHex);
+    if (!hasColor && scheme.colors[0]) {
+      this.activeColor = scheme.colors[0].rgb || hexToRgb(scheme.colors[0].hex);
+    }
+
+    // 1. Update Toolbar
+    this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
+
+    // 2. Update Sidebar
+    this.sidebar.setColorScheme(this.activeColorScheme);
+
+    // 3. Update Note Popover
+    this.notePopover.setColorScheme(this.activeColorScheme);
+
+    // 4. Update Selection Bar
+    this.renderSelectionBarColors();
+
+    // 5. Update all Page Views
+    for (const pv of this.pageViews.values()) {
+      pv.setColorScheme(this.activeColorScheme);
+      pv.setTool(this.activeTool, this.activeColor, this.strokeWidth);
+    }
+
+    // 6. Persist to PDF catalog and plugin settings
+    if (persist) {
+      if (this.pdfDoc) {
+        this.pdfDoc.setColorScheme(this.activeColorScheme);
+        this.scheduleSave();
+      }
+      if (this.file && this.getPlugin()) {
+        void this.getPlugin()?.setColorSchemeForFile(this.file.path, this.activeColorScheme);
+      }
+    }
+  }
+
+  async onClose(): Promise<void> {
+    this.unregisterColorSchemeListener?.();
+    if (this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    await this.requestSave();
+    this.toolbar.dispose();
+    this.sidebar.dispose();
+    this.notePopover.hide();
+    this.selectionBarEl?.remove();
+    this.pageViews.clear();
+  }
+
   // ==================== PdfSidebarDelegate Implementation ====================
 
   onSelectPage(pageIndex: number): void {
@@ -595,7 +805,7 @@ export class PdfView
     const pv = this.pageViews.get(annotation.pageIndex);
     if (pv) {
       const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;
-      this.notePopover.show(el || pv.element, annotation, this);
+      this.notePopover.show(el || pv.element, annotation, this, this.activeColorScheme);
     }
   }
 
@@ -624,7 +834,7 @@ export class PdfView
   }
 
   onClickAnnotation(annotation: PdfAnnotation, element: HTMLElement | SVGElement): void {
-    this.notePopover.show(element, annotation, this);
+    this.notePopover.show(element, annotation, this, this.activeColorScheme);
   }
 
   private syncAnnotationsToViews(): void {

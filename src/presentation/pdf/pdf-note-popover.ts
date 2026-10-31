@@ -9,6 +9,10 @@ import {
   PdfAnnotation,
   PDF_COLOR_PRESETS,
   rgbToHex,
+  hexToRgb,
+  PdfColorSchemeProfile,
+  findTagForColor,
+  normalizeHexColor,
 } from "../../domain/pdf";
 
 export interface PdfNotePopoverDelegate {
@@ -23,10 +27,15 @@ export class PdfNotePopover {
   private currentTargetEl: HTMLElement | SVGElement | null = null;
   private scrollContainerEl: HTMLElement | null = null;
   private delegate: PdfNotePopoverDelegate | null = null;
+  private colorScheme?: PdfColorSchemeProfile;
   private app: App;
 
   constructor(app: App) {
     this.app = app;
+  }
+
+  setColorScheme(scheme: PdfColorSchemeProfile): void {
+    this.colorScheme = scheme;
   }
 
   setScrollContainer(container: HTMLElement | null): void {
@@ -36,9 +45,13 @@ export class PdfNotePopover {
   show(
     targetEl: HTMLElement | SVGElement,
     annotation: PdfAnnotation,
-    delegate: PdfNotePopoverDelegate
+    delegate: PdfNotePopoverDelegate,
+    colorScheme?: PdfColorSchemeProfile
   ): void {
     this.hide();
+    if (colorScheme) {
+      this.colorScheme = colorScheme;
+    }
     this.currentAnnotation = annotation;
     this.currentTargetEl = targetEl;
     this.delegate = delegate;
@@ -52,7 +65,8 @@ export class PdfNotePopover {
     const titleWrap = header.createDiv({ cls: "pdf-popover-title-wrap" });
 
     const colorDot = titleWrap.createSpan({ cls: "pdf-popover-color-dot" });
-    colorDot.style.backgroundColor = rgbToHex(annotation.color);
+    const initialHex = rgbToHex(annotation.color);
+    colorDot.style.backgroundColor = initialHex;
 
     const typeTitle =
       annotation.type === "highlight"
@@ -63,6 +77,17 @@ export class PdfNotePopover {
         ? "Sticky Note"
         : "Annotation";
     titleWrap.createSpan({ cls: "pdf-popover-type", text: typeTitle });
+
+    // Semantic Tag Badge
+    const tagBadge = titleWrap.createSpan({ cls: "pdf-popover-tag-badge" });
+    const initialTag = findTagForColor(this.colorScheme, annotation.color);
+    if (initialTag?.tag) {
+      tagBadge.setText(initialTag.tag);
+      tagBadge.style.color = initialTag.hex;
+      tagBadge.style.borderColor = initialTag.hex;
+    } else {
+      tagBadge.addClass("is-hidden");
+    }
 
     const authorText = annotation.author || "User";
     const dateText = annotation.modifiedAt
@@ -114,22 +139,47 @@ export class PdfNotePopover {
       }
     };
 
-    // Color Swatches
+    // Color Swatches from active Scheme
     const colorRow = body.createDiv({ cls: "pdf-popover-colors" });
-    for (const preset of PDF_COLOR_PRESETS) {
+    const availableColors =
+      this.colorScheme?.colors && this.colorScheme.colors.length > 0
+        ? this.colorScheme.colors
+        : PDF_COLOR_PRESETS.map((p) => ({
+            id: p.name.toLowerCase(),
+            hex: p.hex,
+            name: p.name,
+            tag: "",
+            rgb: p.rgb,
+          }));
+
+    for (const item of availableColors) {
       const swatch = colorRow.createDiv({ cls: "pdf-popover-swatch" });
-      swatch.style.backgroundColor = preset.hex;
-      swatch.title = preset.name;
-      if (rgbToHex(annotation.color).toLowerCase() === preset.hex.toLowerCase()) {
+      swatch.style.backgroundColor = item.hex;
+      const tagText = item.tag ? ` (${item.tag})` : "";
+      swatch.title = `${item.name}${tagText}`;
+
+      if (rgbToHex(annotation.color).toLowerCase() === normalizeHexColor(item.hex)) {
         swatch.addClass("is-selected");
       }
+
       swatch.onclick = (e) => {
         e.stopPropagation();
         colorRow.querySelectorAll(".pdf-popover-swatch").forEach((s) => s.removeClass("is-selected"));
         swatch.addClass("is-selected");
-        colorDot.style.backgroundColor = preset.hex;
+        colorDot.style.backgroundColor = item.hex;
+
+        // Update tag badge
+        if (item.tag) {
+          tagBadge.setText(item.tag);
+          tagBadge.style.color = item.hex;
+          tagBadge.style.borderColor = item.hex;
+          tagBadge.removeClass("is-hidden");
+        } else {
+          tagBadge.addClass("is-hidden");
+        }
+
         if (this.currentAnnotation && this.delegate) {
-          this.currentAnnotation.color = preset.rgb;
+          this.currentAnnotation.color = item.rgb || hexToRgb(item.hex);
           this.delegate.onUpdateAnnotation(this.currentAnnotation);
         }
       };

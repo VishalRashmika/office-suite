@@ -4,6 +4,7 @@
 
 import { CitationBuilder, CitationMetadata, CitationStyle } from "../models/citation";
 import { PdfAnnotation, rgbToHex } from "../models/pdf-annotation";
+import { PdfColorSchemeProfile, findTagForColor } from "../models/pdf-color-scheme";
 
 export class CitationService {
   /**
@@ -34,12 +35,14 @@ export class CitationService {
 
   /**
    * Generates a comprehensive Obsidian Markdown document summarizing all annotations in the PDF.
+   * Includes color scheme legend and semantic tags when a color scheme is provided.
    */
   static exportAnnotationsToMarkdown(
     pdfFileName: string,
     docTitle: string | undefined,
     annotations: PdfAnnotation[],
-    totalPages: number
+    totalPages: number,
+    colorScheme?: PdfColorSchemeProfile
   ): string {
     const title = docTitle || pdfFileName.replace(/\.pdf$/i, "");
     const dateStr = new Date().toISOString().split("T")[0];
@@ -50,6 +53,7 @@ export class CitationService {
       `source: "[[${pdfFileName}]]"`,
       `date: ${dateStr}`,
       `total_annotations: ${annotations.length}`,
+      `color_scheme: "${colorScheme?.name || "Default"}"`,
       `tags:`,
       `  - pdf-annotations`,
       `---`,
@@ -58,9 +62,20 @@ export class CitationService {
       ``,
       `*Generated on ${new Date().toLocaleString()} — ${annotations.length} annotation(s) across ${totalPages} page(s).*`,
       ``,
-      `---`,
-      ``,
     ];
+
+    if (colorScheme && colorScheme.colors && colorScheme.colors.length > 0) {
+      lines.push(`### Color Scheme: ${colorScheme.name}`);
+      lines.push(`| Color | Name | Tag / Meaning |`);
+      lines.push(`| :---: | :--- | :--- |`);
+      for (const col of colorScheme.colors) {
+        lines.push(`| <span style="color:${col.hex}">■</span> | **${col.name}** | \`${col.tag || "Untagged"}\` |`);
+      }
+      lines.push(``);
+    }
+
+    lines.push(`---`);
+    lines.push(``);
 
     if (annotations.length === 0) {
       lines.push(`*No annotations found in this document.*`);
@@ -91,12 +106,17 @@ export class CitationService {
 
       for (const annot of pageAnnots) {
         const link = this.generateReferenceLink(pdfFileName, pageNum, annot.id, `Page ${pageNum}`);
-        const colorHex = rgbToHex(annot.color);
+        const taggedColor = colorScheme ? findTagForColor(colorScheme, annot.color) : undefined;
+        const tagLabel = taggedColor?.tag ? ` [${taggedColor.tag}]` : "";
 
         switch (annot.type) {
           case "highlight": {
             const quote = annot.highlightedText || annot.contents || "";
-            lines.push(`> [!quote] Highlight (${link})`);
+            lines.push(`> [!quote] Highlight${tagLabel} (${link})`);
+            if (taggedColor?.tag) {
+              lines.push(`> **Tag:** \`${taggedColor.tag}\` (${taggedColor.name})`);
+              lines.push(`> `);
+            }
             if (quote) {
               lines.push(`> "${quote}"`);
             }
@@ -114,7 +134,11 @@ export class CitationService {
 
           case "underline": {
             const quote = annot.highlightedText || annot.contents || "";
-            lines.push(`> [!quote] Underline (${link})`);
+            lines.push(`> [!quote] Underline${tagLabel} (${link})`);
+            if (taggedColor?.tag) {
+              lines.push(`> **Tag:** \`${taggedColor.tag}\` (${taggedColor.name})`);
+              lines.push(`> `);
+            }
             if (quote) {
               lines.push(`> "${quote}"`);
             }
@@ -131,9 +155,13 @@ export class CitationService {
           }
 
           case "text": {
-            lines.push(`> [!note] Sticky Note (${link})`);
+            lines.push(`> [!note] Sticky Note${tagLabel} (${link})`);
+            if (taggedColor?.tag) {
+              lines.push(`> **Tag:** \`${taggedColor.tag}\` (${taggedColor.name})`);
+            }
             lines.push(`> **Author:** ${annot.author || "User"}`);
             if (annot.contents) {
+              lines.push(`> `);
               lines.push(`> ${annot.contents}`);
             }
             if (annot.linkedNote) {
@@ -145,7 +173,10 @@ export class CitationService {
           }
 
           case "ink": {
-            lines.push(`- ✏️ **Drawing / Ink Markup** on ${link}`);
+            lines.push(`- ✏️ **Drawing${tagLabel}** on ${link}`);
+            if (taggedColor?.tag) {
+              lines.push(`  - Tag: \`${taggedColor.tag}\``);
+            }
             if (annot.contents) {
               lines.push(`  - Note: ${annot.contents}`);
             }
@@ -157,7 +188,10 @@ export class CitationService {
           }
 
           case "freetext": {
-            lines.push(`> [!example] Text Box (${link})`);
+            lines.push(`> [!example] Text Box${tagLabel} (${link})`);
+            if (taggedColor?.tag) {
+              lines.push(`> **Tag:** \`${taggedColor.tag}\``);
+            }
             if (annot.contents) {
               lines.push(`> "${annot.contents}"`);
             }
@@ -172,7 +206,10 @@ export class CitationService {
           case "square":
           case "circle":
           case "line": {
-            lines.push(`- 🔷 **${annot.type.toUpperCase()} Shape** on ${link}`);
+            lines.push(`- 🔷 **${annot.type.toUpperCase()} Shape${tagLabel}** on ${link}`);
+            if (taggedColor?.tag) {
+              lines.push(`  - Tag: \`${taggedColor.tag}\``);
+            }
             if (annot.contents) {
               lines.push(`  - Note: ${annot.contents}`);
             }
@@ -189,3 +226,4 @@ export class CitationService {
     return lines.join("\n");
   }
 }
+
