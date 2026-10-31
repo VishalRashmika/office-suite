@@ -15,12 +15,20 @@ export interface OfficeSuiteSettings {
   pdfDefaultProfileId: string;
   pdfProfiles: PdfColorSchemeProfile[];
   pdfFileSchemes: Record<string, PdfColorSchemeProfile>; // Keyed by file path (e.g. "Papers/AI.pdf")
+  pptxDefaultViewMode: "single" | "scroll" | "grid";
+  pptxDefaultTransition: string;
+  pptxShowSlideNumberBadge: boolean;
+  pptxTransitionSpeed: "fast" | "medium" | "slow";
 }
 
 export const DEFAULT_OFFICE_SETTINGS: OfficeSuiteSettings = {
   pdfDefaultProfileId: "zotero-default",
   pdfProfiles: [...BUILT_IN_PROFILES],
   pdfFileSchemes: {},
+  pptxDefaultViewMode: "single",
+  pptxDefaultTransition: "auto",
+  pptxShowSlideNumberBadge: true,
+  pptxTransitionSpeed: "medium",
 };
 
 /**
@@ -32,11 +40,29 @@ export function normalizeSettings(loadedData: any): OfficeSuiteSettings {
     pdfDefaultProfileId: DEFAULT_OFFICE_SETTINGS.pdfDefaultProfileId,
     pdfProfiles: [],
     pdfFileSchemes: {},
+    pptxDefaultViewMode: DEFAULT_OFFICE_SETTINGS.pptxDefaultViewMode,
+    pptxDefaultTransition: DEFAULT_OFFICE_SETTINGS.pptxDefaultTransition,
+    pptxShowSlideNumberBadge: DEFAULT_OFFICE_SETTINGS.pptxShowSlideNumberBadge,
+    pptxTransitionSpeed: DEFAULT_OFFICE_SETTINGS.pptxTransitionSpeed,
   };
 
   if (!loadedData || typeof loadedData !== "object") {
     settings.pdfProfiles = BUILT_IN_PROFILES.map((p) => cloneProfile(p, p.id, p.name));
     return settings;
+  }
+
+  // PPTX Settings
+  if (["single", "scroll", "grid"].includes(loadedData.pptxDefaultViewMode)) {
+    settings.pptxDefaultViewMode = loadedData.pptxDefaultViewMode;
+  }
+  if (typeof loadedData.pptxDefaultTransition === "string") {
+    settings.pptxDefaultTransition = loadedData.pptxDefaultTransition;
+  }
+  if (typeof loadedData.pptxShowSlideNumberBadge === "boolean") {
+    settings.pptxShowSlideNumberBadge = loadedData.pptxShowSlideNumberBadge;
+  }
+  if (["fast", "medium", "slow"].includes(loadedData.pptxTransitionSpeed)) {
+    settings.pptxTransitionSpeed = loadedData.pptxTransitionSpeed;
   }
 
   // 1. Default Profile ID

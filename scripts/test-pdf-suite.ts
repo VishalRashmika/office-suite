@@ -29,7 +29,7 @@ import {
 } from "../src/domain/pdf";
 import { normalizeSettings, DEFAULT_OFFICE_SETTINGS } from "../src/settings/office-settings";
 
-async function runTestSuite() {
+export async function runTestSuite() {
   console.log("=== RUNNING PDF EDITOR & ANNOTATIONS TEST SUITE ===");
 
   // 1. Create a blank PDF document with 2 pages
@@ -1273,7 +1273,9 @@ async function runTestSuite() {
   console.log("==================================================");
 }
 
-runTestSuite().catch((err) => {
-  console.error("TEST FAILED:", err);
-  process.exit(1);
-});
+if (typeof require !== "undefined" && require.main === module) {
+  runTestSuite().catch((err) => {
+    console.error("TEST FAILED:", err);
+    process.exit(1);
+  });
+}

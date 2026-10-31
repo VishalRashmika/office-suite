@@ -325,5 +325,69 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
       this.display();
       new Notice("Reset to standard Zotero palette!");
     };
+    // ==================== Section 3: PowerPoint (PPTX) Settings ====================
+    const pptxHeader = containerEl.createDiv({ cls: "office-settings-section-header" });
+    pptxHeader.createEl("h3", { text: "PowerPoint (.pptx) Presentation Settings" });
+    pptxHeader.createEl("p", {
+      cls: "setting-item-description",
+      text: "Configure default presentation view mode, slide transition effects, and viewport options.",
+    });
+
+    new Setting(containerEl)
+      .setName("Default View Mode")
+      .setDesc("Choose whether PPTX decks open in Single Slide view, Continuous Scroll, or Slide Sorter Grid.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("single", "Single Slide");
+        dropdown.addOption("scroll", "Continuous Scroll");
+        dropdown.addOption("grid", "Slide Sorter Grid");
+        dropdown.setValue(this.plugin.settings.pptxDefaultViewMode);
+        dropdown.onChange(async (val: "single" | "scroll" | "grid") => {
+          this.plugin.settings.pptxDefaultViewMode = val;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Default Transition Effect")
+      .setDesc("Default transition animation used when navigating slides (or 'Auto' to read from file).")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("auto", "Auto (From Presentation)");
+        dropdown.addOption("fade", "Fade");
+        dropdown.addOption("push", "Push / Slide");
+        dropdown.addOption("wipe", "Wipe");
+        dropdown.addOption("zoom", "Zoom");
+        dropdown.addOption("flip", "3D Flip");
+        dropdown.addOption("cut", "Cut (Instant)");
+        dropdown.setValue(this.plugin.settings.pptxDefaultTransition);
+        dropdown.onChange(async (val) => {
+          this.plugin.settings.pptxDefaultTransition = val;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Transition Speed")
+      .setDesc("Controls the duration of slide transitions.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("fast", "Fast (250ms)");
+        dropdown.addOption("medium", "Medium (500ms)");
+        dropdown.addOption("slow", "Slow (800ms)");
+        dropdown.setValue(this.plugin.settings.pptxTransitionSpeed);
+        dropdown.onChange(async (val: "fast" | "medium" | "slow") => {
+          this.plugin.settings.pptxTransitionSpeed = val;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Show Slide Number Badge")
+      .setDesc("Display an overlay badge indicating the current slide number (e.g. 3 / 12) on slides.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.pptxShowSlideNumberBadge);
+        toggle.onChange(async (val) => {
+          this.plugin.settings.pptxShowSlideNumberBadge = val;
+          await this.plugin.saveSettings();
+        });
+      });
   }
 }

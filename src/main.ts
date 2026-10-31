@@ -2,6 +2,7 @@ import { Plugin, WorkspaceLeaf, Notice, TFile } from "obsidian";
 import { DocxView, VIEW_TYPE_DOCX } from "./presentation/docx/docx-view";
 import { SpreadsheetView, VIEW_TYPE_SHEET } from "./presentation/spreadsheet/spreadsheet-view";
 import { PdfView, VIEW_TYPE_PDF } from "./presentation/pdf/pdf-view";
+import { PptxView, VIEW_TYPE_PPTX } from "./presentation/pptx/pptx-view";
 import { OfficeSuiteSettings, DEFAULT_OFFICE_SETTINGS, normalizeSettings } from "./settings/office-settings";
 import { OfficeSuiteSettingTab } from "./presentation/settings/office-setting-tab";
 import { PdfColorSchemeProfile, cloneProfile, ZOTERO_DEFAULT_PROFILE } from "./domain/pdf";
@@ -35,6 +36,116 @@ export default class OfficeSuitePlugin extends Plugin {
     } catch (e) {
       console.warn("Could not register pdf extension:", e);
     }
+
+    // 4. PowerPoint Presentation View (PPTX)
+    this.registerView(VIEW_TYPE_PPTX, (leaf: WorkspaceLeaf) => new PptxView(leaf, this));
+    this.registerExtensions(["pptx"], VIEW_TYPE_PPTX);
+
+    // Commands for PPTX
+    this.addCommand({
+      id: "pptx-start-slideshow",
+      name: "PowerPoint: Start Fullscreen Slideshow (F5)",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onStartSlideshow();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-next-slide",
+      name: "PowerPoint: Next Slide",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onNextSlide();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-prev-slide",
+      name: "PowerPoint: Previous Slide",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onPrevSlide();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-toggle-notes",
+      name: "PowerPoint: Toggle Speaker Notes Drawer",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onToggleNotes();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-toggle-sidebar",
+      name: "PowerPoint: Toggle Slide Thumbnails",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onToggleSidebar();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-export-markdown",
+      name: "PowerPoint: Export Presentation to Markdown Note",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            void activeLeaf.onExportMarkdown();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
+      id: "pptx-copy-slide-link",
+      name: "PowerPoint: Copy Deep Link to Current Slide",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
+        if (activeLeaf) {
+          if (!checking) {
+            void activeLeaf.onCopySlideLink();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
 
     // Commands for PDF
     this.addCommand({
