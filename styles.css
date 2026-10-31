@@ -4260,10 +4260,68 @@
 
 /* --- Slide Container --- */
 .office-pptx-slide {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  background-size: cover;
+  background-position: center center;
   user-select: text;
   color: #000000;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.25;
+}
+
+.office-pptx-element {
+  position: absolute;
+  box-sizing: border-box;
+  transform-origin: center center;
+}
+
+.office-pptx-element.mod-valign-middle {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.office-pptx-element.mod-valign-bottom {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.office-pptx-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+}
+
+.office-pptx-text-content {
+  width: 100%;
+}
+
+.office-pptx-table {
+  width: 100%;
+  height: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.office-pptx-cell {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  vertical-align: top;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.office-pptx-cell.mod-valign-middle {
+  vertical-align: middle;
+}
+
+.office-pptx-cell.mod-valign-bottom {
+  vertical-align: bottom;
 }
 
 /* Slide Badge (Slide X of Y) */
@@ -4732,6 +4790,8 @@
 
 /* --- Dropdown Menu --- */
 .office-pptx-dropdown-menu {
+  position: fixed;
+  z-index: var(--layer-menu, 9999);
   background-color: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-m);
@@ -4924,4 +4984,9 @@
   outline: none;
   box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
 }
+
+.office-pptx-notes-host.is-hidden {
+  display: none !important;
+}
+
 

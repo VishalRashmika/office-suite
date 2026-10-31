@@ -2,10 +2,10 @@
 
 <p align="center">
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-v1.4.0+-purple.svg?style=for-the-badge&logo=obsidian" alt="Obsidian Version" /></a>
-  <a href="https://github.com"><img src="https://img.shields.io/badge/Version-v0.1.3--beta-blue.svg?style=for-the-badge" alt="Release Version" /></a>
+  <a href="https://github.com"><img src="https://img.shields.io/badge/Version-v1.0.0-blue.svg?style=for-the-badge" alt="Release Version" /></a>
   <a href="https://community.obsidian.md/plugins/office-suite"><img src="https://img.shields.io/badge/Community%20Plugins-Available-success.svg?style=for-the-badge&logo=obsidian" alt="Community Plugins" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-Strict-blue?style=for-the-badge&logo=typescript" alt="TypeScript" /></a>
-  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge" alt="License: MIT" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-yellow.svg?style=for-the-badge" alt="License: GPL-3.0" /></a>
   <a href="https://github.com"><img src="https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=for-the-badge" alt="PRs Welcome" /></a>
 </p>
 
@@ -17,7 +17,10 @@
 
 ---
 
-**Office Suite** is a powerful, all-in-one productivity plugin for [Obsidian](https://obsidian.md) that lets you view and edit Microsoft Word (`.docx`), Microsoft Excel (`.xlsx`), and tabular data files (`.csv`, `.tsv`) **natively inside your Obsidian interface**.
+**Office Suite** is a powerful, all-in-one productivity plugin for [Obsidian](https://obsidian.md) that lets you view and edit Microsoft Word (`.docx`), Microsoft Excel (`.xlsx`), PowerPoint (`.pptx`) presentations, CSV/TSV spreadsheets, and PDF documents **natively inside your Obsidian interface**.
+
+> [!NOTE]
+> **Desktop Only**: Office Suite requires Obsidian Desktop (Windows, macOS, Linux) to operate document parsers and binary manipulation engines.
 
 No external applications, no converting your files to Markdown, and no loss of formatting. Edit your documents and spreadsheets side-by-side with your knowledge vault, with full autosave round-tripped directly back to the original binary files.
 
@@ -106,6 +109,22 @@ View, annotate, and edit PDF documents natively with standard **ISO 32000-1 comp
 
 ---
 
+### 4. PowerPoint Presentation Viewer & Slideshow (.pptx)
+
+Present, navigate, and edit Microsoft PowerPoint decks natively inside your vault.
+
+| Category | Supported Features |
+| :--- | :--- |
+| **View Modes** | Single slide focus, continuous vertical scroll, and slide sorter grid thumbnail view |
+| **Transitions & Animations** | Native hardware-accelerated transitions: Fade, Push/Slide, Wipe, Zoom, and 3D Flip |
+| **Speaker Notes** | Dedicated collapsible speaker notes drawer with real-time editing and notes synchronization |
+| **Fullscreen Slideshow** | Distraction-free presentation mode with timer, laser-ready navigation, and auto-hiding HUD |
+| **Slide Operations** | Add blank slides, duplicate slides, delete slides, and drag-and-drop slide reordering |
+| **Markdown Export** | 1-click export of presentation outlines, slide contents, and speaker notes directly to Markdown |
+| **Deep Linking** | Bidirectional slide deep links (`[[presentation.pptx#slide=3]]`) for referencing in notes |
+
+---
+
 ## Installation
 
 ### Method 1: Obsidian Community Plugins (Recommended)
@@ -116,7 +135,7 @@ Once listed in the official Obsidian Community Plugins directory:
 2. Navigate to **Community plugins** and ensure **Restricted mode** is turned off.
 3. Click **Browse** and search for **"Office Suite"**.
 4. Click **Install**, then click **Enable**.
-5. Open any `.docx`, `.xlsx`, `.csv`, or `.tsv` file from your file explorer to start editing!
+5. Open any `.docx`, `.xlsx`, `.pptx`, `.csv`, `.tsv`, or `.pdf` file from your file explorer to start working!
 
 ---
 

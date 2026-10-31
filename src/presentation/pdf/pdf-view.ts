@@ -34,6 +34,7 @@ import { PdfPageView, PdfPageViewDelegate } from "./pdf-page-view";
 import { PdfNotePopover } from "./pdf-note-popover";
 import { PdfCiteModal } from "./pdf-cite-modal";
 import { PdfColorSchemeModal } from "./pdf-color-scheme-modal";
+import { TextPromptModal } from "../common/text-prompt-modal";
 import type OfficeSuitePlugin from "../../main";
 
 export const VIEW_TYPE_PDF = "pdf-editor-view";
@@ -331,7 +332,7 @@ export class PdfView
     const annotMatch = subpath.match(/annot=([a-zA-Z0-9_\-]+)/);
     if (annotMatch) {
       const annotId = annotMatch[1];
-      setTimeout(() => this.pulseAnnotation(annotId), 300);
+      window.setTimeout(() => this.pulseAnnotation(annotId), 300);
     }
   }
 
@@ -725,17 +726,23 @@ export class PdfView
   }
 
   async onSaveSchemeAsProfile(): Promise<void> {
-    const name = prompt("Enter a name for this new reusable template profile:", this.activeColorScheme.name);
-    if (!name || !name.trim()) return;
+    new TextPromptModal(
+      this.app,
+      "Save as template profile",
+      this.activeColorScheme.name,
+      async (name) => {
+        if (!name || !name.trim()) return;
 
-    const plugin = this.getPlugin();
-    if (!plugin) return;
+        const plugin = this.getPlugin();
+        if (!plugin) return;
 
-    const newProfile = cloneProfile(this.activeColorScheme, undefined, name.trim());
-    plugin.settings.pdfProfiles.push(newProfile);
-    await plugin.saveSettings();
-    plugin.notifyColorSchemeChanged();
-    new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+        const newProfile = cloneProfile(this.activeColorScheme, undefined, name.trim());
+        plugin.settings.pdfProfiles.push(newProfile);
+        await plugin.saveSettings();
+        plugin.notifyColorSchemeChanged();
+        new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+      }
+    ).open();
   }
 
   async onResetSchemeToDefault(): Promise<void> {

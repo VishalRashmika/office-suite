@@ -55,7 +55,7 @@ export class PptxDocument {
     this.contentTypesDoc = contentTypesDoc;
   }
 
-  static async load(bytes: ArrayBuffer): Promise<PptxDocument> {
+  static async load(bytes: ArrayBuffer | Uint8Array): Promise<PptxDocument> {
     const zip = await JSZip.loadAsync(bytes);
     const parser = getXmlParser();
 

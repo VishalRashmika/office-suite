@@ -1192,7 +1192,7 @@ export async function runTestSuite() {
   const tbReloaded3 = await PdfDocumentAdapter.load(tbSavedBytes3);
 
   const parsedTb3 = tbReloaded3.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
-  if (!parsedTb3.contents.includes("Second Line of Callout")) {
+  if (!parsedTb3.contents?.includes("Second Line of Callout")) {
     throw new Error(`Expected multiline text, got '${parsedTb3.contents}'`);
   }
   if (parsedTb3.fontSize !== 16) {

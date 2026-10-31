@@ -1,13 +1,15 @@
 {
   "name": "obsidian-office-suite",
-  "version": "0.1.3",
-  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), and CSV/TSV spreadsheet files natively inside Obsidian.",
+  "version": "1.0.0",
+  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV/TSV spreadsheets, and PDF documents natively inside Obsidian.",
   "author": "Vishal Rashmika",
+  "license": "GPL-3.0-or-later",
   "homepage": "https://vishalrashmika.com",
   "main": "main.js",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
+    "check": "tsc --noEmit",
     "test": "node -e \"require('esbuild').buildSync({ entryPoints: ['scripts/test-all.ts'], outfile: 'scripts/test-all.cjs', bundle: true, format: 'cjs', platform: 'node', external: ['obsidian', 'electron'] }); try { require('./scripts/test-all.cjs'); } finally { try { require('fs').unlinkSync('scripts/test-all.cjs'); } catch(e){} }\""
   },
   "dependencies": {
@@ -27,6 +29,8 @@
     "@types/node": "^20.14.0",
     "@xmldom/xmldom": "^0.9.12",
     "esbuild": "^0.28.2",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "obsidian": "^1.6.6",
     "pdfjs-dist": "^3.11.174",
     "typescript": "^5.5.4"

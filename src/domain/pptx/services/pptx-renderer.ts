@@ -33,9 +33,6 @@ export class PptxRenderer {
     slideEl.dataset.slideNumber = String(slide.slideNumber);
     slideEl.style.width = `${width}px`;
     slideEl.style.height = `${height}px`;
-    slideEl.style.position = "relative";
-    slideEl.style.overflow = "hidden";
-    slideEl.style.boxSizing = "border-box";
 
     // Slide background
     if (slide.background) {
@@ -45,13 +42,9 @@ export class PptxRenderer {
         slideEl.style.backgroundImage = slide.background;
       } else if (slide.background.startsWith("data:") || slide.background.startsWith("blob:") || slide.background.startsWith("http")) {
         slideEl.style.backgroundImage = `url("${slide.background}")`;
-        slideEl.style.backgroundSize = "cover";
-        slideEl.style.backgroundPosition = "center center";
       } else {
         slideEl.style.backgroundColor = slide.background;
       }
-    } else {
-      slideEl.style.backgroundColor = "#ffffff";
     }
 
     // Sort elements by zIndex to preserve stacking order
@@ -89,17 +82,14 @@ export class PptxRenderer {
     container.dataset.elementName = el.name;
 
     // Positioning
-    container.style.position = "absolute";
     container.style.left = `${el.x}px`;
     container.style.top = `${el.y}px`;
     container.style.width = `${el.width}px`;
     container.style.height = `${el.height}px`;
-    container.style.boxSizing = "border-box";
     container.style.zIndex = String(el.zIndex);
 
     if (el.rotation) {
       container.style.transform = `rotate(${el.rotation}deg)`;
-      container.style.transformOrigin = "center center";
     }
 
     if (el.opacity !== undefined && el.opacity < 1) {
@@ -110,12 +100,7 @@ export class PptxRenderer {
     if (el.type === "image" && el.imageSrc) {
       const img = document.createElement("img");
       img.src = el.imageSrc;
-      img.alt = el.imageAlt || el.name || "Slide Image";
-      img.style.width = "100%";
-      img.style.height = "100%";
-      img.style.objectFit = "fill";
-      img.style.display = "block";
-      img.style.pointerEvents = "none";
+      img.alt = el.imageAlt || el.name || "Slide image";
       container.appendChild(img);
       return container;
     }
@@ -150,20 +135,15 @@ export class PptxRenderer {
     }
 
     if (el.verticalAlign === "middle") {
-      container.style.display = "flex";
-      container.style.flexDirection = "column";
-      container.style.justifyContent = "center";
+      container.classList.add("mod-valign-middle");
     } else if (el.verticalAlign === "bottom") {
-      container.style.display = "flex";
-      container.style.flexDirection = "column";
-      container.style.justifyContent = "flex-end";
+      container.classList.add("mod-valign-bottom");
     }
 
     // Text Paragraphs
     if (el.paragraphs && el.paragraphs.length > 0) {
       const textWrapper = document.createElement("div");
       textWrapper.className = "office-pptx-text-content";
-      textWrapper.style.width = "100%";
 
       for (const p of el.paragraphs) {
         const pNode = this.renderParagraph(p, slide);
@@ -284,7 +264,7 @@ export class PptxRenderer {
 
     // Ensure empty paragraphs still occupy height
     if (p.runs.length === 0 || p.runs.every((r) => !r.text)) {
-      runsWrapper.innerHTML = "&nbsp;";
+      runsWrapper.setText("\u00A0");
     }
 
     pEl.appendChild(runsWrapper);
@@ -353,10 +333,6 @@ export class PptxRenderer {
   private static renderTable(table: PptxTable, slide: PptxSlide): HTMLElement {
     const tableEl = document.createElement("table");
     tableEl.className = "office-pptx-table";
-    tableEl.style.width = "100%";
-    tableEl.style.height = "100%";
-    tableEl.style.borderCollapse = "collapse";
-    tableEl.style.tableLayout = "fixed";
 
     for (const row of table.rows) {
       const tr = document.createElement("tr");
@@ -367,16 +343,12 @@ export class PptxRenderer {
       for (const cell of row.cells) {
         const td = document.createElement("td");
         td.className = "office-pptx-cell";
-        td.style.boxSizing = "border-box";
-        td.style.padding = "4px 8px";
 
         if (cell.backgroundColor) {
           td.style.backgroundColor = cell.backgroundColor;
         }
         if (cell.borderColor && cell.borderWidth) {
           td.style.border = `${cell.borderWidth}px solid ${cell.borderColor}`;
-        } else {
-          td.style.border = "1px solid rgba(0, 0, 0, 0.15)";
         }
 
         if (cell.rowSpan && cell.rowSpan > 1) {
@@ -387,11 +359,9 @@ export class PptxRenderer {
         }
 
         if (cell.verticalAlign === "middle") {
-          td.style.verticalAlign = "middle";
+          td.classList.add("mod-valign-middle");
         } else if (cell.verticalAlign === "bottom") {
-          td.style.verticalAlign = "bottom";
-        } else {
-          td.style.verticalAlign = "top";
+          td.classList.add("mod-valign-bottom");
         }
 
         if (cell.paragraphs && cell.paragraphs.length > 0) {

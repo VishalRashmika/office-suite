@@ -9,12 +9,13 @@ import { App, PluginSettingTab, Setting, Notice, setIcon } from "obsidian";
 import type OfficeSuitePlugin from "../../main";
 import {
   PdfColorSchemeProfile,
-  PdfTaggedColor,
   cloneProfile,
   normalizeHexColor,
   hexToRgb,
   ZOTERO_HEX_PALETTE,
 } from "../../domain/pdf";
+import { TextPromptModal } from "../common/text-prompt-modal";
+import { ConfirmationModal } from "../common/confirmation-modal";
 
 export class OfficeSuiteSettingTab extends PluginSettingTab {
   private plugin: OfficeSuitePlugin;
@@ -30,11 +31,11 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.addClass("office-suite-settings-root");
 
-    containerEl.createEl("h2", { text: "Office Suite Settings" });
+    // ==================== Section 1: PDF Color Schemes ====================
+    new Setting(containerEl).setName("PDF color schemes").setHeading();
 
-    // ==================== Section 1: Default Profile ====================
     new Setting(containerEl)
-      .setName("Default PDF Color Scheme Template")
+      .setName("Default PDF color scheme template")
       .setDesc(
         "Select the default color scheme and semantic tags used when opening any PDF document."
       )
@@ -43,45 +44,43 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
           dropdown.addOption(profile.id, profile.name);
         }
         dropdown.setValue(this.plugin.settings.pdfDefaultProfileId);
-        dropdown.onChange(async (val) => {
+        dropdown.onChange(async (val: string) => {
           this.plugin.settings.pdfDefaultProfileId = val;
           await this.plugin.saveSettings();
           this.plugin.notifyColorSchemeChanged();
-          this.display(); // re-render to update badges
+          this.display();
         });
       });
 
-    // ==================== Section 2: Template Profiles Manager ====================
-    const profilesHeader = containerEl.createDiv({ cls: "office-settings-section-header" });
-    profilesHeader.createEl("h3", { text: "PDF Color Scheme Templates & Profiles" });
-    profilesHeader.createEl("p", {
-      cls: "setting-item-description",
-      text: "Define and customize color scheme templates with semantic tags (like Green for 'New Info', Red for 'Important Points', Yellow for 'Processes'). Profiles can be quickly imported and applied to any PDF.",
-    });
-
-    const addProfileSetting = new Setting(containerEl)
-      .setName("Create New Template Profile")
+    new Setting(containerEl)
+      .setName("Create new template profile")
       .setDesc("Create a new reusable color scheme template based on the official Zotero color palette.")
       .addButton((btn) => {
         btn
-          .setButtonText("Add New Profile")
+          .setButtonText("Add new profile")
           .setCta()
-          .onClick(async () => {
-            const profileName = prompt("Enter a name for the new Color Scheme Template:", "Custom Research Scheme");
-            if (!profileName || !profileName.trim()) return;
+          .onClick(() => {
+            new TextPromptModal(
+              this.app,
+              "Create color scheme profile",
+              "Custom research scheme",
+              async (profileName) => {
+                if (!profileName || !profileName.trim()) return;
 
-            const basePreset =
-              this.plugin.settings.pdfProfiles.find((p) => p.id === "zotero-default") ||
-              this.plugin.settings.pdfProfiles[0];
-            const newProfile = cloneProfile(basePreset, undefined, profileName.trim());
-            newProfile.description = "User-created color scheme template";
+                const basePreset =
+                  this.plugin.settings.pdfProfiles.find((p) => p.id === "zotero-default") ||
+                  this.plugin.settings.pdfProfiles[0];
+                const newProfile = cloneProfile(basePreset, undefined, profileName.trim());
+                newProfile.description = "User-created color scheme template";
 
-            this.plugin.settings.pdfProfiles.push(newProfile);
-            this.activeEditingProfileId = newProfile.id;
-            await this.plugin.saveSettings();
-            this.plugin.notifyColorSchemeChanged();
-            this.display();
-            new Notice(`Created template profile "${newProfile.name}"!`);
+                this.plugin.settings.pdfProfiles.push(newProfile);
+                this.activeEditingProfileId = newProfile.id;
+                await this.plugin.saveSettings();
+                this.plugin.notifyColorSchemeChanged();
+                this.display();
+                new Notice(`Created template profile "${newProfile.name}"!`);
+              }
+            ).open();
           });
       });
 
@@ -91,6 +90,66 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
     for (const profile of this.plugin.settings.pdfProfiles) {
       this.renderProfileCard(profilesContainer, profile);
     }
+
+    // ==================== Section 2: PowerPoint (PPTX) ====================
+    new Setting(containerEl).setName("Powerpoint (.pptx) presentations").setHeading();
+
+    new Setting(containerEl)
+      .setName("Default view mode")
+      .setDesc("Choose whether pptx decks open in single slide view, continuous scroll, or slide sorter grid.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("single", "Single slide");
+        dropdown.addOption("scroll", "Continuous scroll");
+        dropdown.addOption("grid", "Slide sorter grid");
+        dropdown.setValue(this.plugin.settings.pptxDefaultViewMode);
+        dropdown.onChange(async (val: string) => {
+          this.plugin.settings.pptxDefaultViewMode = val as "single" | "scroll" | "grid";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Default transition effect")
+      .setDesc("Default transition animation used when navigating slides (or auto to read from file).")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("auto", "Auto (from presentation)");
+        dropdown.addOption("fade", "Fade");
+        dropdown.addOption("push", "Push / slide");
+        dropdown.addOption("wipe", "Wipe");
+        dropdown.addOption("zoom", "Zoom");
+        dropdown.addOption("flip", "3D flip");
+        dropdown.addOption("cut", "Cut (instant)");
+        dropdown.setValue(this.plugin.settings.pptxDefaultTransition);
+        dropdown.onChange(async (val: string) => {
+          this.plugin.settings.pptxDefaultTransition = val as "auto" | "fade" | "push" | "wipe" | "zoom" | "flip" | "cut";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Transition speed")
+      .setDesc("Controls the duration of slide transitions.")
+      .addDropdown((dropdown) => {
+        dropdown.addOption("fast", "Fast (250ms)");
+        dropdown.addOption("medium", "Medium (500ms)");
+        dropdown.addOption("slow", "Slow (800ms)");
+        dropdown.setValue(this.plugin.settings.pptxTransitionSpeed);
+        dropdown.onChange(async (val: string) => {
+          this.plugin.settings.pptxTransitionSpeed = val as "fast" | "medium" | "slow";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Show slide number badge")
+      .setDesc("Display an overlay badge indicating the current slide number on slides.")
+      .addToggle((toggle) => {
+        toggle.setValue(this.plugin.settings.pptxShowSlideNumberBadge);
+        toggle.onChange(async (val: boolean) => {
+          this.plugin.settings.pptxShowSlideNumberBadge = val;
+          await this.plugin.saveSettings();
+        });
+      });
   }
 
   private renderProfileCard(container: HTMLElement, profile: PdfColorSchemeProfile): void {
@@ -105,7 +164,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
     const cardHeader = card.createDiv({ cls: "office-profile-header" });
     const headerLeft = cardHeader.createDiv({ cls: "office-profile-header-left" });
 
-    headerLeft.createEl("h4", { cls: "office-profile-name", text: profile.name });
+    headerLeft.createDiv({ cls: "office-profile-name", text: profile.name });
 
     if (isDefault) {
       headerLeft.createSpan({ cls: "office-profile-badge mod-default", text: "Default" });
@@ -120,7 +179,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
     if (!isDefault) {
       const setDefaultBtn = headerRight.createEl("button", {
         cls: "office-profile-btn",
-        text: "Set Default",
+        text: "Set default",
       });
       setDefaultBtn.onclick = async () => {
         this.plugin.settings.pdfDefaultProfileId = profile.id;
@@ -166,16 +225,23 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
         title: "Delete profile",
       });
       setIcon(delBtn, "trash");
-      delBtn.onclick = async () => {
-        if (!confirm(`Are you sure you want to delete profile "${profile.name}"?`)) return;
-        this.plugin.settings.pdfProfiles = this.plugin.settings.pdfProfiles.filter((p) => p.id !== profile.id);
-        if (this.activeEditingProfileId === profile.id) {
-          this.activeEditingProfileId = null;
-        }
-        await this.plugin.saveSettings();
-        this.plugin.notifyColorSchemeChanged();
-        this.display();
-        new Notice(`Deleted profile "${profile.name}".`);
+      delBtn.onclick = () => {
+        new ConfirmationModal(
+          this.app,
+          "Delete profile",
+          `Are you sure you want to delete profile "${profile.name}"?`,
+          "Delete",
+          async () => {
+            this.plugin.settings.pdfProfiles = this.plugin.settings.pdfProfiles.filter((p) => p.id !== profile.id);
+            if (this.activeEditingProfileId === profile.id) {
+              this.activeEditingProfileId = null;
+            }
+            await this.plugin.saveSettings();
+            this.plugin.notifyColorSchemeChanged();
+            this.display();
+            new Notice(`Deleted profile "${profile.name}".`);
+          }
+        ).open();
       };
     }
 
@@ -204,7 +270,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
 
     // Name & Description Inputs
     const metaRow = editor.createDiv({ cls: "office-profile-meta-row" });
-    metaRow.createSpan({ cls: "office-profile-meta-label", text: "Profile Name:" });
+    metaRow.createSpan({ cls: "office-profile-meta-label", text: "Profile name:" });
     const nameInput = metaRow.createEl("input", {
       type: "text",
       cls: "office-profile-name-input",
@@ -219,8 +285,8 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
     // Color Tags Table
     const tableHeader = editor.createDiv({ cls: "office-profile-table-header" });
     tableHeader.createSpan({ cls: "col-swatch", text: "Color" });
-    tableHeader.createSpan({ cls: "col-name", text: "Color Name" });
-    tableHeader.createSpan({ cls: "col-tag", text: "Semantic Tag (e.g. New Info, Important, Processes)" });
+    tableHeader.createSpan({ cls: "col-name", text: "Color name" });
+    tableHeader.createSpan({ cls: "col-tag", text: "Semantic tag (e.g. New info, important points, processes)" });
     tableHeader.createSpan({ cls: "col-del", text: "" });
 
     const rowsWrap = editor.createDiv({ cls: "office-profile-rows-wrap" });
@@ -260,7 +326,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
         type: "text",
         cls: "office-profile-input col-tag-in",
         value: col.tag,
-        attr: { placeholder: "e.g. New Info, Important Points, Processes..." },
+        attr: { placeholder: "E.g. New info, important points, processes..." },
       });
       tagIn.oninput = async () => {
         col.tag = tagIn.value;
@@ -291,7 +357,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
 
     const addColorBtn = actionsRow.createEl("button", { cls: "office-profile-btn" });
     setIcon(addColorBtn, "plus");
-    addColorBtn.createSpan({ text: " Add Color" });
+    addColorBtn.createSpan({ text: " Add color" });
     addColorBtn.onclick = async () => {
       profile.colors.push({
         id: `c_${Date.now()}`,
@@ -307,7 +373,7 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
 
     const resetColorsBtn = actionsRow.createEl("button", {
       cls: "office-profile-btn",
-      text: "Reset to Standard Zotero Colors",
+      text: "Reset to standard Zotero colors",
     });
     resetColorsBtn.onclick = async () => {
       profile.colors = [
@@ -325,69 +391,5 @@ export class OfficeSuiteSettingTab extends PluginSettingTab {
       this.display();
       new Notice("Reset to standard Zotero palette!");
     };
-    // ==================== Section 3: PowerPoint (PPTX) Settings ====================
-    const pptxHeader = containerEl.createDiv({ cls: "office-settings-section-header" });
-    pptxHeader.createEl("h3", { text: "PowerPoint (.pptx) Presentation Settings" });
-    pptxHeader.createEl("p", {
-      cls: "setting-item-description",
-      text: "Configure default presentation view mode, slide transition effects, and viewport options.",
-    });
-
-    new Setting(containerEl)
-      .setName("Default View Mode")
-      .setDesc("Choose whether PPTX decks open in Single Slide view, Continuous Scroll, or Slide Sorter Grid.")
-      .addDropdown((dropdown) => {
-        dropdown.addOption("single", "Single Slide");
-        dropdown.addOption("scroll", "Continuous Scroll");
-        dropdown.addOption("grid", "Slide Sorter Grid");
-        dropdown.setValue(this.plugin.settings.pptxDefaultViewMode);
-        dropdown.onChange(async (val: "single" | "scroll" | "grid") => {
-          this.plugin.settings.pptxDefaultViewMode = val;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Default Transition Effect")
-      .setDesc("Default transition animation used when navigating slides (or 'Auto' to read from file).")
-      .addDropdown((dropdown) => {
-        dropdown.addOption("auto", "Auto (From Presentation)");
-        dropdown.addOption("fade", "Fade");
-        dropdown.addOption("push", "Push / Slide");
-        dropdown.addOption("wipe", "Wipe");
-        dropdown.addOption("zoom", "Zoom");
-        dropdown.addOption("flip", "3D Flip");
-        dropdown.addOption("cut", "Cut (Instant)");
-        dropdown.setValue(this.plugin.settings.pptxDefaultTransition);
-        dropdown.onChange(async (val) => {
-          this.plugin.settings.pptxDefaultTransition = val;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Transition Speed")
-      .setDesc("Controls the duration of slide transitions.")
-      .addDropdown((dropdown) => {
-        dropdown.addOption("fast", "Fast (250ms)");
-        dropdown.addOption("medium", "Medium (500ms)");
-        dropdown.addOption("slow", "Slow (800ms)");
-        dropdown.setValue(this.plugin.settings.pptxTransitionSpeed);
-        dropdown.onChange(async (val: "fast" | "medium" | "slow") => {
-          this.plugin.settings.pptxTransitionSpeed = val;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Show Slide Number Badge")
-      .setDesc("Display an overlay badge indicating the current slide number (e.g. 3 / 12) on slides.")
-      .addToggle((toggle) => {
-        toggle.setValue(this.plugin.settings.pptxShowSlideNumberBadge);
-        toggle.onChange(async (val) => {
-          this.plugin.settings.pptxShowSlideNumberBadge = val;
-          await this.plugin.saveSettings();
-        });
-      });
   }
 }

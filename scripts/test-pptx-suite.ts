@@ -486,7 +486,7 @@ export async function runPptxTestSuite() {
   if (!savedBytes || savedBytes.byteLength === 0) {
     throw new Error(`Failed to re-generate PPTX zip binary`);
   }
-  const reloadDoc = await PptxDocument.load(savedBytes.buffer);
+  const reloadDoc = await PptxDocument.load(savedBytes);
   if (reloadDoc.getSlideCount() !== 5) {
     throw new Error(`Reloaded saved PPTX expected 5 slides, got ${reloadDoc.getSlideCount()}`);
   }
@@ -673,7 +673,7 @@ export async function runPptxTestSuite() {
   console.log(`✓ Generated mutated PPTX binary: ${mutatedBinary.byteLength} bytes`);
 
   // Test 27: Reload mutated binary with independent JSZip parser to verify OOXML integrity
-  const roundtripDoc = await PptxDocument.load(mutatedBinary.buffer);
+  const roundtripDoc = await PptxDocument.load(mutatedBinary);
   if (roundtripDoc.getSlideCount() !== doc.getSlideCount()) {
     throw new Error(`Expected ${doc.getSlideCount()} slides in reloaded PPTX, got ${roundtripDoc.getSlideCount()}`);
   }
@@ -700,7 +700,7 @@ export async function runPptxTestSuite() {
   console.log(`✓ Verified speaker notes persisted losslessly across binary roundtrip`);
 
   // Verify deleted slide file is completely purged from zip
-  const inspectZip = await JSZip.loadAsync(mutatedBinary.buffer);
+  const inspectZip = await JSZip.loadAsync(mutatedBinary);
   if (inspectZip.file(deletedSlideEntry.path)) {
     throw new Error(`Purged slide file '${deletedSlideEntry.path}' still exists in PPTX zip!`);
   }

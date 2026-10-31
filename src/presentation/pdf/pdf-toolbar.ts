@@ -509,7 +509,7 @@ export class PdfToolbar {
         window.removeEventListener("mousedown", closeHandler);
       }
     };
-    setTimeout(() => window.addEventListener("mousedown", closeHandler), 10);
+    window.setTimeout(() => window.addEventListener("mousedown", closeHandler), 10);
   }
 
   private hideColorSchemeDropdown(): void {

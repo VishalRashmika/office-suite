@@ -13,6 +13,7 @@ import {
   hexToRgb,
   ZOTERO_HEX_PALETTE,
 } from "../../domain/pdf";
+import { TextPromptModal } from "../common/text-prompt-modal";
 
 export interface PdfColorSchemeModalOptions {
   fileName: string;
@@ -239,26 +240,32 @@ export class PdfColorSchemeModal extends Modal {
   }
 
   private promptSaveAsTemplate(): void {
-    const templateName = prompt("Enter a name for this new reusable template profile:", this.currentSchemeName);
-    if (!templateName || !templateName.trim()) return;
+    new TextPromptModal(
+      this.app,
+      "Save as template profile",
+      this.currentSchemeName,
+      (templateName) => {
+        if (!templateName || !templateName.trim()) return;
 
-    const newProfile: PdfColorSchemeProfile = {
-      id: `profile_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      name: templateName.trim(),
-      description: `User-defined color scheme profile created from ${this.options.fileName}`,
-      colors: this.editingColors.map((c) => ({
-        id: c.id || c.hex.replace("#", ""),
-        hex: normalizeHexColor(c.hex),
-        name: c.name.trim() || "Color",
-        tag: c.tag.trim(),
-        rgb: c.rgb || hexToRgb(c.hex),
-      })),
-      isBuiltIn: false,
-      modifiedAt: Date.now(),
-    };
+        const newProfile: PdfColorSchemeProfile = {
+          id: `profile_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name: templateName.trim(),
+          description: `User-defined color scheme profile created from ${this.options.fileName}`,
+          colors: this.editingColors.map((c) => ({
+            id: c.id || c.hex.replace("#", ""),
+            hex: normalizeHexColor(c.hex),
+            name: c.name.trim() || "Color",
+            tag: c.tag.trim(),
+            rgb: c.rgb || hexToRgb(c.hex),
+          })),
+          isBuiltIn: false,
+          modifiedAt: Date.now(),
+        };
 
-    this.options.onSaveAsTemplate(newProfile);
-    new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+        this.options.onSaveAsTemplate(newProfile);
+        new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+      }
+    ).open();
   }
 
   onClose(): void {

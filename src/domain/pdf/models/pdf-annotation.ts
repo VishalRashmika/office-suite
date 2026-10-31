@@ -56,8 +56,8 @@ export interface PdfNoteAnnotation extends BasePdfAnnotation {
  */
 export interface PdfHighlightAnnotation extends BasePdfAnnotation {
   type: "highlight";
-  quadPoints: number[]; // Flat array of (8 * numLines) coordinates
-  highlightedText: string;
+  quadPoints?: number[]; // Flat array of (8 * numLines) coordinates
+  highlightedText?: string;
 }
 
 /**
@@ -66,8 +66,8 @@ export interface PdfHighlightAnnotation extends BasePdfAnnotation {
  */
 export interface PdfUnderlineAnnotation extends BasePdfAnnotation {
   type: "underline";
-  quadPoints: number[]; // Flat array of (8 * numLines) coordinates
-  highlightedText: string;
+  quadPoints?: number[]; // Flat array of (8 * numLines) coordinates
+  highlightedText?: string;
 }
 
 /** Freehand Ink drawing annotation (/Subtype /Ink) */

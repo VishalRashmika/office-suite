@@ -1,9 +1,9 @@
 {
   "id": "office-suite",
   "name": "Office Suite",
-  "version": "0.1.3",
+  "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), PowerPoint (.pptx) presentations, CSV/TSV spreadsheets, and PDF documents with native Acrobat-like editing, cross-compatible annotations, highlights, drawings, citations, and notes linking.",
+  "description": "View and edit Word DOCX, Excel XLSX, PowerPoint PPTX, CSV and TSV spreadsheets, and PDF documents with native editing, annotations, highlights, drawings, citations, and note linking.",
   "author": "Vishal Rashmika",
   "authorUrl": "https://vishalrashmika.com",
   "fundingUrl": "https://buymeacoffee.com/vishalrashmika",

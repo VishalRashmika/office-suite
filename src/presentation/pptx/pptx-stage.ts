@@ -363,7 +363,7 @@ export class PptxStage {
       this.attachElementInteractions(newSlideEl, toIndex);
     };
 
-    setTimeout(finishTransition, duration + 50);
+    window.setTimeout(finishTransition, duration + 50);
   }
 
   private updateScale(): void {
@@ -423,7 +423,7 @@ export class PptxStage {
     }
 
     // Scroll to active slide
-    setTimeout(() => this.scrollToSlide(this.activeSlideIndex), 50);
+    window.setTimeout(() => this.scrollToSlide(this.activeSlideIndex), 50);
   }
 
   private scrollToSlide(index: number): void {

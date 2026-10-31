@@ -245,13 +245,13 @@ export class PdfNotePopover {
     this.updatePosition();
 
     // Auto-focus textarea with cursor at end
-    setTimeout(() => {
+    window.setTimeout(() => {
       textarea.focus();
       textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     }, 60);
 
     // Event listeners
-    setTimeout(() => {
+    window.setTimeout(() => {
       window.addEventListener("pointerdown", this.onOutsidePointerDown);
       window.addEventListener("keydown", this.onKeyDown);
       if (this.scrollContainerEl) {

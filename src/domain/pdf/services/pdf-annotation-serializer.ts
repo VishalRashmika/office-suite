@@ -341,8 +341,13 @@ export class PdfAnnotationSerializer {
     dict.set(PDFName.of("ca"), PDFNumber.of(0.5));
 
     // QuadPoints array in PDF user space: [x1, y1, x2, y2, x3, y3, x4, y4, ...]
+    const normRect = this.getNormalizedRect(annot.rect);
+    const quadPoints =
+      annot.quadPoints && annot.quadPoints.length > 0
+        ? annot.quadPoints
+        : [normRect[0], normRect[3], normRect[2], normRect[3], normRect[0], normRect[1], normRect[2], normRect[1]];
     const quadArray = context.obj([]) as PDFArray;
-    for (const val of annot.quadPoints) {
+    for (const val of quadPoints) {
       quadArray.push(PDFNumber.of(Math.round(val * 100) / 100));
     }
     dict.set(PDFName.of("QuadPoints"), quadArray);
@@ -351,7 +356,6 @@ export class PdfAnnotationSerializer {
       dict.set(PDFName.of("Contents"), createPdfTextString(annot.highlightedText));
     }
 
-    const normRect = this.getNormalizedRect(annot.rect);
     const apRef = this.generateHighlightAppearance(
       pdfDoc,
       annot,
@@ -381,8 +385,13 @@ export class PdfAnnotationSerializer {
     dict.set(PDFName.of("BS"), bsDict);
 
     // QuadPoints array in PDF user space: [x1, y1, x2, y2, x3, y3, x4, y4, ...]
+    const normRect = this.getNormalizedRect(annot.rect);
+    const quadPoints =
+      annot.quadPoints && annot.quadPoints.length > 0
+        ? annot.quadPoints
+        : [normRect[0], normRect[3], normRect[2], normRect[3], normRect[0], normRect[1], normRect[2], normRect[1]];
     const quadArray = context.obj([]) as PDFArray;
-    for (const val of annot.quadPoints) {
+    for (const val of quadPoints) {
       quadArray.push(PDFNumber.of(Math.round(val * 100) / 100));
     }
     dict.set(PDFName.of("QuadPoints"), quadArray);
@@ -391,7 +400,6 @@ export class PdfAnnotationSerializer {
       dict.set(PDFName.of("Contents"), createPdfTextString(annot.highlightedText));
     }
 
-    const normRect = this.getNormalizedRect(annot.rect);
     const apRef = this.generateUnderlineAppearance(
       pdfDoc,
       annot,

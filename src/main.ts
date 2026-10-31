@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile } from "obsidian";
+import { Plugin, WorkspaceLeaf, Tasks } from "obsidian";
 import { DocxView, VIEW_TYPE_DOCX } from "./presentation/docx/docx-view";
 import { SpreadsheetView, VIEW_TYPE_SHEET } from "./presentation/spreadsheet/spreadsheet-view";
 import { PdfView, VIEW_TYPE_PDF } from "./presentation/pdf/pdf-view";
@@ -44,7 +44,7 @@ export default class OfficeSuitePlugin extends Plugin {
     // Commands for PPTX
     this.addCommand({
       id: "pptx-start-slideshow",
-      name: "PowerPoint: Start Fullscreen Slideshow (F5)",
+      name: "Powerpoint: Start fullscreen slideshow",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -59,7 +59,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-next-slide",
-      name: "PowerPoint: Next Slide",
+      name: "Powerpoint: Next slide",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -74,7 +74,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-prev-slide",
-      name: "PowerPoint: Previous Slide",
+      name: "Powerpoint: Previous slide",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -89,7 +89,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-toggle-notes",
-      name: "PowerPoint: Toggle Speaker Notes Drawer",
+      name: "Powerpoint: Toggle speaker notes drawer",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -104,7 +104,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-toggle-sidebar",
-      name: "PowerPoint: Toggle Slide Thumbnails",
+      name: "Powerpoint: Toggle slide thumbnails",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -119,7 +119,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-export-markdown",
-      name: "PowerPoint: Export Presentation to Markdown Note",
+      name: "Powerpoint: Export presentation to Markdown note",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -134,7 +134,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pptx-copy-slide-link",
-      name: "PowerPoint: Copy Deep Link to Current Slide",
+      name: "Powerpoint: Copy deep link to current slide",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PptxView);
         if (activeLeaf) {
@@ -150,7 +150,7 @@ export default class OfficeSuitePlugin extends Plugin {
     // Commands for PDF
     this.addCommand({
       id: "pdf-export-annotations",
-      name: "PDF: Export Annotations to Markdown Note",
+      name: "PDF: Export annotations to Markdown note",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
         if (activeLeaf) {
@@ -165,7 +165,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pdf-customize-color-scheme",
-      name: "PDF: Customize Color Scheme & Tags for Current PDF",
+      name: "PDF: Customize color scheme & tags for current PDF",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
         if (activeLeaf) {
@@ -180,7 +180,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pdf-copy-reference-link",
-      name: "PDF: Copy Obsidian Deep Link to Current Page",
+      name: "PDF: Copy Obsidian deep link to current page",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
         if (activeLeaf) {
@@ -195,7 +195,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pdf-save-document",
-      name: "PDF: Save Changes to PDF Document",
+      name: "PDF: Save changes to PDF document",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
         if (activeLeaf) {
@@ -210,7 +210,7 @@ export default class OfficeSuitePlugin extends Plugin {
 
     this.addCommand({
       id: "pdf-rotate-page",
-      name: "PDF: Rotate Current Page 90° Clockwise",
+      name: "PDF: Rotate current page 90° clockwise",
       checkCallback: (checking: boolean) => {
         const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
         if (activeLeaf) {
@@ -225,23 +225,24 @@ export default class OfficeSuitePlugin extends Plugin {
 
     // Flush any pending debounced save when Obsidian is closing/reloading.
     this.registerEvent(
-      (this.app.workspace as { on(name: string, cb: () => Promise<void>): import("obsidian").EventRef }).on(
-        "quit",
-        async () => {
-          for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DOCX)) {
-            const view = leaf.view as DocxView;
-            await view.requestSave?.();
-          }
-          for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SHEET)) {
-            const view = leaf.view as SpreadsheetView;
-            await view.requestSave?.();
-          }
-          for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PDF)) {
-            const view = leaf.view as PdfView;
-            await view.requestSave?.();
-          }
-        }
-      )
+      this.app.workspace.on("quit", (tasks: Tasks) => {
+        tasks.addPromise(
+          (async () => {
+            for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_DOCX)) {
+              const view = leaf.view as DocxView;
+              await view.requestSave?.();
+            }
+            for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_SHEET)) {
+              const view = leaf.view as SpreadsheetView;
+              await view.requestSave?.();
+            }
+            for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_PDF)) {
+              const view = leaf.view as PdfView;
+              await view.requestSave?.();
+            }
+          })()
+        );
+      })
     );
   }
 

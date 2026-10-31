@@ -68,7 +68,7 @@ export class PptxToolbar {
     // Sidebar Toggle
     this.sidebarBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn is-active",
-      attr: { title: "Toggle Slide Thumbnails (Sidebar)" },
+      attr: { title: "Toggle slide thumbnails" },
     });
     setIcon(this.sidebarBtn, "sidebar-left");
     this.sidebarBtn.onclick = () => this.delegate?.onToggleSidebar();
@@ -78,7 +78,7 @@ export class PptxToolbar {
     // Prev Button
     this.prevBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Previous Slide (Left Arrow, PageUp, Backspace)" },
+      attr: { title: "Previous slide" },
     });
     setIcon(this.prevBtn, "chevron-left");
     this.prevBtn.onclick = () => this.delegate?.onPrevSlide();
@@ -89,7 +89,7 @@ export class PptxToolbar {
       type: "number",
       cls: "office-pptx-slide-input",
       value: "1",
-      attr: { min: "1", max: "999", title: "Current Slide (Type number and press Enter)" },
+      attr: { min: "1", max: "999", title: "Current slide" },
     });
     this.slideInputEl.onchange = () => {
       const val = parseInt(this.slideInputEl?.value || "1", 10);
@@ -111,7 +111,7 @@ export class PptxToolbar {
     // Next Button
     this.nextBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Next Slide (Right Arrow, PageDown, Space)" },
+      attr: { title: "Next slide" },
     });
     setIcon(this.nextBtn, "chevron-right");
     this.nextBtn.onclick = () => this.delegate?.onNextSlide();
@@ -121,35 +121,35 @@ export class PptxToolbar {
     // Slide CRUD Buttons
     this.addSlideBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "New Slide (Add blank/content slide after current)" },
+      attr: { title: "New slide" },
     });
     setIcon(this.addSlideBtn, "plus");
     this.addSlideBtn.onclick = () => this.delegate?.onAddSlide();
 
     this.dupSlideBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Duplicate Current Slide" },
+      attr: { title: "Duplicate current slide" },
     });
     setIcon(this.dupSlideBtn, "copy");
     this.dupSlideBtn.onclick = () => this.delegate?.onDuplicateSlide();
 
     this.delSlideBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn mod-danger",
-      attr: { title: "Delete Current Slide" },
+      attr: { title: "Delete current slide" },
     });
     setIcon(this.delSlideBtn, "trash-2");
     this.delSlideBtn.onclick = () => this.delegate?.onDeleteSlide();
 
     this.moveUpBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Move Slide Up" },
+      attr: { title: "Move slide up" },
     });
     setIcon(this.moveUpBtn, "arrow-up");
     this.moveUpBtn.onclick = () => this.delegate?.onMoveSlideUp();
 
     this.moveDownBtn = leftGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Move Slide Down" },
+      attr: { title: "Move slide down" },
     });
     setIcon(this.moveDownBtn, "arrow-down");
     this.moveDownBtn.onclick = () => this.delegate?.onMoveSlideDown();
@@ -160,7 +160,7 @@ export class PptxToolbar {
     // Insert Text Box
     this.addTextBtn = centerGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Insert Text Box (Double-click to edit text)" },
+      attr: { title: "Insert text box" },
     });
     setIcon(this.addTextBtn, "type");
     this.addTextBtn.onclick = () => this.delegate?.onAddTextBox();
@@ -168,7 +168,7 @@ export class PptxToolbar {
     // Insert Shape
     this.addShapeBtn = centerGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Insert Vector Shape (Card)" },
+      attr: { title: "Insert vector shape" },
     });
     setIcon(this.addShapeBtn, "square");
     this.addShapeBtn.onclick = () => this.delegate?.onAddShape("roundRect");
@@ -176,7 +176,7 @@ export class PptxToolbar {
     // Delete Element
     this.delElementBtn = centerGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Delete Selected Element (Delete / Backspace)" },
+      attr: { title: "Delete selected element" },
     });
     setIcon(this.delElementBtn, "trash");
     this.delElementBtn.disabled = true;
@@ -189,21 +189,21 @@ export class PptxToolbar {
     this.singleModeBtn = modeSegment.createEl("button", {
       text: "Single",
       cls: "office-pptx-mode-btn is-active",
-      attr: { title: "Single Slide View" },
+      attr: { title: "Single slide view" },
     });
     this.singleModeBtn.onclick = () => this.delegate?.onSetViewMode("single");
 
     this.scrollModeBtn = modeSegment.createEl("button", {
       text: "Scroll",
       cls: "office-pptx-mode-btn",
-      attr: { title: "Continuous Scroll View" },
+      attr: { title: "Continuous scroll view" },
     });
     this.scrollModeBtn.onclick = () => this.delegate?.onSetViewMode("scroll");
 
     this.gridModeBtn = modeSegment.createEl("button", {
       text: "Grid",
       cls: "office-pptx-mode-btn",
-      attr: { title: "Slide Sorter Grid View" },
+      attr: { title: "Slide sorter grid view" },
     });
     this.gridModeBtn.onclick = () => this.delegate?.onSetViewMode("grid");
 
@@ -212,7 +212,7 @@ export class PptxToolbar {
     // Slideshow / Present Button
     const presentBtn = centerGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn mod-cta office-pptx-present-btn",
-      attr: { title: "Start Slideshow / Presentation (F5)" },
+      attr: { title: "Start slideshow" },
     });
     const playIcon = presentBtn.createSpan({ cls: "office-pptx-btn-icon" });
     setIcon(playIcon, "play");
@@ -228,7 +228,7 @@ export class PptxToolbar {
 
     this.transitionSelectEl = transWrap.createEl("select", {
       cls: "office-pptx-toolbar-select",
-      attr: { title: "Slide Transition Effect" },
+      attr: { title: "Slide transition effect" },
     });
     const autoOpt = this.transitionSelectEl.createEl("option", {
       value: "auto",
@@ -251,7 +251,7 @@ export class PptxToolbar {
     // Replay Transition Button
     const replayBtn = transWrap.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Replay Slide Transition" },
+      attr: { title: "Replay slide transition" },
     });
     setIcon(replayBtn, "rotate-cw");
     replayBtn.onclick = () => this.delegate?.onReplayTransition();
@@ -261,14 +261,14 @@ export class PptxToolbar {
     // Zoom Controls
     const zoomOutBtn = rightGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Zoom Out (-)" },
+      attr: { title: "Zoom out" },
     });
     setIcon(zoomOutBtn, "zoom-out");
     zoomOutBtn.onclick = () => this.stepZoom(-25);
 
     this.zoomSelectEl = rightGroup.createEl("select", {
       cls: "office-pptx-toolbar-select office-pptx-zoom-select",
-      attr: { title: "Zoom Level" },
+      attr: { title: "Zoom level" },
     });
     const fitOpt = this.zoomSelectEl.createEl("option", { value: "fit", text: "Fit" });
     fitOpt.selected = true;
@@ -290,7 +290,7 @@ export class PptxToolbar {
 
     const zoomInBtn = rightGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Zoom In (+)" },
+      attr: { title: "Zoom in" },
     });
     setIcon(zoomInBtn, "zoom-in");
     zoomInBtn.onclick = () => this.stepZoom(25);
@@ -300,7 +300,7 @@ export class PptxToolbar {
     // Speaker Notes Button
     this.notesBtn = rightGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "Toggle Speaker Notes Drawer (S)" },
+      attr: { title: "Toggle speaker notes drawer" },
     });
     setIcon(this.notesBtn, "file-text");
     this.notesBtn.onclick = () => this.delegate?.onToggleNotes();
@@ -329,7 +329,7 @@ export class PptxToolbar {
     // Actions dropdown / menu
     const moreBtn = rightGroup.createEl("button", {
       cls: "office-pptx-toolbar-btn",
-      attr: { title: "More Options (Export, Copy Link, Print)" },
+      attr: { title: "More options" },
     });
     setIcon(moreBtn, "more-vertical");
     moreBtn.onclick = (e) => {
@@ -423,15 +423,13 @@ export class PptxToolbar {
 
     const rect = anchorEl.getBoundingClientRect();
     const menu = document.body.createDiv({ cls: "office-pptx-dropdown-menu" });
-    menu.style.position = "fixed";
     menu.style.top = `${rect.bottom + 4}px`;
     menu.style.right = `${window.innerWidth - rect.right}px`;
-    menu.style.zIndex = "9999";
 
     const exportItem = menu.createDiv({ cls: "office-pptx-dropdown-item" });
     const exportIcon = exportItem.createSpan({ cls: "office-pptx-dropdown-icon" });
     setIcon(exportIcon, "file-output");
-    exportItem.createSpan({ text: "Export Slides to Markdown Note" });
+    exportItem.createSpan({ text: "Export slides to Markdown note" });
     exportItem.onclick = () => {
       menu.remove();
       this.delegate?.onExportMarkdown();
@@ -461,6 +459,6 @@ export class PptxToolbar {
         document.removeEventListener("click", closeHandler);
       }
     };
-    setTimeout(() => document.addEventListener("click", closeHandler), 10);
+    window.setTimeout(() => document.addEventListener("click", closeHandler), 10);
   }
 }

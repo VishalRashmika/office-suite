@@ -85,11 +85,11 @@ export class PptxSlideshow {
 
   stop(): void {
     if (this.timerInterval) {
-      clearInterval(this.timerInterval);
+      window.clearInterval(this.timerInterval);
       this.timerInterval = null;
     }
     if (this.hudTimeout) {
-      clearTimeout(this.hudTimeout);
+      window.clearTimeout(this.hudTimeout);
       this.hudTimeout = null;
     }
     if (this.keyListener) {
@@ -233,9 +233,9 @@ export class PptxSlideshow {
     this.hudEl.classList.add("is-visible");
 
     if (this.hudTimeout) {
-      clearTimeout(this.hudTimeout);
+      window.clearTimeout(this.hudTimeout);
     }
-    this.hudTimeout = setTimeout(() => {
+    this.hudTimeout = window.setTimeout(() => {
       this.hudEl?.classList.remove("is-visible");
     }, 3000);
   }
@@ -341,7 +341,7 @@ export class PptxSlideshow {
 
     this.scaleSlideToWindow();
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       if (oldSlide && oldSlide.parentElement === this.stageEl) {
         oldSlide.remove();
       }

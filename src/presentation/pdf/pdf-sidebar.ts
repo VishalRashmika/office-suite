@@ -894,7 +894,7 @@ export class PdfSidebar {
         window.removeEventListener("mousedown", closeHandler);
       }
     };
-    setTimeout(() => window.addEventListener("mousedown", closeHandler), 50);
+    window.setTimeout(() => window.addEventListener("mousedown", closeHandler), 50);
   }
 
   private getTypeIconName(type: PdfAnnotationType): string {
@@ -1128,7 +1128,7 @@ export class PdfSidebar {
         window.removeEventListener("mousedown", closeHandler);
       }
     };
-    setTimeout(() => window.addEventListener("mousedown", closeHandler), 50);
+    window.setTimeout(() => window.addEventListener("mousedown", closeHandler), 50);
   }
 
   dispose(): void {

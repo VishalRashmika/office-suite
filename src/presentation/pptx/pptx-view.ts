@@ -84,8 +84,7 @@ export class PptxView
     // Center Stage + Notes Drawer Wrap
     this.centerAreaEl = this.mainBodyEl.createDiv({ cls: "office-pptx-center-area" });
     this.stageEl = this.centerAreaEl.createDiv({ cls: "office-pptx-stage-host" });
-    this.notesEl = this.centerAreaEl.createDiv({ cls: "office-pptx-notes-host" });
-    this.notesEl.style.display = "none";
+    this.notesEl = this.centerAreaEl.createDiv({ cls: "office-pptx-notes-host is-hidden" });
     this.notes.render(this.notesEl, this);
 
     // Keyboard Shortcuts inside view
@@ -142,7 +141,8 @@ export class PptxView
       this.dirty = false;
 
       // Check URL deep link / subpath (e.g. #slide=3)
-      const subpath = this.leaf.getViewState()?.state?.subpath;
+      const state = this.leaf.getViewState()?.state as Record<string, unknown> | undefined;
+      const subpath = typeof state?.subpath === "string" ? state.subpath : undefined;
       if (subpath && subpath.includes("slide=")) {
         const match = subpath.match(/slide=(\d+)/);
         if (match) {
@@ -181,7 +181,7 @@ export class PptxView
       if (this.stageEl) {
         this.stageEl.empty();
         const errBox = this.stageEl.createDiv({ cls: "office-pptx-error-box" });
-        errBox.createEl("h3", { text: "Could not open PowerPoint presentation" });
+        errBox.createEl("h3", { text: "Could not open presentation" });
         errBox.createEl("p", { text: err?.message || String(err) });
       }
     }
@@ -224,7 +224,8 @@ export class PptxView
     try {
       this.toolbar.setSaveStatus("saving");
       const bytes = await this.pptxDoc.save();
-      await this.app.vault.modifyBinary(this.file, bytes.buffer);
+      const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      await this.app.vault.modifyBinary(this.file, arrayBuffer);
       this.dirty = false;
       this.toolbar.setSaveStatus("saved");
     } catch (err: any) {
@@ -283,7 +284,7 @@ export class PptxView
   onToggleNotes(): void {
     this.isNotesOpen = !this.isNotesOpen;
     if (this.notesEl) {
-      this.notesEl.style.display = this.isNotesOpen ? "" : "none";
+      this.notesEl.toggleClass("is-hidden", !this.isNotesOpen);
     }
     this.toolbar.updateNotesState(this.isNotesOpen);
     this.updateNotesPanel();

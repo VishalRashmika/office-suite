@@ -1487,7 +1487,7 @@ export class PdfPageView {
       this.selectedAnnotId = annot.id;
       this.delegate?.onAddAnnotation(annot);
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         const box = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`) as HTMLElement | null;
         if (box) {
           box.addClass("is-editing");
@@ -1650,7 +1650,7 @@ export class PdfPageView {
     };
 
     this.delegate?.onAddAnnotation(annot);
-    setTimeout(() => {
+    window.setTimeout(() => {
       const pinEl = this.containerEl.querySelector(`[data-annot-id="${annot.id}"]`) as HTMLElement | SVGElement | null;
       this.delegate?.onClickAnnotation(annot, pinEl || this.containerEl);
     }, 60);
@@ -1680,7 +1680,7 @@ export class PdfPageView {
     this.delegate?.onAddAnnotation(annot);
 
     // Auto-focus immediately so user can type right away!
-    setTimeout(() => {
+    window.setTimeout(() => {
       const box = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`) as HTMLElement | null;
       if (box) {
         box.addClass("is-editing");
@@ -1975,7 +1975,7 @@ export class PdfPageView {
     this.delegate?.onAddAnnotation(annot);
 
     // Open note popover anchored to the newly created highlight
-    setTimeout(() => {
+    window.setTimeout(() => {
       const annotEl = this.containerEl.querySelector(`[data-annot-id="${annot.id}"]`) as HTMLElement | SVGElement | null;
       this.delegate?.onClickAnnotation(annot, annotEl || this.containerEl);
     }, 60);
@@ -2007,7 +2007,7 @@ export class PdfPageView {
     const el = this.containerEl.querySelector(`[data-annot-id="${annotId}"]`);
     if (el) {
       el.classList.add("is-pulsing");
-      setTimeout(() => el.classList.remove("is-pulsing"), 1500);
+      window.setTimeout(() => el.classList.remove("is-pulsing"), 1500);
     }
   }
 
