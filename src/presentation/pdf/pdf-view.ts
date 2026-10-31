@@ -811,6 +811,17 @@ export class PdfView
   onSelectAnnotation(annotation: PdfAnnotation): void {
     this.scrollToAnnotation(annotation);
     this.pulseAnnotation(annotation.id);
+    for (const [idx, pv] of this.pageViews.entries()) {
+      if (idx === annotation.pageIndex) {
+        pv.selectAnnotation(annotation.id);
+      } else {
+        pv.selectAnnotation(null);
+      }
+    }
+  }
+
+  getPageView(pageIndex: number): PdfPageView | undefined {
+    return this.pageViews.get(pageIndex);
   }
 
   scrollToAnnotation(annotation: PdfAnnotation): void {

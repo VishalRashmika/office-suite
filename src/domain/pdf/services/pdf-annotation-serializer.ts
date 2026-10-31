@@ -453,7 +453,10 @@ export class PdfAnnotationSerializer {
     const context = pdfDoc.context;
     dict.set(PDFName.of("Subtype"), PDFName.of("FreeText"));
     dict.set(PDFName.of("Subj"), PDFString.of("Text Box"));
-    dict.set(PDFName.of("Q"), PDFNumber.of(0)); // Left aligned
+    
+    // Quadding / text alignment: 0=Left, 1=Center, 2=Right
+    const qVal = annot.textAlign === "center" ? 1 : annot.textAlign === "right" ? 2 : 0;
+    dict.set(PDFName.of("Q"), PDFNumber.of(qVal));
 
     const size = annot.fontSize || 12;
     const tc = annot.textColor || [0, 0, 0];
@@ -469,10 +472,16 @@ export class PdfAnnotationSerializer {
     const da = `/${fontName} ${size} Tf ${tc[0]} ${tc[1]} ${tc[2]} rg`;
     dict.set(PDFName.of("DA"), PDFString.of(da));
 
-    if (annot.borderColor) {
+    if (annot.fillColor) {
+      dict.set(PDFName.of("IC"), this.createPdfColorArray(pdfDoc, annot.fillColor));
+    }
+
+    if (annot.borderColor && annot.borderStyle !== "none") {
+      dict.set(PDFName.of("C"), this.createPdfColorArray(pdfDoc, annot.borderColor));
       const bsDict = context.obj({
         Type: PDFName.of("Border"),
-        W: PDFNumber.of(1),
+        W: PDFNumber.of(annot.borderWidth || 1),
+        S: PDFName.of(annot.borderStyle === "dashed" ? "D" : "S"),
       }) as PDFDict;
       dict.set(PDFName.of("BS"), bsDict);
     }
@@ -747,19 +756,26 @@ Q`;
     let ops = `q\n0 0 ${width} ${height} re W n\n`;
 
     // Fill background if specified
-    if (annot.color && (annot.color[0] !== 0 || annot.color[1] !== 0 || annot.color[2] !== 0)) {
-      const fr = Math.round(annot.color[0] * 100) / 100;
-      const fg = Math.round(annot.color[1] * 100) / 100;
-      const fb = Math.round(annot.color[2] * 100) / 100;
+    if (annot.fillColor) {
+      const fr = Math.round(annot.fillColor[0] * 100) / 100;
+      const fg = Math.round(annot.fillColor[1] * 100) / 100;
+      const fb = Math.round(annot.fillColor[2] * 100) / 100;
       ops += `${fr} ${fg} ${fb} rg\n0 0 ${width} ${height} re f\n`;
     }
 
     // Border if specified
-    if (annot.borderColor) {
+    if (annot.borderColor && annot.borderStyle !== "none") {
       const br = Math.round(annot.borderColor[0] * 100) / 100;
       const bg = Math.round(annot.borderColor[1] * 100) / 100;
       const bb = Math.round(annot.borderColor[2] * 100) / 100;
-      ops += `${br} ${bg} ${bb} RG\n1 w\n0.5 0.5 ${Math.max(0.1, width - 1)} ${Math.max(0.1, height - 1)} re S\n`;
+      const bw = annot.borderWidth || 1;
+      if (annot.borderStyle === "dashed") {
+        ops += `[3 3] 0 d\n`;
+      }
+      ops += `${br} ${bg} ${bb} RG\n${bw} w\n0.5 0.5 ${Math.max(0.1, width - 1)} ${Math.max(0.1, height - 1)} re S\n`;
+      if (annot.borderStyle === "dashed") {
+        ops += `[] 0 d\n`;
+      }
     }
 
     // Wrap and render text lines
@@ -769,13 +785,22 @@ Q`;
     const leading = Math.round(fontSize * 1.25 * 10) / 10;
     const startY = Math.max(4, Math.round((height - fontSize - 4) * 10) / 10);
 
-    ops += `BT\n/Helv ${fontSize} Tf\n${tr} ${tg} ${tb} rg\n${leading} TL\n4 ${startY} Td\n`;
+    ops += `BT\n/Helv ${fontSize} Tf\n${tr} ${tg} ${tb} rg\n${leading} TL\n`;
     for (let i = 0; i < lines.length; i++) {
-      if (i > 0) {
-        ops += `T*\n`;
+      const line = lines[i];
+      let lineX = 4;
+      const approxLineWidth = line.length * fontSize * 0.52;
+      if (annot.textAlign === "center") {
+        lineX = Math.max(4, (width - approxLineWidth) / 2);
+      } else if (annot.textAlign === "right") {
+        lineX = Math.max(4, width - approxLineWidth - 4);
       }
-      const hex = encodeWinAnsiHex(lines[i]);
-      ops += `<${hex}> Tj\n`;
+      const yPos = startY - i * leading;
+      if (yPos >= -leading) {
+        ops += `1 0 0 1 ${lineX.toFixed(2)} ${yPos.toFixed(2)} Tm\n`;
+        const hex = encodeWinAnsiHex(line);
+        ops += `<${hex}> Tj\n`;
+      }
     }
     ops += `ET\nQ`;
 

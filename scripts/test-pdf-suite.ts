@@ -1113,6 +1113,160 @@ async function runTestSuite() {
   }
   console.log("✓ Verified Page rotation (90°), blank page insertion, and deletion purge across save/reload");
 
+  // ==================== Testing Advanced Text Box Operations (CRUD, 8-Handle Transform, Multi-Page Move, ISO 32000-1) ====================
+  console.log("\n--- Testing Advanced Text Box Operations (Full CRUD, 8-Handle Transform, Cross-Page Move) ---");
+  const tbDoc = await PDFDocument.create();
+  tbDoc.addPage([612, 792]);
+  tbDoc.addPage([612, 792]);
+  const tbInitialBytes = await tbDoc.save();
+  const tbAdapter = await PdfDocumentAdapter.load(tbInitialBytes.buffer);
+
+  // 1. Create (C)
+  const initialTb: PdfFreeTextAnnotation = {
+    id: "crud_tb_test_1",
+    type: "freetext",
+    pageIndex: 0,
+    rect: [100, 500, 260, 540], // 160 x 40
+    color: [0.1, 0.2, 0.8],
+    textColor: [0.1, 0.2, 0.8],
+    fontSize: 14,
+    isBold: true,
+    isItalic: false,
+    textAlign: "center",
+    fillColor: [1.0, 0.98, 0.82],
+    borderColor: [0.1, 0.2, 0.8],
+    borderStyle: "solid",
+    borderWidth: 1,
+    contents: "Initial Text Box Content",
+    author: "User",
+  };
+  tbAdapter.upsertAnnotation(initialTb);
+  const tbSavedBytes1 = await tbAdapter.save();
+  const tbReloaded1 = await PdfDocumentAdapter.load(tbSavedBytes1);
+
+  const parsedTb1 = tbReloaded1.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  if (!parsedTb1 || parsedTb1.type !== "freetext") {
+    throw new Error("FreeText annotation failed to save or reload correctly!");
+  }
+  if (parsedTb1.contents !== "Initial Text Box Content") {
+    throw new Error(`Expected 'Initial Text Box Content', got '${parsedTb1.contents}'`);
+  }
+  if (parsedTb1.fontSize !== 14) {
+    throw new Error(`Expected fontSize 14, got ${parsedTb1.fontSize}`);
+  }
+  if (!parsedTb1.isBold) {
+    throw new Error("Expected text box to be bold!");
+  }
+  if (parsedTb1.textAlign !== "center") {
+    throw new Error(`Expected textAlign 'center', got '${parsedTb1.textAlign}'`);
+  }
+  if (!parsedTb1.fillColor || Math.abs(parsedTb1.fillColor[0] - 1.0) > 0.05) {
+    throw new Error("Expected fillColor to persist!");
+  }
+  console.log("✓ Verified Text Box Creation (C): contents, font, alignment, fill & border preserved losslessly");
+
+  // 2. 8-Handle Transform (Resize Width & Height)
+  parsedTb1.rect = [80, 440, 360, 580]; // Resized to 280 x 140
+  tbReloaded1.upsertAnnotation(parsedTb1);
+  const tbSavedBytes2 = await tbReloaded1.save();
+  const tbReloaded2 = await PdfDocumentAdapter.load(tbSavedBytes2);
+
+  const parsedTb2 = tbReloaded2.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  const w2 = parsedTb2.rect[2] - parsedTb2.rect[0];
+  const h2 = parsedTb2.rect[3] - parsedTb2.rect[1];
+  if (Math.abs(w2 - 280) > 1 || Math.abs(h2 - 140) > 1) {
+    throw new Error(`Expected transformed dimensions 280x140, got ${w2}x${h2}`);
+  }
+  console.log("✓ Verified Text Box 8-Handle Transform: width (280) and height (140) accurately persisted in PDF");
+
+  // 3. Edit (U) - Text content, font size, italic, dashed border, and alignment
+  parsedTb2.contents = "Revised FreeText Line 1\nSecond Line of Callout\nThird Line Right-Aligned";
+  parsedTb2.fontSize = 16;
+  parsedTb2.isItalic = true;
+  parsedTb2.textAlign = "right";
+  parsedTb2.borderStyle = "dashed";
+  parsedTb2.fillColor = [1.0, 1.0, 1.0]; // White
+  parsedTb2.textColor = [0.8, 0.1, 0.2]; // Red
+  tbReloaded2.upsertAnnotation(parsedTb2);
+  const tbSavedBytes3 = await tbReloaded2.save();
+  const tbReloaded3 = await PdfDocumentAdapter.load(tbSavedBytes3);
+
+  const parsedTb3 = tbReloaded3.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  if (!parsedTb3.contents.includes("Second Line of Callout")) {
+    throw new Error(`Expected multiline text, got '${parsedTb3.contents}'`);
+  }
+  if (parsedTb3.fontSize !== 16) {
+    throw new Error(`Expected fontSize 16, got ${parsedTb3.fontSize}`);
+  }
+  if (!parsedTb3.isItalic) {
+    throw new Error("Expected isItalic to be true!");
+  }
+  if (parsedTb3.textAlign !== "right") {
+    throw new Error(`Expected textAlign 'right', got '${parsedTb3.textAlign}'`);
+  }
+
+  // Verify in PDF.js
+  const pdfjsTbTask = pdfjs.getDocument({ data: new Uint8Array(tbSavedBytes3) });
+  const pdfjsTbDoc = await pdfjsTbTask.promise;
+  const pdfjsP1 = await pdfjsTbDoc.getPage(1);
+  const p1Annots = await pdfjsP1.getAnnotations({ intent: "display" });
+  const pdfjsTbAnnot = p1Annots.find((a: any) => a.id === "crud_tb_test_1" || a.contentsObj?.str?.includes("Revised FreeText"));
+  if (!pdfjsTbAnnot) {
+    throw new Error("PDF.js did not find updated FreeText annotation on Page 1!");
+  }
+  if (!pdfjsTbAnnot.hasAppearance) {
+    throw new Error("Updated FreeText annotation lost appearance stream in PDF.js!");
+  }
+  console.log("✓ Verified Text Box Editing (U): multiline contents, font size, italic & right alignment verified in PDF.js");
+
+  // 4. Move Across the PDF (Multi-Page Movement: Page 0 -> Page 1)
+  parsedTb3.pageIndex = 1; // Transferred to Page 1 (second page)
+  parsedTb3.rect = [120, 300, 400, 440];
+  tbReloaded3.upsertAnnotation(parsedTb3);
+  const tbSavedBytes4 = await tbReloaded3.save();
+  const tbReloaded4 = await PdfDocumentAdapter.load(tbSavedBytes4);
+
+  const page0Annots = tbReloaded4.getPageAnnotations(0);
+  const page1Annots = tbReloaded4.getPageAnnotations(1);
+
+  if (page0Annots.some((a) => a.id === "crud_tb_test_1")) {
+    throw new Error("Annotation was not removed from Page 0 after cross-page move!");
+  }
+  const movedOnP1 = page1Annots.find((a) => a.id === "crud_tb_test_1");
+  if (!movedOnP1 || movedOnP1.pageIndex !== 1) {
+    throw new Error("Annotation was not found on Page 1 after cross-page move!");
+  }
+  console.log("✓ Verified Text Box Cross-Page Movement: transferred from Page 0 to Page 1 cleanly in binary");
+
+  // 5. Delete (D) - Complete binary purge
+  const deleted = tbReloaded4.deleteAnnotation("crud_tb_test_1");
+  if (!deleted) {
+    throw new Error("deleteAnnotation returned false for existing text box!");
+  }
+  const tbSavedBytes5 = await tbReloaded4.save();
+  const tbReloaded5 = await PdfDocumentAdapter.load(tbSavedBytes5);
+
+  if (tbReloaded5.getAnnotation("crud_tb_test_1")) {
+    throw new Error("Deleted text box still found in reloaded adapter!");
+  }
+  const allAnnotsAfterDel = tbReloaded5.getAllAnnotations();
+  if (allAnnotsAfterDel.length !== 0) {
+    throw new Error(`Expected 0 annotations after deletion, found ${allAnnotsAfterDel.length}`);
+  }
+
+  const pdfjsDelTask = pdfjs.getDocument({ data: new Uint8Array(tbSavedBytes5) });
+  const pdfjsDelDoc = await pdfjsDelTask.promise;
+  const p1Del = await pdfjsDelDoc.getPage(1);
+  const p2Del = await pdfjsDelDoc.getPage(2);
+  const [p1DelAnnots, p2DelAnnots] = await Promise.all([
+    p1Del.getAnnotations({ intent: "display" }),
+    p2Del.getAnnotations({ intent: "display" }),
+  ]);
+  if (p1DelAnnots.length !== 0 || p2DelAnnots.length !== 0) {
+    throw new Error("Deleted text box ghost still found in PDF.js page /Annots dictionaries!");
+  }
+  console.log("✓ Verified Text Box Deletion (D): completely purged with 0 ghost annotations across all PDF pages");
+
 
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");

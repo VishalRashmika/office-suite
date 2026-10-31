@@ -84,9 +84,12 @@ export interface PdfFreeTextAnnotation extends BasePdfAnnotation {
   fontFamily?: string;
   textColor: PdfRgbColor;
   borderColor?: PdfRgbColor;
+  borderWidth?: number;
+  borderStyle?: "none" | "solid" | "dashed";
   fillColor?: PdfRgbColor;
   isBold?: boolean;
   isItalic?: boolean;
+  textAlign?: "left" | "center" | "right";
 }
 
 /** Vector geometric shape annotation (/Subtype /Square, /Circle, /Line) */

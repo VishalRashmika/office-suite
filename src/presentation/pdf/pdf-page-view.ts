@@ -30,6 +30,7 @@ export interface PdfPageViewDelegate {
   onDeleteAnnotation(id: string): void;
   onClickAnnotation(annotation: PdfAnnotation, element: HTMLElement | SVGElement): void;
   onTextSelected?(selectedText: string, screenRect: DOMRect, pageIndex: number): void;
+  getPageView?(pageIndex: number): PdfPageView | undefined;
 }
 
 interface DragState {
@@ -75,6 +76,11 @@ export class PdfPageView {
   private shapeStartPoint: { x: number; y: number } | null = null;
   private liveShapeEl: SVGElement | null = null;
 
+  // FreeText creation state
+  private isCreatingFreeText = false;
+  private freeTextStartPoint: { x: number; y: number } | null = null;
+  private liveFreeTextEl: HTMLElement | null = null;
+
   constructor(pageIndex: number, parentEl: HTMLElement) {
     this.pageIndex = pageIndex;
     this.pageNumber = pageIndex + 1;
@@ -99,6 +105,10 @@ export class PdfPageView {
 
   get element(): HTMLElement {
     return this.containerEl;
+  }
+
+  getCoordinateTransformer(): PdfCoordinateTransformer | null {
+    return this.coordinateTransformer;
   }
 
   setDelegate(delegate: PdfPageViewDelegate): void {
@@ -270,14 +280,12 @@ export class PdfPageView {
       this.svgOverlayEl.removeChild(this.svgOverlayEl.firstChild);
     }
 
-    // Preserve active editing state in HTML overlay if user is actively typing
-    const activeEl = document.activeElement;
-    const editingBox = activeEl?.closest(".pdf-annot-freetext-box") as HTMLElement | null;
-    const editingAnnotId = editingBox?.dataset.annotId || null;
-
-    const existingBoxes = Array.from(this.htmlOverlayEl.querySelectorAll(".pdf-annot-freetext-box"));
+    // Clean up FreeText DOM boxes that no longer belong to this page's annotations
+    const currentIds = new Set(this.annotations.map((a) => a.id));
+    const existingBoxes = Array.from(this.htmlOverlayEl.querySelectorAll(".pdf-annot-freetext-box")) as HTMLElement[];
     for (const box of existingBoxes) {
-      if ((box as HTMLElement).dataset.annotId !== editingAnnotId) {
+      const annotId = box.dataset.annotId;
+      if (!annotId || !currentIds.has(annotId)) {
         box.remove();
       }
     }
@@ -587,40 +595,124 @@ export class PdfPageView {
     if (!this.coordinateTransformer) return;
     const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
 
-    // If box already exists and is actively being edited, update its position without re-creating DOM
+    const colors =
+      this.colorScheme?.colors && this.colorScheme.colors.length > 0
+        ? this.colorScheme.colors
+        : PDF_COLOR_PRESETS.map((p) => ({
+            id: p.name.toLowerCase(),
+            hex: p.hex,
+            name: p.name,
+            tag: "",
+            rgb: p.rgb,
+          }));
+
     const existingBox = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`) as HTMLElement | null;
+
     if (existingBox) {
-      existingBox.style.left = `${screenRect.left}px`;
-      existingBox.style.top = `${screenRect.top}px`;
+      // If actively being transformed (dragged or resized), avoid overriding live transform
+      if (existingBox.dataset.isTransforming !== "true") {
+        existingBox.style.left = `${screenRect.left}px`;
+        existingBox.style.top = `${screenRect.top}px`;
+        existingBox.style.width = `${Math.max(60, screenRect.width)}px`;
+        existingBox.style.height = `${Math.max(24, screenRect.height)}px`;
+        if (screenRect.top < 38) {
+          existingBox.addClass("is-top-edge");
+        } else {
+          existingBox.removeClass("is-top-edge");
+        }
+      }
+
       if (isSelected) {
         existingBox.addClass("is-selected");
       } else {
         existingBox.removeClass("is-selected");
       }
+
+      const contentEl = existingBox.querySelector(".pdf-annot-freetext-content") as HTMLElement | null;
+      if (contentEl) {
+        if (document.activeElement !== contentEl) {
+          contentEl.textContent = annot.contents || "";
+        }
+        contentEl.style.fontSize = `${Math.max(8, (annot.fontSize || 13) * this.scale)}px`;
+        contentEl.style.color = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
+        contentEl.style.fontWeight = annot.isBold ? "bold" : "normal";
+        contentEl.style.fontStyle = annot.isItalic ? "italic" : "normal";
+        contentEl.style.textAlign = annot.textAlign || "left";
+      }
+
+      // Update background and border
+      existingBox.style.backgroundColor = annot.fillColor ? rgbToHex(annot.fillColor) : "transparent";
+      if (annot.borderColor && annot.borderStyle && annot.borderStyle !== "none") {
+        existingBox.style.border = `${annot.borderWidth || 1}px ${annot.borderStyle} ${rgbToHex(annot.borderColor)}`;
+      } else {
+        existingBox.style.border = isSelected ? "1.5px solid var(--interactive-accent)" : "1px dashed transparent";
+      }
+
+      // Update toolbar indicators
+      const sizeLabel = existingBox.querySelector(".pdf-annot-freetext-size-label");
+      if (sizeLabel) sizeLabel.textContent = `${annot.fontSize || 13}`;
+
+      const boldBtn = existingBox.querySelector(".pdf-annot-freetext-btn-bold");
+      if (boldBtn) boldBtn.classList.toggle("is-active", !!annot.isBold);
+
+      const italicBtn = existingBox.querySelector(".pdf-annot-freetext-btn-italic");
+      if (italicBtn) italicBtn.classList.toggle("is-active", !!annot.isItalic);
+
+      const alignBtn = existingBox.querySelector(".pdf-annot-freetext-btn-align");
+      if (alignBtn) {
+        const align = annot.textAlign || "left";
+        alignBtn.textContent = align === "center" ? "⇋" : align === "right" ? "⇥" : "⇤";
+      }
+
+      const colorDot = existingBox.querySelector(".pdf-annot-freetext-color-dot") as HTMLElement | null;
+      if (colorDot) {
+        colorDot.style.backgroundColor = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
+      }
+
       return;
     }
 
+    // Build fresh FreeText box DOM element
     const box = this.htmlOverlayEl.createDiv({
       cls: `pdf-annot-freetext-box ${isSelected ? "is-selected" : ""}`,
     });
     box.dataset.annotId = annot.id;
     box.style.left = `${screenRect.left}px`;
     box.style.top = `${screenRect.top}px`;
-    const boxW = Math.max(100, screenRect.width);
+    const boxW = Math.max(60, screenRect.width);
     box.style.width = `${boxW}px`;
-    if (screenRect.height > 30) {
-      box.style.height = `${screenRect.height}px`;
+    const boxH = Math.max(24, screenRect.height);
+    box.style.height = `${boxH}px`;
+    if (screenRect.top < 38) {
+      box.addClass("is-top-edge");
     }
 
-    // Header bar for format controls, drag-to-move and delete
-    const handleBar = box.createDiv({ cls: "pdf-annot-freetext-handle" });
-    const grip = handleBar.createSpan({ cls: "pdf-annot-freetext-grip", text: "⋮⋮", attr: { title: "Drag to move text box" } });
+    // Background & Border styling
+    box.style.backgroundColor = annot.fillColor ? rgbToHex(annot.fillColor) : "transparent";
+    if (annot.borderColor && annot.borderStyle && annot.borderStyle !== "none") {
+      box.style.border = `${annot.borderWidth || 1}px ${annot.borderStyle} ${rgbToHex(annot.borderColor)}`;
+    } else {
+      box.style.border = isSelected ? "1.5px solid var(--interactive-accent)" : "1px dashed transparent";
+    }
 
-    // Format Controls Container
+    // 1. Floating Action & Format Toolbar
+    const handleBar = box.createDiv({ cls: "pdf-annot-freetext-handle" });
+
+    // Drag-to-move Grip
+    const grip = handleBar.createSpan({
+      cls: "pdf-annot-freetext-grip",
+      text: "⋮⋮",
+      attr: { title: "Drag to move text box across PDF" },
+    });
+
     const formatWrap = handleBar.createDiv({ cls: "pdf-annot-freetext-format-wrap" });
 
     // Font size -
-    const fontMinus = formatWrap.createSpan({ cls: "pdf-annot-freetext-btn", text: "A-", attr: { title: "Decrease font size" } });
+    const fontMinus = formatWrap.createSpan({
+      cls: "pdf-annot-freetext-btn",
+      text: "A-",
+      attr: { title: "Decrease font size" },
+    });
     fontMinus.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       e.preventDefault();
@@ -632,23 +724,32 @@ export class PdfPageView {
     });
 
     // Font size label
-    const fontSizeLabel = formatWrap.createSpan({ cls: "pdf-annot-freetext-size-label", text: `${annot.fontSize || 13}` });
+    const fontSizeLabel = formatWrap.createSpan({
+      cls: "pdf-annot-freetext-size-label",
+      text: `${annot.fontSize || 13}`,
+    });
 
     // Font size +
-    const fontPlus = formatWrap.createSpan({ cls: "pdf-annot-freetext-btn", text: "A+", attr: { title: "Increase font size" } });
+    const fontPlus = formatWrap.createSpan({
+      cls: "pdf-annot-freetext-btn",
+      text: "A+",
+      attr: { title: "Increase font size" },
+    });
     fontPlus.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       e.preventDefault();
       const currentSize = annot.fontSize || 13;
-      annot.fontSize = Math.min(48, currentSize + 1);
+      annot.fontSize = Math.min(72, currentSize + 1);
       contentEl.style.fontSize = `${Math.max(8, annot.fontSize * this.scale)}px`;
       fontSizeLabel.setText(`${annot.fontSize}`);
       this.delegate?.onUpdateAnnotation(annot);
     });
 
-    // Bold toggle
+    formatWrap.createSpan({ cls: "pdf-annot-freetext-divider" });
+
+    // Bold button
     const boldBtn = formatWrap.createSpan({
-      cls: `pdf-annot-freetext-btn ${annot.isBold ? "is-active" : ""}`,
+      cls: `pdf-annot-freetext-btn pdf-annot-freetext-btn-bold ${annot.isBold ? "is-active" : ""}`,
       text: "B",
       attr: { title: "Bold" },
     });
@@ -661,9 +762,9 @@ export class PdfPageView {
       this.delegate?.onUpdateAnnotation(annot);
     });
 
-    // Italic toggle
+    // Italic button
     const italicBtn = formatWrap.createSpan({
-      cls: `pdf-annot-freetext-btn ${annot.isItalic ? "is-active" : ""}`,
+      cls: `pdf-annot-freetext-btn pdf-annot-freetext-btn-italic ${annot.isItalic ? "is-active" : ""}`,
       text: "I",
       attr: { title: "Italic" },
     });
@@ -676,18 +777,26 @@ export class PdfPageView {
       this.delegate?.onUpdateAnnotation(annot);
     });
 
-    // Color swatch dot
-    const colors =
-      this.colorScheme?.colors && this.colorScheme.colors.length > 0
-        ? this.colorScheme.colors
-        : PDF_COLOR_PRESETS.map((p) => ({
-            id: p.name.toLowerCase(),
-            hex: p.hex,
-            name: p.name,
-            tag: "",
-            rgb: p.rgb,
-          }));
+    // Alignment toggle button
+    const alignBtn = formatWrap.createSpan({
+      cls: "pdf-annot-freetext-btn pdf-annot-freetext-btn-align",
+      text: annot.textAlign === "center" ? "⇋" : annot.textAlign === "right" ? "⇥" : "⇤",
+      attr: { title: "Text Alignment (Left / Center / Right)" },
+    });
+    alignBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const current = annot.textAlign || "left";
+      const next = current === "left" ? "center" : current === "center" ? "right" : "left";
+      annot.textAlign = next;
+      alignBtn.setText(next === "center" ? "⇋" : next === "right" ? "⇥" : "⇤");
+      contentEl.style.textAlign = next;
+      this.delegate?.onUpdateAnnotation(annot);
+    });
 
+    formatWrap.createSpan({ cls: "pdf-annot-freetext-divider" });
+
+    // Color Swatch Dot
     const colorBtn = formatWrap.createSpan({
       cls: "pdf-annot-freetext-color-dot",
       attr: { title: "Change text color" },
@@ -706,82 +815,94 @@ export class PdfPageView {
       this.delegate?.onUpdateAnnotation(annot);
     });
 
-    // Delete button on handle
-    const deleteBtn = handleBar.createSpan({ cls: "pdf-annot-freetext-del", text: "×", attr: { title: "Delete text box" } });
+    // Background fill toggle button
+    const fillBtn = formatWrap.createSpan({
+      cls: `pdf-annot-freetext-btn ${annot.fillColor ? "is-active" : ""}`,
+      text: "▨",
+      attr: { title: "Toggle background fill (transparent / tinted / white)" },
+    });
+    fillBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!annot.fillColor) {
+        annot.fillColor = [1.0, 0.98, 0.82]; // Subtle warm yellow tint
+      } else if (annot.fillColor[0] === 1.0 && annot.fillColor[1] === 0.98) {
+        annot.fillColor = [1.0, 1.0, 1.0]; // Solid white
+      } else {
+        annot.fillColor = undefined; // Transparent
+      }
+      fillBtn.classList.toggle("is-active", !!annot.fillColor);
+      box.style.backgroundColor = annot.fillColor ? rgbToHex(annot.fillColor) : "transparent";
+      this.delegate?.onUpdateAnnotation(annot);
+    });
+
+    // Border toggle button
+    const borderBtn = formatWrap.createSpan({
+      cls: `pdf-annot-freetext-btn ${annot.borderStyle && annot.borderStyle !== "none" ? "is-active" : ""}`,
+      text: "▢",
+      attr: { title: "Toggle border (none / solid / dashed)" },
+    });
+    borderBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!annot.borderStyle || annot.borderStyle === "none") {
+        annot.borderStyle = "solid";
+        annot.borderWidth = 1;
+        annot.borderColor = annot.textColor || [0.2, 0.2, 0.2];
+      } else if (annot.borderStyle === "solid") {
+        annot.borderStyle = "dashed";
+        annot.borderWidth = 1;
+        annot.borderColor = annot.textColor || [0.2, 0.2, 0.2];
+      } else {
+        annot.borderStyle = "none";
+        annot.borderColor = undefined;
+      }
+      borderBtn.classList.toggle("is-active", annot.borderStyle !== "none");
+      if (annot.borderColor && annot.borderStyle !== "none") {
+        box.style.border = `${annot.borderWidth || 1}px ${annot.borderStyle} ${rgbToHex(annot.borderColor)}`;
+      } else {
+        box.style.border = isSelected ? "1.5px solid var(--interactive-accent)" : "1px dashed transparent";
+      }
+      this.delegate?.onUpdateAnnotation(annot);
+    });
+
+    // Delete button
+    const deleteBtn = handleBar.createSpan({
+      cls: "pdf-annot-freetext-del",
+      text: "×",
+      attr: { title: "Delete text box (Del)" },
+    });
     deleteBtn.addEventListener("pointerdown", (e: PointerEvent) => {
       e.stopPropagation();
       e.preventDefault();
       this.delegate?.onDeleteAnnotation(annot.id);
-      this.selectedAnnotId = null;
+      if (this.selectedAnnotId === annot.id) {
+        this.selectedAnnotId = null;
+      }
       box.remove();
     });
 
-    // Drag-to-move pointerdown on handleBar
-    handleBar.addEventListener("pointerdown", (e: PointerEvent) => {
-      if ((e.target as HTMLElement).closest(".pdf-annot-freetext-btn, .pdf-annot-freetext-del, .pdf-annot-freetext-color-dot")) {
-        return;
-      }
-      e.stopPropagation();
-      e.preventDefault();
-      this.selectedAnnotId = annot.id;
-      const startX = e.clientX;
-      const startY = e.clientY;
-      const startLeft = parseFloat(box.style.left) || screenRect.left;
-      const startTop = parseFloat(box.style.top) || screenRect.top;
-
-      const onMove = (me: PointerEvent) => {
-        const dx = me.clientX - startX;
-        const dy = me.clientY - startY;
-        box.style.left = `${startLeft + dx}px`;
-        box.style.top = `${startTop + dy}px`;
-      };
-
-      const onUp = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        const boxRect = box.getBoundingClientRect();
-        const pageRect = this.containerEl.getBoundingClientRect();
-        const screenBounds = {
-          left: boxRect.left - pageRect.left,
-          top: boxRect.top - pageRect.top,
-          width: boxRect.width,
-          height: boxRect.height,
-        };
-        if (this.coordinateTransformer) {
-          annot.rect = this.coordinateTransformer.screenRectToPdfRect(screenBounds, this.scale);
-        }
-        this.delegate?.onUpdateAnnotation(annot);
-      };
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-    });
-
-    // Content editable element
+    // 2. Content Editable Element
     const contentEl = box.createDiv({
       cls: "pdf-annot-freetext-content",
       attr: {
-        contenteditable: "plaintext-only",
         spellcheck: "false",
         placeholder: "Type text here...",
       },
     });
+    contentEl.contentEditable = "false";
     contentEl.textContent = annot.contents || "";
-    contentEl.style.fontSize = `${Math.max(10, (annot.fontSize || 13) * this.scale)}px`;
+    contentEl.style.fontSize = `${Math.max(8, (annot.fontSize || 13) * this.scale)}px`;
     contentEl.style.color = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
     contentEl.style.fontWeight = annot.isBold ? "bold" : "normal";
     contentEl.style.fontStyle = annot.isItalic ? "italic" : "normal";
+    contentEl.style.textAlign = annot.textAlign || "left";
 
-    contentEl.addEventListener("pointerdown", (e: PointerEvent) => {
-      e.stopPropagation();
-      if (this.selectedAnnotId !== annot.id) {
-        this.selectedAnnotId = annot.id;
-      }
-    });
-
-    contentEl.addEventListener("focus", () => {
+    const enterEditMode = () => {
       box.addClass("is-editing");
-    });
+      contentEl.contentEditable = "plaintext-only";
+      contentEl.focus();
+    };
 
     contentEl.addEventListener("input", () => {
       annot.contents = contentEl.textContent || "";
@@ -790,52 +911,123 @@ export class PdfPageView {
 
     contentEl.addEventListener("blur", () => {
       box.removeClass("is-editing");
+      contentEl.contentEditable = "false";
       const text = contentEl.textContent?.trim() || "";
+
+      // Cleanup empty abandoned boxes
+      if (!text && !annot.fillColor && (!annot.borderStyle || annot.borderStyle === "none")) {
+        box.remove();
+        this.delegate?.onDeleteAnnotation(annot.id);
+        if (this.selectedAnnotId === annot.id) {
+          this.selectedAnnotId = null;
+        }
+        return;
+      }
+
+      annot.contents = contentEl.textContent || "";
       const boxRect = box.getBoundingClientRect();
       const pageRect = this.containerEl.getBoundingClientRect();
-
       const screenBounds = {
         left: boxRect.left - pageRect.left,
         top: boxRect.top - pageRect.top,
-        width: Math.max(60, boxRect.width),
-        height: Math.max(24, boxRect.height),
+        width: Math.max(50, boxRect.width),
+        height: Math.max(22, boxRect.height),
       };
-
       if (this.coordinateTransformer) {
         annot.rect = this.coordinateTransformer.screenRectToPdfRect(screenBounds, this.scale);
       }
-      annot.contents = text;
       this.delegate?.onUpdateAnnotation(annot);
     });
 
-    // Transform / Resize Handles (East, South, South-East corner)
-    const handleE = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-e", attr: { title: "Resize width" } });
-    const handleS = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-s", attr: { title: "Resize height" } });
-    const handleSE = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-se", attr: { title: "Resize width and height" } });
+    // 3. Move Across PDF Listener (Grip or Box Drag)
+    const setupMove = (triggerEl: HTMLElement) => {
+      triggerEl.addEventListener("pointerdown", (e: PointerEvent) => {
+        if ((e.target as HTMLElement).closest(".pdf-annot-freetext-btn, .pdf-annot-freetext-del, .pdf-annot-freetext-color-dot, .pdf-annot-resize-handle")) {
+          return;
+        }
 
-    const setupResize = (targetHandle: HTMLElement, resizeW: boolean, resizeH: boolean) => {
-      targetHandle.addEventListener("pointerdown", (e: PointerEvent) => {
         e.stopPropagation();
+
+        // If clicking inside contentEl and already selected: second click enters editing
+        if (triggerEl === contentEl && box.hasClass("is-selected") && !box.hasClass("is-editing")) {
+          enterEditMode();
+          return;
+        }
+
+        if (box.hasClass("is-editing")) {
+          return; // Allow text selection / cursor placement inside editing mode
+        }
+
+        // Select text box
+        if (this.selectedAnnotId !== annot.id) {
+          this.selectAnnotation(annot.id);
+        }
+
         e.preventDefault();
+        box.dataset.isTransforming = "true";
+        document.body.style.cursor = "grabbing";
+
         const startX = e.clientX;
         const startY = e.clientY;
-        const startW = box.offsetWidth;
-        const startH = box.offsetHeight;
+        const startLeft = parseFloat(box.style.left) || screenRect.left;
+        const startTop = parseFloat(box.style.top) || screenRect.top;
+        let hasMoved = false;
 
         const onMove = (me: PointerEvent) => {
-          if (resizeW) {
-            const newW = Math.max(70, startW + (me.clientX - startX));
-            box.style.width = `${newW}px`;
+          const dx = me.clientX - startX;
+          const dy = me.clientY - startY;
+          if (!hasMoved && Math.hypot(dx, dy) > 2) {
+            hasMoved = true;
           }
-          if (resizeH) {
-            const newH = Math.max(30, startH + (me.clientY - startY));
-            box.style.height = `${newH}px`;
+          const curLeft = startLeft + dx;
+          const curTop = startTop + dy;
+          box.style.left = `${curLeft}px`;
+          box.style.top = `${curTop}px`;
+          if (curTop < 38) {
+            box.addClass("is-top-edge");
+          } else {
+            box.removeClass("is-top-edge");
           }
         };
 
-        const onUp = () => {
+        const onUp = (ue: PointerEvent) => {
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
+          delete box.dataset.isTransforming;
+          document.body.style.cursor = "";
+
+          if (!hasMoved) {
+            return;
+          }
+
+          // Check if dropped across to another page
+          const dropTarget = document.elementFromPoint(ue.clientX, ue.clientY);
+          const targetPageEl = dropTarget?.closest(".pdf-page-view") as HTMLElement | null;
+          const targetIdxStr = targetPageEl?.dataset.pageIndex;
+          const targetPageIndex = targetIdxStr !== undefined ? parseInt(targetIdxStr, 10) : NaN;
+
+          if (!isNaN(targetPageIndex) && targetPageIndex !== this.pageIndex) {
+            // Transfer annotation to target page!
+            const targetPageView = this.delegate?.getPageView?.(targetPageIndex);
+            const targetTransformer = targetPageView?.getCoordinateTransformer();
+            if (targetTransformer && targetPageEl) {
+              const targetRect = targetPageEl.getBoundingClientRect();
+              const boxRect = box.getBoundingClientRect();
+              const screenBoundsOnTarget = {
+                left: boxRect.left - targetRect.left,
+                top: boxRect.top - targetRect.top,
+                width: box.offsetWidth,
+                height: box.offsetHeight,
+              };
+              annot.pageIndex = targetPageIndex;
+              annot.rect = targetTransformer.screenRectToPdfRect(screenBoundsOnTarget, this.scale);
+              box.remove();
+              this.delegate?.onUpdateAnnotation(annot);
+              return;
+            }
+          }
+
+          // Dropped on current page
           const boxRect = box.getBoundingClientRect();
           const pageRect = this.containerEl.getBoundingClientRect();
           const screenBounds = {
@@ -855,9 +1047,108 @@ export class PdfPageView {
       });
     };
 
-    setupResize(handleE, true, false);
-    setupResize(handleS, false, true);
-    setupResize(handleSE, true, true);
+    setupMove(grip);
+    setupMove(box);
+    setupMove(contentEl);
+
+    // Double-click to edit
+    box.addEventListener("dblclick", (e) => {
+      e.stopPropagation();
+      enterEditMode();
+    });
+
+    // 4. 8-Handle Transform Tools (NW, N, NE, E, SE, S, SW, W)
+    const handles: { dir: "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w"; cls: string; title: string }[] = [
+      { dir: "nw", cls: "pdf-annot-resize-nw", title: "Resize" },
+      { dir: "n",  cls: "pdf-annot-resize-n",  title: "Resize height" },
+      { dir: "ne", cls: "pdf-annot-resize-ne", title: "Resize" },
+      { dir: "e",  cls: "pdf-annot-resize-e",  title: "Resize width" },
+      { dir: "se", cls: "pdf-annot-resize-se", title: "Resize" },
+      { dir: "s",  cls: "pdf-annot-resize-s",  title: "Resize height" },
+      { dir: "sw", cls: "pdf-annot-resize-sw", title: "Resize" },
+      { dir: "w",  cls: "pdf-annot-resize-w",  title: "Resize width" },
+    ];
+
+    const setupResize = (targetHandle: HTMLElement, dir: "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w") => {
+      targetHandle.addEventListener("pointerdown", (e: PointerEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        box.dataset.isTransforming = "true";
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startLeft = parseFloat(box.style.left) || screenRect.left;
+        const startTop = parseFloat(box.style.top) || screenRect.top;
+        const startW = box.offsetWidth;
+        const startH = box.offsetHeight;
+
+        const minW = 50;
+        const minH = 22;
+
+        let lastBounds = { left: startLeft, top: startTop, width: startW, height: startH };
+
+        const onMove = (me: PointerEvent) => {
+          const dx = me.clientX - startX;
+          const dy = me.clientY - startY;
+
+          let newLeft = startLeft;
+          let newTop = startTop;
+          let newW = startW;
+          let newH = startH;
+
+          // Horizontal calculation
+          if (dir === "e" || dir === "ne" || dir === "se") {
+            newW = Math.max(minW, startW + dx);
+          } else if (dir === "w" || dir === "nw" || dir === "sw") {
+            newW = Math.max(minW, startW - dx);
+            newLeft = startLeft + (startW - newW);
+          }
+
+          // Vertical calculation
+          if (dir === "s" || dir === "se" || dir === "sw") {
+            newH = Math.max(minH, startH + dy);
+          } else if (dir === "n" || dir === "nw" || dir === "ne") {
+            newH = Math.max(minH, startH - dy);
+            newTop = startTop + (startH - newH);
+          }
+
+          box.style.left = `${newLeft}px`;
+          box.style.top = `${newTop}px`;
+          box.style.width = `${newW}px`;
+          box.style.height = `${newH}px`;
+
+          if (newTop < 38) {
+            box.addClass("is-top-edge");
+          } else {
+            box.removeClass("is-top-edge");
+          }
+
+          lastBounds = { left: newLeft, top: newTop, width: newW, height: newH };
+        };
+
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          delete box.dataset.isTransforming;
+
+          if (this.coordinateTransformer) {
+            annot.rect = this.coordinateTransformer.screenRectToPdfRect(lastBounds, this.scale);
+          }
+          this.delegate?.onUpdateAnnotation(annot);
+        };
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      });
+    };
+
+    for (const h of handles) {
+      const handleEl = box.createDiv({
+        cls: `pdf-annot-resize-handle ${h.cls}`,
+        attr: { title: h.title },
+      });
+      setupResize(handleEl, h.dir);
+    }
   }
 
   private renderShapeAnnotation(annot: PdfShapeAnnotation, colorHex: string, isSelected: boolean): void {
@@ -972,6 +1263,12 @@ export class PdfPageView {
         e.stopPropagation();
         this.selectedAnnotId = annot.id;
 
+        // If it's a freetext annotation, FreeText handles its own drag and transform
+        if (annot.type === "freetext") {
+          this.renderAnnotations();
+          return;
+        }
+
         // Prepare drag state
         this.dragState = {
           annot,
@@ -989,6 +1286,11 @@ export class PdfPageView {
     }
 
     // No existing annotation clicked: user clicked on empty space
+    if (this.selectedAnnotId && this.currentTool !== "draw" && this.currentTool !== "square" && this.currentTool !== "circle" && this.currentTool !== "line") {
+      this.selectedAnnotId = null;
+      this.renderAnnotations();
+    }
+
     if (this.currentTool === "draw") {
       this.isDrawing = true;
       this.activePath = [[sx, sy]];
@@ -1008,8 +1310,14 @@ export class PdfPageView {
       // Place new sticky note on empty space
       this.placeStickyNote(sx, sy);
     } else if (this.currentTool === "freetext") {
-      // Place new text box on empty space
-      this.placeFreeTextBox(sx, sy);
+      // Start drag-to-create or click-to-place text box
+      this.isCreatingFreeText = true;
+      this.freeTextStartPoint = { x: sx, y: sy };
+      this.liveFreeTextEl = this.htmlOverlayEl.createDiv({ cls: "pdf-annot-freetext-preview" });
+      this.liveFreeTextEl.style.left = `${sx}px`;
+      this.liveFreeTextEl.style.top = `${sy}px`;
+      this.liveFreeTextEl.style.width = "0px";
+      this.liveFreeTextEl.style.height = "0px";
     } else if (this.currentTool === "hand") {
       // Deselect
       if (this.selectedAnnotId) {
@@ -1023,6 +1331,19 @@ export class PdfPageView {
     const rect = this.containerEl.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
+
+    // 0. Live FreeText drag-to-create rectangle
+    if (this.isCreatingFreeText && this.freeTextStartPoint && this.liveFreeTextEl) {
+      const left = Math.min(this.freeTextStartPoint.x, sx);
+      const top = Math.min(this.freeTextStartPoint.y, sy);
+      const width = Math.abs(sx - this.freeTextStartPoint.x);
+      const height = Math.abs(sy - this.freeTextStartPoint.y);
+      this.liveFreeTextEl.style.left = `${left}px`;
+      this.liveFreeTextEl.style.top = `${top}px`;
+      this.liveFreeTextEl.style.width = `${width}px`;
+      this.liveFreeTextEl.style.height = `${height}px`;
+      return;
+    }
 
     // 1. Dragging an existing annotation
     if (this.dragState && this.coordinateTransformer) {
@@ -1119,7 +1440,68 @@ export class PdfPageView {
       }
     }
 
-    // 2. Drawing or shape creation end
+    // 2. FreeText creation end
+    if (this.isCreatingFreeText && this.freeTextStartPoint && this.coordinateTransformer) {
+      this.isCreatingFreeText = false;
+      this.liveFreeTextEl?.remove();
+      this.liveFreeTextEl = null;
+
+      const rect = this.containerEl.getBoundingClientRect();
+      const sx = e.clientX - rect.left;
+      const sy = e.clientY - rect.top;
+
+      const dx = Math.abs(sx - this.freeTextStartPoint.x);
+      const dy = Math.abs(sy - this.freeTextStartPoint.y);
+
+      let boxLeft: number, boxTop: number, boxW: number, boxH: number;
+      if (dx > 15 || dy > 15) {
+        boxLeft = Math.min(this.freeTextStartPoint.x, sx);
+        boxTop = Math.min(this.freeTextStartPoint.y, sy);
+        boxW = Math.max(80, dx);
+        boxH = Math.max(28, dy);
+      } else {
+        boxLeft = this.freeTextStartPoint.x;
+        boxTop = this.freeTextStartPoint.y;
+        boxW = 160;
+        boxH = 36;
+      }
+
+      const pdfRect = this.coordinateTransformer.screenRectToPdfRect(
+        { left: boxLeft, top: boxTop, width: boxW, height: boxH },
+        this.scale
+      );
+
+      const annot: PdfFreeTextAnnotation = {
+        id: `freetext_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type: "freetext",
+        pageIndex: this.pageIndex,
+        rect: pdfRect,
+        color: this.currentColor,
+        textColor: this.currentColor,
+        fontSize: 13,
+        contents: "",
+        author: "User",
+        createdAt: new Date(),
+      };
+
+      this.selectedAnnotId = annot.id;
+      this.delegate?.onAddAnnotation(annot);
+
+      setTimeout(() => {
+        const box = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`) as HTMLElement | null;
+        if (box) {
+          box.addClass("is-editing");
+          const contentEl = box.querySelector(".pdf-annot-freetext-content") as HTMLElement | null;
+          if (contentEl) {
+            contentEl.contentEditable = "plaintext-only";
+            contentEl.focus();
+          }
+        }
+      }, 40);
+      return;
+    }
+
+    // 3. Drawing or shape creation end
     if (!this.isDrawing) return;
     this.isDrawing = false;
 
@@ -1276,8 +1658,10 @@ export class PdfPageView {
 
   private placeFreeTextBox(sx: number, sy: number): void {
     if (!this.coordinateTransformer) return;
-    const pt = this.coordinateTransformer.screenToPdf(sx, sy, this.scale);
-    const pdfRect: PdfRect = [pt.x, pt.y - 28, pt.x + 140, pt.y];
+    const pdfRect = this.coordinateTransformer.screenRectToPdfRect(
+      { left: sx, top: sy, width: 160, height: 36 },
+      this.scale
+    );
 
     const annot: PdfFreeTextAnnotation = {
       id: `freetext_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -1285,7 +1669,7 @@ export class PdfPageView {
       pageIndex: this.pageIndex,
       rect: pdfRect,
       color: this.currentColor,
-      textColor: [0, 0, 0],
+      textColor: this.currentColor,
       fontSize: 13,
       contents: "",
       author: "User",
@@ -1297,14 +1681,16 @@ export class PdfPageView {
 
     // Auto-focus immediately so user can type right away!
     setTimeout(() => {
-      const box = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`);
+      const box = this.htmlOverlayEl.querySelector(`.pdf-annot-freetext-box[data-annot-id="${annot.id}"]`) as HTMLElement | null;
       if (box) {
+        box.addClass("is-editing");
         const contentEl = box.querySelector(".pdf-annot-freetext-content") as HTMLElement | null;
         if (contentEl) {
+          contentEl.contentEditable = "plaintext-only";
           contentEl.focus();
         }
       }
-    }, 50);
+    }, 40);
   }
 
   // ==================== Text Selection Support ====================
@@ -1342,6 +1728,44 @@ export class PdfPageView {
 
   private setupKeyboardShortcuts(): void {
     this.onKeyDownListener = (e: KeyboardEvent) => {
+      // 1. Escape key: if any text box is in editing mode, blur it to exit editing mode
+      if (e.key === "Escape") {
+        const editingBox = this.htmlOverlayEl.querySelector(".pdf-annot-freetext-box.is-editing") as HTMLElement | null;
+        if (editingBox) {
+          const contentEl = editingBox.querySelector(".pdf-annot-freetext-content") as HTMLElement | null;
+          contentEl?.blur();
+          return;
+        }
+      }
+
+      // 2. Arrow keys nudge selected text box (when not editing text)
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key) && this.selectedAnnotId) {
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        const isContentEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+        if (activeTag !== "input" && activeTag !== "textarea" && !isContentEditable) {
+          const annot = this.annotations.find((a) => a.id === this.selectedAnnotId);
+          if (annot && annot.type === "freetext" && this.coordinateTransformer) {
+            e.preventDefault();
+            const delta = e.shiftKey ? 10 : 2;
+            const dx = e.key === "ArrowLeft" ? -delta : e.key === "ArrowRight" ? delta : 0;
+            const dy = e.key === "ArrowUp" ? -delta : e.key === "ArrowDown" ? delta : 0;
+
+            const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+            const newBounds = {
+              left: screenRect.left + dx,
+              top: screenRect.top + dy,
+              width: screenRect.width,
+              height: screenRect.height,
+            };
+            annot.rect = this.coordinateTransformer.screenRectToPdfRect(newBounds, this.scale);
+            this.delegate?.onUpdateAnnotation(annot);
+            this.renderAnnotations();
+            return;
+          }
+        }
+      }
+
+      // 3. Delete or Backspace
       if ((e.key === "Delete" || e.key === "Backspace") && this.selectedAnnotId) {
         const activeTag = document.activeElement?.tagName.toLowerCase();
         if (

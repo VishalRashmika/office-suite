@@ -204,8 +204,34 @@ export class PdfAnnotationParser {
 
       case "FreeText": {
         const da = this.extractString(dict, "DA", context) || "";
-        const sizeMatch = da.match(/Tf\s+(\d+(?:\.\d+)?)/) || da.match(/(\d+(?:\.\d+)?)\s+Tf/);
+        const sizeMatch = da.match(/(\d+(?:\.\d+)?)\s+Tf/) || da.match(/Tf\s+(\d+(?:\.\d+)?)/);
         const fontSize = sizeMatch ? parseFloat(sizeMatch[1]) : 12;
+
+        let textColor = color;
+        const colorMatch = da.match(/([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s+rg/);
+        if (colorMatch) {
+          textColor = [
+            parseFloat(colorMatch[1]),
+            parseFloat(colorMatch[2]),
+            parseFloat(colorMatch[3]),
+          ];
+        }
+
+        const isBold = /(Bold|Black)/i.test(da);
+        const isItalic = /(Italic|Oblique)/i.test(da);
+
+        const qVal = this.extractNumber(dict, "Q", context);
+        const textAlign = qVal === 1 ? "center" : qVal === 2 ? "right" : "left";
+
+        const fillColor = this.extractColorByKey(dict, "IC", context);
+        const borderWidth = this.extractBorderWidth(dict, context);
+        let borderColor: PdfRgbColor | undefined;
+        let borderStyle: "none" | "solid" | "dashed" | undefined;
+        if (borderWidth && borderWidth > 0) {
+          borderColor = color;
+          borderStyle = "solid";
+        }
+
         const freeText: PdfFreeTextAnnotation = {
           id,
           type: "freetext",
@@ -214,7 +240,14 @@ export class PdfAnnotationParser {
           color,
           contents,
           fontSize,
-          textColor: color,
+          textColor,
+          isBold: isBold || undefined,
+          isItalic: isItalic || undefined,
+          textAlign,
+          fillColor,
+          borderColor,
+          borderWidth,
+          borderStyle,
           author,
           linkedNote,
         };
@@ -255,6 +288,12 @@ export class PdfAnnotationParser {
       default:
         return null;
     }
+  }
+
+  private static extractNumber(dict: PDFDict, key: string, context?: PDFContext): number | undefined {
+    const val = this.lookupItem(dict, key, context);
+    if (val instanceof PDFNumber) return val.asNumber();
+    return undefined;
   }
 
   private static extractString(dict: PDFDict, key: string, context?: PDFContext): string | undefined {

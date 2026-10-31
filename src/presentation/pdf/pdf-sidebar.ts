@@ -817,6 +817,11 @@ export class PdfSidebar {
     } else if (annot.type === "freetext" && annot.contents) {
       const textPreview = card.createDiv({ cls: "pdf-annot-card-freetext-preview" });
       textPreview.createSpan({ text: annot.contents });
+    } else if (annot.type === "freetext" && !annot.contents) {
+      card.createDiv({
+        cls: "pdf-annot-card-comment mod-empty",
+        text: "Text Box (empty)",
+      });
     } else if (annot.type === "ink" && !annot.contents) {
       card.createDiv({
         cls: "pdf-annot-card-comment mod-empty",
