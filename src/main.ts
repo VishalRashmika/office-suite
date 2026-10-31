@@ -83,6 +83,21 @@ export default class OfficeSuitePlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "pdf-save-document",
+      name: "PDF: Save Changes to PDF Document",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
+        if (activeLeaf) {
+          if (!checking) {
+            void activeLeaf.requestSave();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
+    this.addCommand({
       id: "pdf-rotate-page",
       name: "PDF: Rotate Current Page 90° Clockwise",
       checkCallback: (checking: boolean) => {

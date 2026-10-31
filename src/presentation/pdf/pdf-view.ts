@@ -73,6 +73,8 @@ export class PdfView
   private undoStack: Array<string> = [];
   private redoStack: Array<string> = [];
   private retractTabEl: HTMLElement | null = null;
+  private isSaving = false;
+  private hasPendingSave = false;
   private isInternalSaving = false;
   private lastInternalSaveTime = 0;
 
@@ -228,7 +230,16 @@ export class PdfView
     );
 
     window.addEventListener("blur", this.onWindowBlur);
+    this.contentEl.addEventListener("keydown", this.onKeyDown);
   }
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.requestSave();
+    }
+  };
 
   private onWindowBlur = () => {
     if (this.pdfDoc?.dirty) void this.saveNow();
@@ -236,6 +247,7 @@ export class PdfView
 
   async onUnloadFile(file: TFile): Promise<void> {
     window.removeEventListener("blur", this.onWindowBlur);
+    this.contentEl.removeEventListener("keydown", this.onKeyDown);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     if (this.pdfDoc?.dirty) await this.saveNow();
 
@@ -939,6 +951,11 @@ export class PdfView
 
   private async saveNow(): Promise<void> {
     if (!this.pdfDoc || !this.file) return;
+    if (this.isSaving) {
+      this.hasPendingSave = true;
+      return;
+    }
+    this.isSaving = true;
     this.toolbar.updateSaveStatus(true, true);
     this.isInternalSaving = true;
     this.lastInternalSaveTime = Date.now();
@@ -954,9 +971,14 @@ export class PdfView
       console.error("Failed to save PDF:", err);
       new Notice(`Failed to save PDF ${this.file.name}: ${(err as Error).message}`);
     } finally {
+      this.isSaving = false;
       window.setTimeout(() => {
         this.isInternalSaving = false;
       }, 2000);
+      if (this.hasPendingSave) {
+        this.hasPendingSave = false;
+        void this.saveNow();
+      }
     }
   }
 

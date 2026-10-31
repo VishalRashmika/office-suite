@@ -228,6 +228,13 @@ export class PdfAnnotationParser {
         const strokeWidth = this.extractBorderWidth(dict, context) || 2;
         const fillColor = this.extractColorByKey(dict, "IC", context);
         const shapeType = (subtype === "Circle" ? "circle" : subtype === "Line" ? "line" : "square") as "square" | "circle" | "line";
+        let linePoints: [number, number, number, number] | undefined;
+        if (subtype === "Line") {
+          const lArr = this.extractNumberArray(dict, "L", context);
+          if (lArr.length >= 4) {
+            linePoints = [lArr[0], lArr[1], lArr[2], lArr[3]];
+          }
+        }
         const shape: PdfShapeAnnotation = {
           id,
           type: shapeType,
@@ -236,6 +243,7 @@ export class PdfAnnotationParser {
           color,
           strokeColor: color,
           fillColor,
+          linePoints,
           strokeWidth,
           contents,
           author,

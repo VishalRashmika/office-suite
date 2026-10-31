@@ -881,10 +881,19 @@ export class PdfPageView {
       shapeEl.setAttribute("ry", `${screenRect.height / 2}`);
     } else if (annot.type === "line") {
       shapeEl = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      shapeEl.setAttribute("x1", `${screenRect.left}`);
-      shapeEl.setAttribute("y1", `${screenRect.top}`);
-      shapeEl.setAttribute("x2", `${screenRect.left + screenRect.width}`);
-      shapeEl.setAttribute("y2", `${screenRect.top + screenRect.height}`);
+      if (annot.linePoints && annot.linePoints.length >= 4 && this.coordinateTransformer) {
+        const p1 = this.coordinateTransformer.pdfToScreen(annot.linePoints[0], annot.linePoints[1], this.scale);
+        const p2 = this.coordinateTransformer.pdfToScreen(annot.linePoints[2], annot.linePoints[3], this.scale);
+        shapeEl.setAttribute("x1", `${p1.x}`);
+        shapeEl.setAttribute("y1", `${p1.y}`);
+        shapeEl.setAttribute("x2", `${p2.x}`);
+        shapeEl.setAttribute("y2", `${p2.y}`);
+      } else {
+        shapeEl.setAttribute("x1", `${screenRect.left}`);
+        shapeEl.setAttribute("y1", `${screenRect.top}`);
+        shapeEl.setAttribute("x2", `${screenRect.left + screenRect.width}`);
+        shapeEl.setAttribute("y2", `${screenRect.top + screenRect.height}`);
+      }
     } else {
       shapeEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
       shapeEl.setAttribute("x", `${screenRect.left}`);
@@ -1218,6 +1227,13 @@ export class PdfPageView {
     const pdfRect = this.coordinateTransformer.screenRectToPdfRect({ left, top, width, height }, this.scale);
     const shapeType = this.currentTool as "square" | "circle" | "line";
 
+    let linePoints: [number, number, number, number] | undefined;
+    if (shapeType === "line") {
+      const pStart = this.coordinateTransformer.screenToPdf(x1, y1, this.scale);
+      const pEnd = this.coordinateTransformer.screenToPdf(x2, y2, this.scale);
+      linePoints = [pStart.x, pStart.y, pEnd.x, pEnd.y];
+    }
+
     const annot: PdfShapeAnnotation = {
       id: `shape_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       type: shapeType,
@@ -1226,6 +1242,7 @@ export class PdfPageView {
       color: this.currentColor,
       strokeColor: this.currentColor,
       strokeWidth: this.strokeWidth,
+      linePoints,
       author: "User",
       createdAt: new Date(),
     };
