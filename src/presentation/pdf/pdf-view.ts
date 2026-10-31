@@ -8,6 +8,7 @@ import { FileView, TFile, WorkspaceLeaf, Notice, loadPdfJs } from "obsidian";
 import {
   PdfAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfNoteAnnotation,
   PdfFreeTextAnnotation,
   PdfInkAnnotation,
@@ -15,6 +16,8 @@ import {
   PdfRect,
   PdfActiveTool,
   PdfRgbColor,
+  PDF_COLOR_PRESETS,
+  rgbToHex,
   CitationService,
   CitationMetadata,
 } from "../../domain/pdf";
@@ -33,6 +36,7 @@ export class PdfView
 {
   allowNoFile = false;
   pdfDoc: PdfDocumentAdapter | null = null;
+  readerTheme: "light" | "sepia" | "dark" = "light";
   paperTheme: "light" | "dark" = "light";
 
   private pdfjsDoc: any = null;
@@ -294,6 +298,29 @@ export class PdfView
     const bar = document.createElement("div");
     bar.className = "pdf-selection-action-bar is-hidden";
 
+    // Quick Color Swatches (Zotero palette)
+    const colorWrap = bar.createDiv({ cls: "pdf-selection-colors" });
+    for (const preset of PDF_COLOR_PRESETS) {
+      const dot = colorWrap.createSpan({ cls: "pdf-selection-color-dot" });
+      dot.style.backgroundColor = preset.hex;
+      dot.title = preset.name;
+      if (rgbToHex(this.activeColor).toLowerCase() === preset.hex.toLowerCase()) {
+        dot.addClass("is-active");
+      }
+      dot.onclick = (e) => {
+        e.stopPropagation();
+        this.activeColor = preset.rgb;
+        colorWrap.querySelectorAll(".pdf-selection-color-dot").forEach((d) => d.removeClass("is-active"));
+        dot.addClass("is-active");
+        this.toolbar.setActiveTool(this.activeTool);
+        if (this.selectedTextInfo) {
+          const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+          pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+          this.hideSelectionBar();
+        }
+      };
+    }
+
     // Action 1: Highlight Button
     const hlBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Highlight" });
     hlBtn.onclick = () => {
@@ -304,7 +331,17 @@ export class PdfView
       this.hideSelectionBar();
     };
 
-    // Action 2: Add Sticky Note attached to selection
+    // Action 2: Underline Button
+    const ulBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Underline" });
+    ulBtn.onclick = () => {
+      if (this.selectedTextInfo) {
+        const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+        pv?.createUnderlineFromSelection(this.selectedTextInfo.text, this.activeColor);
+      }
+      this.hideSelectionBar();
+    };
+
+    // Action 3: Add Sticky Note attached to selection
     const noteBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Add Note" });
     noteBtn.onclick = () => {
       if (this.selectedTextInfo) {
@@ -314,7 +351,7 @@ export class PdfView
       this.hideSelectionBar();
     };
 
-    // Action 3: Cite Button
+    // Action 4: Cite Button
     const citeBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Cite" });
     citeBtn.onclick = () => {
       if (this.selectedTextInfo) {
@@ -323,7 +360,7 @@ export class PdfView
       this.hideSelectionBar();
     };
 
-    // Action 4: Copy Deep Link
+    // Action 5: Copy Deep Link
     const linkBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Copy Link" });
     linkBtn.onclick = async () => {
       if (this.selectedTextInfo) {
@@ -339,6 +376,15 @@ export class PdfView
 
     document.body.appendChild(bar);
     this.selectionBarEl = bar;
+
+    // Dismiss bar when clicking outside
+    window.addEventListener("pointerdown", (e) => {
+      if (this.selectionBarEl && !this.selectionBarEl.classList.contains("is-hidden")) {
+        if (!this.selectionBarEl.contains(e.target as Node)) {
+          this.hideSelectionBar();
+        }
+      }
+    });
   }
 
   private selectedTextInfo: { text: string; pageIndex: number } | null = null;
@@ -347,8 +393,16 @@ export class PdfView
     if (!this.selectionBarEl) return;
     this.selectedTextInfo = { text: selectedText, pageIndex };
 
-    this.selectionBarEl.style.left = `${screenRect.left + screenRect.width / 2 - 120}px`;
-    this.selectionBarEl.style.top = `${screenRect.top - 46}px`;
+    const barW = 380;
+    let left = screenRect.left + screenRect.width / 2 - barW / 2;
+    let top = screenRect.top - 48;
+
+    if (left < 16) left = 16;
+    if (left + barW > window.innerWidth - 16) left = window.innerWidth - barW - 16;
+    if (top < 16) top = screenRect.bottom + 8;
+
+    this.selectionBarEl.style.left = `${Math.round(left)}px`;
+    this.selectionBarEl.style.top = `${Math.round(top)}px`;
     this.selectionBarEl.removeClass("is-hidden");
   }
 
@@ -507,13 +561,18 @@ export class PdfView
     new Notice("Redo action");
   }
 
+  onThemeChanged(theme: "light" | "sepia" | "dark"): void {
+    this.readerTheme = theme;
+    this.paperTheme = theme === "dark" ? "dark" : "light";
+    this.contentEl.removeClass("pdf-theme-light");
+    this.contentEl.removeClass("pdf-theme-sepia");
+    this.contentEl.removeClass("pdf-theme-dark");
+    this.contentEl.addClass(`pdf-theme-${theme}`);
+  }
+
   onToggleTheme(): void {
-    this.paperTheme = this.paperTheme === "light" ? "dark" : "light";
-    if (this.paperTheme === "dark") {
-      this.contentEl.addClass("pdf-theme-dark");
-    } else {
-      this.contentEl.removeClass("pdf-theme-dark");
-    }
+    const next = this.readerTheme === "light" ? "sepia" : this.readerTheme === "sepia" ? "dark" : "light";
+    this.onThemeChanged(next);
   }
 
   async onSave(): Promise<void> {
@@ -754,8 +813,8 @@ export class PdfView
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageAnnots = this.pdfDoc.getPageAnnotations(i);
           for (const annot of pageAnnots) {
-            if (annot.type === "highlight") {
-              const hl = annot as PdfHighlightAnnotation;
+            if (annot.type === "highlight" || annot.type === "underline") {
+              const hl = annot as (PdfHighlightAnnotation | PdfUnderlineAnnotation);
               if (!hl.highlightedText || hl.highlightedText.trim() === "") {
                 const extracted = this.extractTextUnderAnnotation(textContent, hl.rect, hl.quadPoints);
                 if (extracted && extracted.trim()) {
@@ -864,6 +923,19 @@ export class PdfView
         pAnnot.quadPoints && Array.isArray(pAnnot.quadPoints) && pAnnot.quadPoints.length > 0
           ? pAnnot.quadPoints
           : [pdfRect[0], pdfRect[3], pdfRect[2], pdfRect[3], pdfRect[0], pdfRect[1], pdfRect[2], pdfRect[1]];
+      if (subtype === "underline") {
+        return {
+          id,
+          type: "underline",
+          pageIndex,
+          rect: pdfRect,
+          color,
+          contents,
+          highlightedText: contents,
+          quadPoints: quads,
+          author,
+        } as PdfUnderlineAnnotation;
+      }
       return {
         id,
         type: "highlight",

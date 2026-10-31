@@ -7,6 +7,7 @@
 export type PdfAnnotationType =
   | "text" // Sticky Note (/Subtype /Text)
   | "highlight" // Text Highlight (/Subtype /Highlight)
+  | "underline" // Text Underline (/Subtype /Underline)
   | "ink" // Freehand drawing (/Subtype /Ink)
   | "freetext" // Text box directly on PDF (/Subtype /FreeText)
   | "square" // Rectangle shape (/Subtype /Square)
@@ -59,6 +60,16 @@ export interface PdfHighlightAnnotation extends BasePdfAnnotation {
   highlightedText: string;
 }
 
+/**
+ * Underline markup annotation (/Subtype /Underline).
+ * quadPoints contains 8 coordinates per line: [x1, y1, x2, y2, x3, y3, x4, y4]
+ */
+export interface PdfUnderlineAnnotation extends BasePdfAnnotation {
+  type: "underline";
+  quadPoints: number[]; // Flat array of (8 * numLines) coordinates
+  highlightedText: string;
+}
+
 /** Freehand Ink drawing annotation (/Subtype /Ink) */
 export interface PdfInkAnnotation extends BasePdfAnnotation {
   type: "ink";
@@ -74,6 +85,8 @@ export interface PdfFreeTextAnnotation extends BasePdfAnnotation {
   textColor: PdfRgbColor;
   borderColor?: PdfRgbColor;
   fillColor?: PdfRgbColor;
+  isBold?: boolean;
+  isItalic?: boolean;
 }
 
 /** Vector geometric shape annotation (/Subtype /Square, /Circle, /Line) */
@@ -88,20 +101,21 @@ export interface PdfShapeAnnotation extends BasePdfAnnotation {
 export type PdfAnnotation =
   | PdfNoteAnnotation
   | PdfHighlightAnnotation
+  | PdfUnderlineAnnotation
   | PdfInkAnnotation
   | PdfFreeTextAnnotation
   | PdfShapeAnnotation;
 
-/** Preset colors matching modern PDF viewers & highlight palettes */
+/** Preset colors matching official Zotero PDF reader & annotation palettes */
 export const PDF_COLOR_PRESETS: { name: string; hex: string; rgb: PdfRgbColor }[] = [
-  { name: "Yellow", hex: "#fde047", rgb: [0.99, 0.88, 0.28] },
-  { name: "Green", hex: "#86efac", rgb: [0.52, 0.94, 0.67] },
-  { name: "Cyan", hex: "#67e8f9", rgb: [0.40, 0.91, 0.98] },
-  { name: "Pink", hex: "#f472b6", rgb: [0.96, 0.45, 0.71] },
-  { name: "Orange", hex: "#fb923c", rgb: [0.98, 0.57, 0.24] },
-  { name: "Purple", hex: "#c084fc", rgb: [0.75, 0.52, 0.99] },
-  { name: "Red", hex: "#f87171", rgb: [0.97, 0.44, 0.44] },
-  { name: "Blue", hex: "#60a5fa", rgb: [0.38, 0.65, 0.98] },
+  { name: "Yellow", hex: "#ffd400", rgb: [1.0, 0.83, 0.0] },
+  { name: "Red", hex: "#ff6666", rgb: [1.0, 0.40, 0.40] },
+  { name: "Green", hex: "#5fb236", rgb: [0.37, 0.70, 0.22] },
+  { name: "Blue", hex: "#2ea8e5", rgb: [0.18, 0.66, 0.90] },
+  { name: "Purple", hex: "#a28ae5", rgb: [0.64, 0.54, 0.90] },
+  { name: "Magenta", hex: "#e56eee", rgb: [0.90, 0.43, 0.93] },
+  { name: "Orange", hex: "#f19837", rgb: [0.95, 0.60, 0.22] },
+  { name: "Gray", hex: "#aaaaaa", rgb: [0.67, 0.67, 0.67] },
 ];
 
 /** Utility to convert hex color to [r, g, b] (0.0 - 1.0) */

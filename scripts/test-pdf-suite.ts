@@ -377,7 +377,7 @@ async function runTestSuite() {
     throw new Error(`Expected author 'External Reviewer', got '${loadedHighlight.author}'`);
   }
 
-  const loadedUnderline = loadedExtAnnots.find((a) => a.type === "highlight" && a.rect[1] === 600);
+  const loadedUnderline = loadedExtAnnots.find((a) => a.type === "underline" && a.rect[1] === 600);
   if (!loadedUnderline || loadedUnderline.contents !== "Underlined hypothesis") {
     throw new Error("Underline annotation was not parsed correctly!");
   }
@@ -387,6 +387,82 @@ async function runTestSuite() {
     throw new Error("Text note without NM was not parsed correctly!");
   }
   console.log("✓ Verified 100% of indirect references, Acrobat Popup comments, and Underline annotations parsed correctly");
+
+  // --- Testing Zotero Style Features: Underline, FreeText Transform, Attached Notes & Palette ---
+  console.log("\n--- Testing Zotero Style Features ---");
+
+  // 1. Verify Zotero Palette presets
+  const { PDF_COLOR_PRESETS: zoteroPresets } = await import("../src/domain/pdf");
+  if (zoteroPresets.length !== 8) {
+    throw new Error(`Expected 8 Zotero color presets, got ${zoteroPresets.length}`);
+  }
+  const yellowPreset = zoteroPresets.find((p) => p.name === "Yellow");
+  if (!yellowPreset || yellowPreset.hex !== "#ffd400") {
+    throw new Error(`Expected Zotero yellow #ffd400, got ${yellowPreset?.hex}`);
+  }
+  const bluePreset = zoteroPresets.find((p) => p.name === "Blue");
+  if (!bluePreset || bluePreset.hex !== "#2ea8e5") {
+    throw new Error(`Expected Zotero blue #2ea8e5, got ${bluePreset?.hex}`);
+  }
+  console.log("✓ Verified official 8 Zotero color palette presets");
+
+  // 2. Create Underline with attached note & bookmark metadata
+  const zoteroUnderline: any = {
+    id: "zotero_ul_001",
+    type: "underline",
+    pageIndex: 0,
+    rect: [120, 550, 380, 568],
+    quadPoints: [
+      120, 568, 380, 568,
+      120, 550, 380, 550,
+    ],
+    color: [0.18, 0.66, 0.90], // Zotero Blue
+    highlightedText: "Zotero style underlined text",
+    contents: "My personal note attached to the underlined sentence",
+    author: "Researcher",
+    linkedNote: "Notes/Zotero-Features.md",
+  };
+  extAdapter.upsertAnnotation(zoteroUnderline);
+
+  // 3. Create FreeText box with formatting and resized transform
+  const zoteroTextBox: any = {
+    id: "zotero_tb_001",
+    type: "freetext",
+    pageIndex: 0,
+    rect: [200, 400, 450, 480], // Resized width (250) and height (80)
+    color: [0, 0, 0],
+    textColor: [0.18, 0.66, 0.90],
+    fontSize: 16,
+    isBold: true,
+    isItalic: true,
+    contents: "Resized & formatted Zotero textbox",
+    author: "User",
+  };
+  extAdapter.upsertAnnotation(zoteroTextBox);
+
+  const zoteroPdfBytes = await extAdapter.save();
+  const zoteroReloadedAdapter = await PdfDocumentAdapter.load(zoteroPdfBytes.buffer);
+
+  const reloadedUl = zoteroReloadedAdapter.getAnnotation("zotero_ul_001") as any;
+  if (!reloadedUl || reloadedUl.type !== "underline") {
+    throw new Error("Zotero underline annotation was not saved/reloaded with type 'underline'!");
+  }
+  if (reloadedUl.contents !== "My personal note attached to the underlined sentence") {
+    throw new Error(`Expected attached note, got '${reloadedUl.contents}'`);
+  }
+  if (reloadedUl.quadPoints.length !== 8) {
+    throw new Error(`Expected 8 quad points for underline, got ${reloadedUl.quadPoints.length}`);
+  }
+  console.log("✓ Verified Zotero Underline annotation saved, reloaded, and preserves attached note");
+
+  const reloadedTb = zoteroReloadedAdapter.getAnnotation("zotero_tb_001") as any;
+  if (!reloadedTb || reloadedTb.type !== "freetext") {
+    throw new Error("Zotero text box was not saved/reloaded correctly!");
+  }
+  if (reloadedTb.rect[2] - reloadedTb.rect[0] !== 250 || reloadedTb.rect[3] - reloadedTb.rect[1] !== 80) {
+    throw new Error(`Expected transformed dimensions 250x80, got ${reloadedTb.rect[2] - reloadedTb.rect[0]}x${reloadedTb.rect[3] - reloadedTb.rect[1]}`);
+  }
+  console.log("✓ Verified Zotero Text Box transform (width/height resize) persisted across PDF save/load");
 
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");

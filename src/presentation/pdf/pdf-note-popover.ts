@@ -54,7 +54,14 @@ export class PdfNotePopover {
     const colorDot = titleWrap.createSpan({ cls: "pdf-popover-color-dot" });
     colorDot.style.backgroundColor = rgbToHex(annotation.color);
 
-    const typeTitle = annotation.type === "highlight" ? "Highlight Note" : "Sticky Note";
+    const typeTitle =
+      annotation.type === "highlight"
+        ? "Highlight Note"
+        : annotation.type === "underline"
+        ? "Underline Note"
+        : annotation.type === "text"
+        ? "Sticky Note"
+        : "Annotation";
     titleWrap.createSpan({ cls: "pdf-popover-type", text: typeTitle });
 
     const authorText = annotation.author || "User";
@@ -69,23 +76,40 @@ export class PdfNotePopover {
       this.hide();
     };
 
-    // Highlight text quote if attached to a selection or highlight
+    // Highlight / Underline text quote if attached to a selection
     const quotedSnippet = annotation.highlightedText || (annotation as any).highlightedText;
     if (quotedSnippet) {
-      const quoteEl = popover.createDiv({ cls: "pdf-popover-quote" });
+      const quoteWrap = popover.createDiv({ cls: "pdf-popover-quote-wrap" });
+      const quoteEl = quoteWrap.createDiv({ cls: "pdf-popover-quote" });
       quoteEl.setText(`“${quotedSnippet}”`);
+
+      const copyBtn = quoteWrap.createEl("button", {
+        cls: "pdf-popover-copy-btn",
+        text: "Copy",
+        attr: { title: "Copy quoted text" },
+      });
+      copyBtn.onclick = async (e) => {
+        e.stopPropagation();
+        await navigator.clipboard.writeText(quotedSnippet);
+        new Notice("Copied text to clipboard");
+      };
     }
 
     // Body: Textarea for comments
     const body = popover.createDiv({ cls: "pdf-popover-body" });
     const textarea = body.createEl("textarea", {
       cls: "pdf-popover-textarea",
-      attr: { placeholder: "Write a note or comment...", rows: "3" },
+      attr: { placeholder: "Add a note or comment...", rows: "3" },
     });
-    textarea.value = annotation.contents || "";
+    const existingUserComment =
+      annotation.contents && annotation.contents !== annotation.highlightedText
+        ? annotation.contents
+        : "";
+    textarea.value = existingUserComment;
     textarea.oninput = () => {
       if (this.currentAnnotation && this.delegate) {
-        this.currentAnnotation.contents = textarea.value;
+        const val = textarea.value.trim();
+        this.currentAnnotation.contents = val ? textarea.value : (this.currentAnnotation.highlightedText || "");
         this.delegate.onUpdateAnnotation(this.currentAnnotation);
       }
     };

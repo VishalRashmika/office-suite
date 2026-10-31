@@ -280,6 +280,7 @@ export class PdfSidebar {
     const filters: { type: "all" | PdfAnnotationType; label: string }[] = [
       { type: "all", label: "All" },
       { type: "highlight", label: "Highlights" },
+      { type: "underline", label: "Underlines" },
       { type: "text", label: "Notes" },
       { type: "ink", label: "Drawings" },
       { type: "freetext", label: "Text" },
@@ -403,8 +404,8 @@ export class PdfSidebar {
         this.delegate?.onDeleteAnnotation(annot.id);
       };
 
-      // Quoted text for highlights
-      if (annot.type === "highlight") {
+      // Quoted text for highlights and underlines
+      if (annot.type === "highlight" || annot.type === "underline") {
         const hlText = (annot as any).highlightedText || annot.contents;
         if (hlText && hlText.trim()) {
           card.createDiv({
@@ -414,13 +415,13 @@ export class PdfSidebar {
         } else {
           card.createDiv({
             cls: "pdf-annot-card-quote mod-empty",
-            text: "Highlight",
+            text: annot.type === "underline" ? "Underline" : "Highlight",
           });
         }
       }
 
       // Comment contents if present
-      if (annot.contents && (annot.type !== "highlight" || annot.contents !== (annot as any).highlightedText)) {
+      if (annot.contents && ((annot.type !== "highlight" && annot.type !== "underline") || annot.contents !== (annot as any).highlightedText)) {
         card.createDiv({
           cls: "pdf-annot-card-comment",
           text: annot.contents,
@@ -455,6 +456,8 @@ export class PdfSidebar {
     switch (type) {
       case "highlight":
         return "Highlight";
+      case "underline":
+        return "Underline";
       case "text":
         return "Sticky Note";
       case "ink":

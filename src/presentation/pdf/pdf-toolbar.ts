@@ -16,6 +16,7 @@ import {
 export type PdfActiveTool =
   | "hand" // Default pan / text select
   | "highlight" // Text highlight
+  | "underline" // Text underline
   | "note" // Sticky note
   | "draw" // Freehand ink
   | "eraser" // Erase ink/annotations
@@ -41,6 +42,7 @@ export interface PdfToolbarDelegate {
   onUndo(): void;
   onRedo(): void;
   onToggleTheme(): void;
+  onThemeChanged?(theme: "light" | "sepia" | "dark"): void;
   onSave(): void;
 }
 
@@ -71,26 +73,24 @@ export class PdfToolbar {
 
     this.createSeparator();
 
-    // Group 2: Tools (Select, Highlight, Sticky Note, Draw, Eraser, Text Box, Shapes)
+    // Group 2: Tools (Select, Highlight, Underline, Sticky Note, Text Box, Draw, Eraser, Shapes)
     const groupTools = this.containerEl.createDiv({ cls: "pdf-toolbar-group" });
 
     this.addToolButton(groupTools, "hand", "mouse-pointer", "Select & Pan");
     this.addToolButton(groupTools, "highlight", "highlighter", "Highlight Text");
+    this.addToolButton(groupTools, "underline", "underline", "Underline Text");
     this.addToolButton(groupTools, "note", "message-square", "Sticky Note");
-    this.addToolButton(groupTools, "draw", "pen-tool", "Draw / Ink");
     this.addToolButton(groupTools, "freetext", "type", "Text Box");
-    this.addToolButton(groupTools, "square", "square", "Rectangle Shape");
-    this.addToolButton(groupTools, "circle", "circle", "Circle Shape");
-    this.addToolButton(groupTools, "line", "minus", "Line Shape");
+    this.addToolButton(groupTools, "draw", "pen-tool", "Draw / Ink");
     this.addToolButton(groupTools, "eraser", "eraser", "Eraser");
 
     this.createSeparator();
 
-    // Group 3: Color Palette & Stroke Width
+    // Group 3: Zotero Color Palette & Stroke Width
     const groupStyle = this.containerEl.createDiv({ cls: "pdf-toolbar-group pdf-toolbar-style-group" });
     const colorPickerWrap = groupStyle.createDiv({ cls: "pdf-toolbar-color-palette" });
 
-    for (const preset of PDF_COLOR_PRESETS.slice(0, 6)) {
+    for (const preset of PDF_COLOR_PRESETS) {
       const swatch = colorPickerWrap.createDiv({ cls: "pdf-toolbar-swatch" });
       swatch.style.backgroundColor = preset.hex;
       swatch.title = preset.name;
@@ -229,11 +229,23 @@ export class PdfToolbar {
 
     this.createSeparator();
 
-    // Group 8: Undo / Redo & Theme & Save status
+    // Group 8: Undo / Redo & Reader Theme & Save status
     const groupEnd = this.containerEl.createDiv({ cls: "pdf-toolbar-group pdf-toolbar-end-group" });
     this.createIconButton(groupEnd, "undo-2", "Undo", () => this.delegate?.onUndo());
     this.createIconButton(groupEnd, "redo-2", "Redo", () => this.delegate?.onRedo());
-    this.createIconButton(groupEnd, "sun", "Toggle Paper Theme (Light / Dark)", () => this.delegate?.onToggleTheme());
+
+    // Reader Color Theme Selector (Light, Sepia, Dark)
+    const themeSelect = groupEnd.createEl("select", {
+      cls: "pdf-toolbar-select pdf-toolbar-theme-select",
+      attr: { title: "Reader Color Theme (Light, Sepia, Dark)" },
+    });
+    themeSelect.createEl("option", { text: "Light", value: "light" });
+    themeSelect.createEl("option", { text: "Sepia", value: "sepia" });
+    themeSelect.createEl("option", { text: "Dark", value: "dark" });
+    themeSelect.onchange = () => {
+      const theme = themeSelect.value as "light" | "sepia" | "dark";
+      this.delegate?.onThemeChanged?.(theme);
+    };
 
     // Save Status Indicator
     this.saveStatusEl = groupEnd.createSpan({ cls: "pdf-toolbar-save-status", text: "Saved" });

@@ -112,6 +112,24 @@ export class CitationService {
             break;
           }
 
+          case "underline": {
+            const quote = annot.highlightedText || annot.contents || "";
+            lines.push(`> [!quote] Underline (${link})`);
+            if (quote) {
+              lines.push(`> "${quote}"`);
+            }
+            if (annot.contents && annot.contents !== quote) {
+              lines.push(`> `);
+              lines.push(`> **Note:** ${annot.contents}`);
+            }
+            if (annot.linkedNote) {
+              lines.push(`> `);
+              lines.push(`> **Linked Note:** [[${annot.linkedNote}]]`);
+            }
+            lines.push(``);
+            break;
+          }
+
           case "text": {
             lines.push(`> [!note] Sticky Note (${link})`);
             lines.push(`> **Author:** ${annot.author || "User"}`);

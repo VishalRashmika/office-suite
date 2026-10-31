@@ -19,6 +19,7 @@ import {
   PdfAnnotation,
   PdfNoteAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfInkAnnotation,
   PdfFreeTextAnnotation,
   PdfShapeAnnotation,
@@ -52,6 +53,7 @@ export class PdfAnnotationSerializer {
   static readonly MANAGED_SUBTYPES = new Set([
     "Text",
     "Highlight",
+    "Underline",
     "Ink",
     "FreeText",
     "Square",
@@ -153,6 +155,9 @@ export class PdfAnnotationSerializer {
       case "highlight":
         this.populateHighlightAnnotation(pdfDoc, dict, annot);
         break;
+      case "underline":
+        this.populateUnderlineAnnotation(pdfDoc, dict, annot as PdfUnderlineAnnotation);
+        break;
       case "ink":
         this.populateInkAnnotation(pdfDoc, dict, annot);
         break;
@@ -192,6 +197,28 @@ export class PdfAnnotationSerializer {
     const context = pdfDoc.context;
     dict.set(PDFName.of("Subtype"), PDFName.of("Highlight"));
     dict.set(PDFName.of("Subj"), PDFString.of("Highlight"));
+
+    // QuadPoints array in PDF user space: [x1, y1, x2, y2, x3, y3, x4, y4, ...]
+    const quadArray = context.obj([]) as PDFArray;
+    for (const val of annot.quadPoints) {
+      quadArray.push(PDFNumber.of(Math.round(val * 100) / 100));
+    }
+    dict.set(PDFName.of("QuadPoints"), quadArray);
+
+    if (annot.highlightedText && !annot.contents) {
+      dict.set(PDFName.of("Contents"), createPdfTextString(annot.highlightedText));
+    }
+  }
+
+  /** Underline: /Subtype /Underline */
+  private static populateUnderlineAnnotation(
+    pdfDoc: PDFDocument,
+    dict: PDFDict,
+    annot: PdfUnderlineAnnotation
+  ): void {
+    const context = pdfDoc.context;
+    dict.set(PDFName.of("Subtype"), PDFName.of("Underline"));
+    dict.set(PDFName.of("Subj"), PDFString.of("Underline"));
 
     // QuadPoints array in PDF user space: [x1, y1, x2, y2, x3, y3, x4, y4, ...]
     const quadArray = context.obj([]) as PDFArray;
@@ -247,8 +274,16 @@ export class PdfAnnotationSerializer {
 
     const size = annot.fontSize || 12;
     const tc = annot.textColor || [0, 0, 0];
+    let fontName = "Helv";
+    if (annot.isBold && annot.isItalic) {
+      fontName = "Helv-BoldOblique";
+    } else if (annot.isBold) {
+      fontName = "Helv-Bold";
+    } else if (annot.isItalic) {
+      fontName = "Helv-Oblique";
+    }
     // Default appearance string: Font and Color command
-    const da = `/Helv ${size} Tf ${tc[0]} ${tc[1]} ${tc[2]} rg`;
+    const da = `/${fontName} ${size} Tf ${tc[0]} ${tc[1]} ${tc[2]} rg`;
     dict.set(PDFName.of("DA"), PDFString.of(da));
 
     if (annot.borderColor) {

@@ -19,6 +19,7 @@ import {
   PdfAnnotation,
   PdfNoteAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfInkAnnotation,
   PdfFreeTextAnnotation,
   PdfShapeAnnotation,
@@ -141,7 +142,6 @@ export class PdfAnnotationParser {
       }
 
       case "Highlight":
-      case "Underline":
       case "StrikeOut":
       case "Squiggly": {
         const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
@@ -161,6 +161,26 @@ export class PdfAnnotationParser {
           linkedNote,
         };
         return highlight;
+      }
+
+      case "Underline": {
+        const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
+        const underline: PdfUnderlineAnnotation = {
+          id,
+          type: "underline",
+          pageIndex,
+          rect,
+          color,
+          contents,
+          highlightedText: contents,
+          quadPoints: quadPoints.length > 0 ? quadPoints : [
+            rect[0], rect[3], rect[2], rect[3],
+            rect[0], rect[1], rect[2], rect[1]
+          ],
+          author,
+          linkedNote,
+        };
+        return underline;
       }
 
       case "Ink":

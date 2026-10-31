@@ -9,12 +9,14 @@ import {
   PdfAnnotation,
   PdfNoteAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfInkAnnotation,
   PdfFreeTextAnnotation,
   PdfShapeAnnotation,
   PdfCoordinateTransformer,
   PdfRgbColor,
   PdfRect,
+  PDF_COLOR_PRESETS,
   rgbToHex,
 } from "../../domain/pdf";
 import { PdfActiveTool } from "./pdf-toolbar";
@@ -193,17 +195,59 @@ export class PdfPageView {
 
   private async renderTextLayer(pdfjsPage: any, viewport: any): Promise<void> {
     this.textLayerEl.empty();
+    const pdfjsLib = (window as any).pdfjsLib;
+
     try {
       const textContent = await pdfjsPage.getTextContent();
-      for (const item of textContent.items) {
-        if (!("str" in item) || !item.str.trim()) continue;
 
-        const tx = (window as any).pdfjsLib?.Util?.transform?.(viewport.transform, item.transform) || item.transform;
+      // Try official PDF.js text layer if available
+      if (pdfjsLib?.renderTextLayer) {
+        try {
+          await pdfjsLib.renderTextLayer({
+            textContent,
+            container: this.textLayerEl,
+            viewport,
+            textDivs: [],
+          }).promise;
+          return;
+        } catch (e) {
+          // fall through to precise manual renderer
+        }
+      } else if (pdfjsLib?.TextLayer) {
+        try {
+          const tl = new pdfjsLib.TextLayer({
+            textContentSource: textContent,
+            container: this.textLayerEl,
+            viewport,
+          });
+          await tl.render();
+          return;
+        } catch (e) {
+          // fall through to precise manual renderer
+        }
+      }
+
+      // Precise manual renderer with subpixel glyph matching
+      for (const item of textContent.items) {
+        if (!("str" in item) || !item.str) continue;
+
+        const tx = pdfjsLib?.Util?.transform?.(viewport.transform, item.transform) || item.transform;
+        const fontHeight = Math.hypot(tx[2], tx[3]) || (item.height * this.scale) || 12;
+        const fontWidth = item.width * this.scale;
+
         const span = this.textLayerEl.createSpan({ text: item.str });
         span.style.left = `${tx[4]}px`;
-        span.style.top = `${tx[5] - (item.height * this.scale)}px`;
-        span.style.fontSize = `${item.height * this.scale}px`;
-        span.style.fontFamily = item.fontName || "sans-serif";
+        span.style.top = `${tx[5] - fontHeight}px`;
+        span.style.fontSize = `${fontHeight}px`;
+        span.style.fontFamily = item.fontName ? `"${item.fontName}", sans-serif` : "sans-serif";
+
+        const naturalWidth = span.getBoundingClientRect().width;
+        if (naturalWidth > 0 && fontWidth > 0) {
+          const scaleX = fontWidth / naturalWidth;
+          span.style.transform = `scaleX(${scaleX})`;
+          span.style.transformOrigin = `0% 0%`;
+          span.style.width = `${naturalWidth}px`;
+        }
       }
     } catch (err) {
       // TextContent extraction fallback
@@ -243,6 +287,10 @@ export class PdfPageView {
     switch (annot.type) {
       case "highlight": {
         this.renderHighlightAnnotation(annot as PdfHighlightAnnotation, colorHex, isSelected);
+        break;
+      }
+      case "underline": {
+        this.renderUnderlineAnnotation(annot as PdfUnderlineAnnotation, colorHex, isSelected);
         break;
       }
       case "text": {
@@ -301,6 +349,27 @@ export class PdfPageView {
       g.appendChild(rect);
     }
 
+    // Subtle Zotero Bookmark indicator if this highlight has an attached note or comment
+    const hasNote = Boolean(
+      (annot.contents && annot.contents.trim() !== "" && annot.contents.trim() !== annot.highlightedText?.trim()) ||
+      annot.linkedNote
+    );
+    if (hasNote) {
+      let bookmarkX = 0;
+      let bookmarkY = 0;
+      if (annot.quadPoints && annot.quadPoints.length >= 8) {
+        const p1 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[0], annot.quadPoints[1], this.scale);
+        bookmarkX = p1.x - 3;
+        bookmarkY = p1.y - 13;
+      } else {
+        const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+        bookmarkX = screenRect.left - 3;
+        bookmarkY = screenRect.top - 13;
+      }
+      const bookmarkG = this.createBookmarkIndicator(bookmarkX, bookmarkY, colorHex, annot);
+      g.appendChild(bookmarkG);
+    }
+
     if (isSelected) {
       const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
       const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
@@ -308,6 +377,125 @@ export class PdfPageView {
     }
 
     this.svgOverlayEl.appendChild(g);
+  }
+
+  private renderUnderlineAnnotation(annot: PdfUnderlineAnnotation, colorHex: string, isSelected: boolean): void {
+    if (!this.coordinateTransformer) return;
+    const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    g.setAttribute("class", `pdf-annot-underline-group ${isSelected ? "is-selected" : ""}`);
+    g.dataset.annotId = annot.id;
+    g.style.pointerEvents = "auto";
+    g.style.cursor = "pointer";
+
+    if (annot.quadPoints && annot.quadPoints.length >= 8) {
+      for (let i = 0; i < annot.quadPoints.length; i += 8) {
+        const pBottomLeft = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 4], annot.quadPoints[i + 5], this.scale);
+        const pBottomRight = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 6], annot.quadPoints[i + 7], this.scale);
+
+        // Invisible wider stroke for easy click hit detection
+        const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        hitLine.setAttribute("x1", `${pBottomLeft.x}`);
+        hitLine.setAttribute("y1", `${pBottomLeft.y}`);
+        hitLine.setAttribute("x2", `${pBottomRight.x}`);
+        hitLine.setAttribute("y2", `${pBottomRight.y}`);
+        hitLine.setAttribute("stroke", "transparent");
+        hitLine.setAttribute("stroke-width", "14");
+        hitLine.style.pointerEvents = "stroke";
+        g.appendChild(hitLine);
+
+        // Visible underline stroke
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", `${pBottomLeft.x}`);
+        line.setAttribute("y1", `${pBottomLeft.y}`);
+        line.setAttribute("x2", `${pBottomRight.x}`);
+        line.setAttribute("y2", `${pBottomRight.y}`);
+        line.setAttribute("stroke", colorHex);
+        line.setAttribute("stroke-width", "2.5");
+        line.setAttribute("stroke-linecap", "round");
+        g.appendChild(line);
+      }
+    } else {
+      const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", `${screenRect.left}`);
+      line.setAttribute("y1", `${screenRect.top + screenRect.height}`);
+      line.setAttribute("x2", `${screenRect.left + screenRect.width}`);
+      line.setAttribute("y2", `${screenRect.top + screenRect.height}`);
+      line.setAttribute("stroke", colorHex);
+      line.setAttribute("stroke-width", "2.5");
+      line.setAttribute("stroke-linecap", "round");
+      g.appendChild(line);
+    }
+
+    // Subtle Zotero Bookmark indicator if this underline has an attached note or comment
+    const hasNote = Boolean(
+      (annot.contents && annot.contents.trim() !== "" && annot.contents.trim() !== annot.highlightedText?.trim()) ||
+      annot.linkedNote
+    );
+    if (hasNote) {
+      let bookmarkX = 0;
+      let bookmarkY = 0;
+      if (annot.quadPoints && annot.quadPoints.length >= 8) {
+        const p1 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[0], annot.quadPoints[1], this.scale);
+        bookmarkX = p1.x - 3;
+        bookmarkY = p1.y - 13;
+      } else {
+        const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+        bookmarkX = screenRect.left - 3;
+        bookmarkY = screenRect.top - 13;
+      }
+      const bookmarkG = this.createBookmarkIndicator(bookmarkX, bookmarkY, colorHex, annot);
+      g.appendChild(bookmarkG);
+    }
+
+    if (isSelected) {
+      const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+      const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
+      g.appendChild(selBox);
+    }
+
+    this.svgOverlayEl.appendChild(g);
+  }
+
+  private createBookmarkIndicator(x: number, y: number, colorHex: string, annot: PdfAnnotation): SVGGElement {
+    const bg = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    bg.setAttribute("class", "pdf-annot-bookmark-badge");
+    bg.setAttribute("transform", `translate(${Math.round(x)}, ${Math.round(y)})`);
+    bg.setAttribute("cursor", "pointer");
+    bg.setAttribute("pointer-events", "auto");
+
+    const notePreview =
+      annot.contents && annot.contents !== (annot as any).highlightedText
+        ? annot.contents
+        : "View Note";
+    bg.setAttribute("title", `Note: ${notePreview}`);
+
+    // Sleek Zotero bookmark ribbon shape
+    const ribbon = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    ribbon.setAttribute("d", "M 0,0 L 12,0 C 13,0 13.5,0.5 13.5,1.5 L 13.5,15 L 6.75,11 L 0,15 L 0,1.5 C 0,0.5 0.5,0 0,0 Z");
+    ribbon.setAttribute("fill", colorHex);
+    ribbon.setAttribute("stroke", "rgba(0, 0, 0, 0.2)");
+    ribbon.setAttribute("stroke-width", "0.8");
+    ribbon.setAttribute("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.35))");
+    bg.appendChild(ribbon);
+
+    // Subtle inner accent line
+    const accentLine = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    accentLine.setAttribute("d", "M 3.5,3.5 L 10,3.5 M 3.5,6 L 8.5,6");
+    accentLine.setAttribute("stroke", "#ffffff");
+    accentLine.setAttribute("stroke-width", "1.2");
+    accentLine.setAttribute("stroke-linecap", "round");
+    accentLine.setAttribute("opacity", "0.85");
+    bg.appendChild(accentLine);
+
+    bg.addEventListener("pointerdown", (e: PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this.selectedAnnotId = annot.id;
+      this.delegate?.onClickAnnotation(annot, bg);
+    });
+
+    return bg;
   }
 
   private renderNoteAnnotation(annot: PdfNoteAnnotation, colorHex: string, isSelected: boolean): void {
@@ -410,39 +598,140 @@ export class PdfPageView {
     box.dataset.annotId = annot.id;
     box.style.left = `${screenRect.left}px`;
     box.style.top = `${screenRect.top}px`;
-    box.style.minWidth = `${Math.max(100, screenRect.width)}px`;
+    const boxW = Math.max(100, screenRect.width);
+    box.style.width = `${boxW}px`;
+    if (screenRect.height > 30) {
+      box.style.height = `${screenRect.height}px`;
+    }
 
-    // Handle bar for drag-to-move and delete
+    // Header bar for format controls, drag-to-move and delete
     const handleBar = box.createDiv({ cls: "pdf-annot-freetext-handle" });
-    const grip = handleBar.createSpan({ cls: "pdf-annot-freetext-grip", text: "⋮⋮" });
-    grip.title = "Drag to move text box";
+    const grip = handleBar.createSpan({ cls: "pdf-annot-freetext-grip", text: "⋮⋮", attr: { title: "Drag to move text box" } });
 
-    // Pointer down on handle starts drag
-    handleBar.addEventListener("pointerdown", (e: PointerEvent) => {
+    // Format Controls Container
+    const formatWrap = handleBar.createDiv({ cls: "pdf-annot-freetext-format-wrap" });
+
+    // Font size -
+    const fontMinus = formatWrap.createSpan({ cls: "pdf-annot-freetext-btn", text: "A-", attr: { title: "Decrease font size" } });
+    fontMinus.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       e.preventDefault();
-      this.selectedAnnotId = annot.id;
-      const rect = this.containerEl.getBoundingClientRect();
-      const sx = e.clientX - rect.left;
-      const sy = e.clientY - rect.top;
+      const currentSize = annot.fontSize || 13;
+      annot.fontSize = Math.max(8, currentSize - 1);
+      contentEl.style.fontSize = `${Math.max(8, annot.fontSize * this.scale)}px`;
+      fontSizeLabel.setText(`${annot.fontSize}`);
+      this.delegate?.onUpdateAnnotation(annot);
+    });
 
-      this.dragState = {
-        annot,
-        startScreen: { x: sx, y: sy },
-        startPdfRect: [...annot.rect] as PdfRect,
-        hasMoved: false,
-      };
-      this.renderAnnotations();
+    // Font size label
+    const fontSizeLabel = formatWrap.createSpan({ cls: "pdf-annot-freetext-size-label", text: `${annot.fontSize || 13}` });
+
+    // Font size +
+    const fontPlus = formatWrap.createSpan({ cls: "pdf-annot-freetext-btn", text: "A+", attr: { title: "Increase font size" } });
+    fontPlus.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const currentSize = annot.fontSize || 13;
+      annot.fontSize = Math.min(48, currentSize + 1);
+      contentEl.style.fontSize = `${Math.max(8, annot.fontSize * this.scale)}px`;
+      fontSizeLabel.setText(`${annot.fontSize}`);
+      this.delegate?.onUpdateAnnotation(annot);
+    });
+
+    // Bold toggle
+    const boldBtn = formatWrap.createSpan({
+      cls: `pdf-annot-freetext-btn ${annot.isBold ? "is-active" : ""}`,
+      text: "B",
+      attr: { title: "Bold" },
+    });
+    boldBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      annot.isBold = !annot.isBold;
+      boldBtn.classList.toggle("is-active", annot.isBold);
+      contentEl.style.fontWeight = annot.isBold ? "bold" : "normal";
+      this.delegate?.onUpdateAnnotation(annot);
+    });
+
+    // Italic toggle
+    const italicBtn = formatWrap.createSpan({
+      cls: `pdf-annot-freetext-btn ${annot.isItalic ? "is-active" : ""}`,
+      text: "I",
+      attr: { title: "Italic" },
+    });
+    italicBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      annot.isItalic = !annot.isItalic;
+      italicBtn.classList.toggle("is-active", annot.isItalic);
+      contentEl.style.fontStyle = annot.isItalic ? "italic" : "normal";
+      this.delegate?.onUpdateAnnotation(annot);
+    });
+
+    // Color swatch dot
+    const colorBtn = formatWrap.createSpan({ cls: "pdf-annot-freetext-color-dot", attr: { title: "Change text color" } });
+    colorBtn.style.backgroundColor = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
+    colorBtn.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const currentHex = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]).toLowerCase();
+      const idx = PDF_COLOR_PRESETS.findIndex((p) => p.hex.toLowerCase() === currentHex);
+      const nextPreset = PDF_COLOR_PRESETS[(idx + 1) % PDF_COLOR_PRESETS.length];
+      annot.textColor = nextPreset.rgb;
+      colorBtn.style.backgroundColor = nextPreset.hex;
+      contentEl.style.color = nextPreset.hex;
+      this.delegate?.onUpdateAnnotation(annot);
     });
 
     // Delete button on handle
-    const deleteBtn = handleBar.createSpan({ cls: "pdf-annot-freetext-del", text: "×" });
-    deleteBtn.title = "Delete text box";
+    const deleteBtn = handleBar.createSpan({ cls: "pdf-annot-freetext-del", text: "×", attr: { title: "Delete text box" } });
     deleteBtn.addEventListener("pointerdown", (e: PointerEvent) => {
       e.stopPropagation();
       e.preventDefault();
       this.delegate?.onDeleteAnnotation(annot.id);
       this.selectedAnnotId = null;
+      box.remove();
+    });
+
+    // Drag-to-move pointerdown on handleBar
+    handleBar.addEventListener("pointerdown", (e: PointerEvent) => {
+      if ((e.target as HTMLElement).closest(".pdf-annot-freetext-btn, .pdf-annot-freetext-del, .pdf-annot-freetext-color-dot")) {
+        return;
+      }
+      e.stopPropagation();
+      e.preventDefault();
+      this.selectedAnnotId = annot.id;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = parseFloat(box.style.left) || screenRect.left;
+      const startTop = parseFloat(box.style.top) || screenRect.top;
+
+      const onMove = (me: PointerEvent) => {
+        const dx = me.clientX - startX;
+        const dy = me.clientY - startY;
+        box.style.left = `${startLeft + dx}px`;
+        box.style.top = `${startTop + dy}px`;
+      };
+
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        const boxRect = box.getBoundingClientRect();
+        const pageRect = this.containerEl.getBoundingClientRect();
+        const screenBounds = {
+          left: boxRect.left - pageRect.left,
+          top: boxRect.top - pageRect.top,
+          width: boxRect.width,
+          height: boxRect.height,
+        };
+        if (this.coordinateTransformer) {
+          annot.rect = this.coordinateTransformer.screenRectToPdfRect(screenBounds, this.scale);
+        }
+        this.delegate?.onUpdateAnnotation(annot);
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
     });
 
     // Content editable element
@@ -456,9 +745,10 @@ export class PdfPageView {
     });
     contentEl.textContent = annot.contents || "";
     contentEl.style.fontSize = `${Math.max(10, (annot.fontSize || 13) * this.scale)}px`;
-    contentEl.style.color = rgbToHex(annot.textColor || [0, 0, 0]);
+    contentEl.style.color = rgbToHex(annot.textColor || [0.1, 0.1, 0.1]);
+    contentEl.style.fontWeight = annot.isBold ? "bold" : "normal";
+    contentEl.style.fontStyle = annot.isItalic ? "italic" : "normal";
 
-    // Clicking content element stops propagation so it doesn't trigger container pointerdown or canvas drag
     contentEl.addEventListener("pointerdown", (e: PointerEvent) => {
       e.stopPropagation();
       if (this.selectedAnnotId !== annot.id) {
@@ -468,6 +758,11 @@ export class PdfPageView {
 
     contentEl.addEventListener("focus", () => {
       box.addClass("is-editing");
+    });
+
+    contentEl.addEventListener("input", () => {
+      annot.contents = contentEl.textContent || "";
+      this.delegate?.onUpdateAnnotation(annot);
     });
 
     contentEl.addEventListener("blur", () => {
@@ -489,6 +784,57 @@ export class PdfPageView {
       annot.contents = text;
       this.delegate?.onUpdateAnnotation(annot);
     });
+
+    // Transform / Resize Handles (East, South, South-East corner)
+    const handleE = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-e", attr: { title: "Resize width" } });
+    const handleS = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-s", attr: { title: "Resize height" } });
+    const handleSE = box.createDiv({ cls: "pdf-annot-resize-handle pdf-annot-resize-handle-se", attr: { title: "Resize width and height" } });
+
+    const setupResize = (targetHandle: HTMLElement, resizeW: boolean, resizeH: boolean) => {
+      targetHandle.addEventListener("pointerdown", (e: PointerEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startW = box.offsetWidth;
+        const startH = box.offsetHeight;
+
+        const onMove = (me: PointerEvent) => {
+          if (resizeW) {
+            const newW = Math.max(70, startW + (me.clientX - startX));
+            box.style.width = `${newW}px`;
+          }
+          if (resizeH) {
+            const newH = Math.max(30, startH + (me.clientY - startY));
+            box.style.height = `${newH}px`;
+          }
+        };
+
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          const boxRect = box.getBoundingClientRect();
+          const pageRect = this.containerEl.getBoundingClientRect();
+          const screenBounds = {
+            left: boxRect.left - pageRect.left,
+            top: boxRect.top - pageRect.top,
+            width: boxRect.width,
+            height: boxRect.height,
+          };
+          if (this.coordinateTransformer) {
+            annot.rect = this.coordinateTransformer.screenRectToPdfRect(screenBounds, this.scale);
+          }
+          this.delegate?.onUpdateAnnotation(annot);
+        };
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      });
+    };
+
+    setupResize(handleE, true, false);
+    setupResize(handleS, false, true);
+    setupResize(handleSE, true, true);
   }
 
   private renderShapeAnnotation(annot: PdfShapeAnnotation, colorHex: string, isSelected: boolean): void {
@@ -600,7 +946,7 @@ export class PdfPageView {
           startScreen: { x: sx, y: sy },
           startPdfRect: [...annot.rect] as PdfRect,
           startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
-          startQuadPoints: annot.type === "highlight" ? [...(annot as PdfHighlightAnnotation).quadPoints] : undefined,
+          startQuadPoints: (annot.type === "highlight" || annot.type === "underline") ? [...(annot as any).quadPoints] : undefined,
           startLinePoints: (annot as any).linePoints ? [...(annot as any).linePoints] : undefined,
           hasMoved: false,
         };
@@ -684,9 +1030,9 @@ export class PdfPageView {
           );
         }
 
-        // Update highlight quadpoints
-        if (annot.type === "highlight" && this.dragState.startQuadPoints) {
-          (annot as PdfHighlightAnnotation).quadPoints = this.dragState.startQuadPoints.map((val, idx) =>
+        // Update highlight / underline quadpoints
+        if ((annot.type === "highlight" || annot.type === "underline") && this.dragState.startQuadPoints) {
+          (annot as any).quadPoints = this.dragState.startQuadPoints.map((val, idx) =>
             idx % 2 === 0 ? val + dPdfX : val + dPdfY
           );
         }
@@ -733,7 +1079,7 @@ export class PdfPageView {
         return;
       } else {
         // Just clicked on the existing annotation (without dragging)
-        if (annot.type === "text" || annot.type === "highlight") {
+        if (annot.type === "text" || annot.type === "highlight" || annot.type === "underline") {
           const annotEl = this.containerEl.querySelector(`[data-annot-id="${annot.id}"]`) as HTMLElement | SVGElement | null;
           this.delegate?.onClickAnnotation(annot, annotEl || this.containerEl);
         }
@@ -924,17 +1270,34 @@ export class PdfPageView {
   // ==================== Text Selection Support ====================
 
   private setupTextSelection(): void {
-    this.textLayerEl.addEventListener("mouseup", () => {
+    const handleMouseUp = () => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return;
 
       const text = sel.toString().trim();
       if (!text) return;
 
-      const range = sel.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      this.delegate?.onTextSelected?.(text, rect, this.pageIndex);
-    });
+      // In Highlight tool mode: instantly create highlight!
+      if (this.currentTool === "highlight") {
+        this.createHighlightFromSelection(text, this.currentColor);
+        return;
+      }
+
+      // In Underline tool mode: instantly create underline!
+      if (this.currentTool === "underline") {
+        this.createUnderlineFromSelection(text, this.currentColor);
+        return;
+      }
+
+      // In Hand tool mode: open sleek Zotero selection bar!
+      if (this.currentTool === "hand") {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        this.delegate?.onTextSelected?.(text, rect, this.pageIndex);
+      }
+    };
+
+    this.textLayerEl.addEventListener("mouseup", handleMouseUp);
   }
 
   private setupKeyboardShortcuts(): void {
@@ -956,29 +1319,72 @@ export class PdfPageView {
     window.addEventListener("keydown", this.onKeyDownListener);
   }
 
-  createHighlightFromSelection(selectedText: string, color: PdfRgbColor): void {
-    if (!this.coordinateTransformer) return;
+  /**
+   * Groups selection client rects by line and merges overlapping/adjacent segments
+   * into clean unified line rectangles. Prevents blocky artifacts and guarantees
+   * single-word selection accuracy!
+   */
+  private getMergedLineRectsFromSelection(): { left: number; top: number; right: number; bottom: number }[] {
     const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
+    if (!sel || !sel.rangeCount) return [];
 
     const range = sel.getRangeAt(0);
-    const clientRects = Array.from(range.getClientRects());
-    if (clientRects.length === 0) return;
+    const rawRects = Array.from(range.getClientRects());
+    if (rawRects.length === 0) return [];
 
     const pageRect = this.containerEl.getBoundingClientRect();
+
+    // 1. Convert to page-relative coordinates & filter out zero-width/height rects
+    const localRects = rawRects
+      .filter((r) => r.width > 0.5 && r.height > 0.5)
+      .map((r) => ({
+        left: r.left - pageRect.left,
+        top: r.top - pageRect.top,
+        right: r.right - pageRect.left,
+        bottom: r.bottom - pageRect.top,
+        height: r.height,
+      }));
+
+    if (localRects.length === 0) return [];
+
+    // 2. Merge fragments on the same line
+    const lines: { left: number; top: number; right: number; bottom: number }[] = [];
+
+    for (const r of localRects) {
+      const existingLine = lines.find((l) => {
+        const vOverlap = Math.min(l.bottom, r.bottom) - Math.max(l.top, r.top);
+        const minH = Math.min(l.bottom - l.top, r.height);
+        return vOverlap > minH * 0.4 || Math.abs(l.top - r.top) < 6;
+      });
+
+      if (existingLine) {
+        existingLine.left = Math.min(existingLine.left, r.left);
+        existingLine.right = Math.max(existingLine.right, r.right);
+        existingLine.top = Math.min(existingLine.top, r.top);
+        existingLine.bottom = Math.max(existingLine.bottom, r.bottom);
+      } else {
+        lines.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+      }
+    }
+
+    // 3. Sort lines top-to-bottom
+    lines.sort((a, b) => a.top - b.top);
+    return lines;
+  }
+
+  createHighlightFromSelection(selectedText: string, color: PdfRgbColor): void {
+    if (!this.coordinateTransformer) return;
+    const lines = this.getMergedLineRectsFromSelection();
+    if (lines.length === 0) return;
+
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-    for (const r of clientRects) {
-      const screenLeft = r.left - pageRect.left;
-      const screenTop = r.top - pageRect.top;
-      const screenRight = r.right - pageRect.left;
-      const screenBottom = r.bottom - pageRect.top;
-
-      const pTopLeft = this.coordinateTransformer.screenToPdf(screenLeft, screenTop, this.scale);
-      const pTopRight = this.coordinateTransformer.screenToPdf(screenRight, screenTop, this.scale);
-      const pBottomLeft = this.coordinateTransformer.screenToPdf(screenLeft, screenBottom, this.scale);
-      const pBottomRight = this.coordinateTransformer.screenToPdf(screenRight, screenBottom, this.scale);
+    for (const line of lines) {
+      const pTopLeft = this.coordinateTransformer.screenToPdf(line.left, line.top, this.scale);
+      const pTopRight = this.coordinateTransformer.screenToPdf(line.right, line.top, this.scale);
+      const pBottomLeft = this.coordinateTransformer.screenToPdf(line.left, line.bottom, this.scale);
+      const pBottomRight = this.coordinateTransformer.screenToPdf(line.right, line.bottom, this.scale);
 
       quadPoints.push(
         pTopLeft.x, pTopLeft.y,
@@ -1006,7 +1412,53 @@ export class PdfPageView {
       createdAt: new Date(),
     };
 
-    sel.removeAllRanges();
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    this.delegate?.onAddAnnotation(annot);
+  }
+
+  createUnderlineFromSelection(selectedText: string, color: PdfRgbColor): void {
+    if (!this.coordinateTransformer) return;
+    const lines = this.getMergedLineRectsFromSelection();
+    if (lines.length === 0) return;
+
+    const quadPoints: number[] = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    for (const line of lines) {
+      const pTopLeft = this.coordinateTransformer.screenToPdf(line.left, line.top, this.scale);
+      const pTopRight = this.coordinateTransformer.screenToPdf(line.right, line.top, this.scale);
+      const pBottomLeft = this.coordinateTransformer.screenToPdf(line.left, line.bottom, this.scale);
+      const pBottomRight = this.coordinateTransformer.screenToPdf(line.right, line.bottom, this.scale);
+
+      quadPoints.push(
+        pTopLeft.x, pTopLeft.y,
+        pTopRight.x, pTopRight.y,
+        pBottomLeft.x, pBottomLeft.y,
+        pBottomRight.x, pBottomRight.y
+      );
+
+      minX = Math.min(minX, pTopLeft.x, pBottomLeft.x);
+      minY = Math.min(minY, pBottomLeft.y, pBottomRight.y);
+      maxX = Math.max(maxX, pTopRight.x, pBottomRight.x);
+      maxY = Math.max(maxY, pTopLeft.y, pTopRight.y);
+    }
+
+    const annot: PdfUnderlineAnnotation = {
+      id: `underline_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "underline",
+      pageIndex: this.pageIndex,
+      rect: [minX, minY - 2, maxX, maxY],
+      quadPoints,
+      color,
+      contents: selectedText,
+      highlightedText: selectedText,
+      author: "User",
+      createdAt: new Date(),
+    };
+
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
     this.delegate?.onAddAnnotation(annot);
   }
 
@@ -1016,27 +1468,17 @@ export class PdfPageView {
    */
   addAnnotatedNoteFromSelection(selectedText: string, color: PdfRgbColor): void {
     if (!this.coordinateTransformer) return;
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
+    const lines = this.getMergedLineRectsFromSelection();
+    if (lines.length === 0) return;
 
-    const range = sel.getRangeAt(0);
-    const clientRects = Array.from(range.getClientRects());
-    if (clientRects.length === 0) return;
-
-    const pageRect = this.containerEl.getBoundingClientRect();
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
-    for (const r of clientRects) {
-      const screenLeft = r.left - pageRect.left;
-      const screenTop = r.top - pageRect.top;
-      const screenRight = r.right - pageRect.left;
-      const screenBottom = r.bottom - pageRect.top;
-
-      const pTopLeft = this.coordinateTransformer.screenToPdf(screenLeft, screenTop, this.scale);
-      const pTopRight = this.coordinateTransformer.screenToPdf(screenRight, screenTop, this.scale);
-      const pBottomLeft = this.coordinateTransformer.screenToPdf(screenLeft, screenBottom, this.scale);
-      const pBottomRight = this.coordinateTransformer.screenToPdf(screenRight, screenBottom, this.scale);
+    for (const line of lines) {
+      const pTopLeft = this.coordinateTransformer.screenToPdf(line.left, line.top, this.scale);
+      const pTopRight = this.coordinateTransformer.screenToPdf(line.right, line.top, this.scale);
+      const pBottomLeft = this.coordinateTransformer.screenToPdf(line.left, line.bottom, this.scale);
+      const pBottomRight = this.coordinateTransformer.screenToPdf(line.right, line.bottom, this.scale);
 
       quadPoints.push(
         pTopLeft.x, pTopLeft.y,
@@ -1064,7 +1506,8 @@ export class PdfPageView {
       createdAt: new Date(),
     };
 
-    sel.removeAllRanges();
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
     this.delegate?.onAddAnnotation(annot);
 
     // Open note popover anchored to the newly created highlight

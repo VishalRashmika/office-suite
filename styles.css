@@ -1704,16 +1704,57 @@
   background: var(--background-primary-alt);
 }
 
+.pdf-theme-light .pdf-pages-scroll-area {
+  background: var(--background-primary-alt);
+}
+
+.pdf-theme-light .pdf-page-view {
+  background: #ffffff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* Sepia Theme */
+.pdf-theme-sepia .pdf-pages-scroll-area {
+  background: #ebe4d8;
+}
+
+.pdf-theme-sepia .pdf-page-view {
+  background: #fbf0da;
+  box-shadow: 0 4px 18px rgba(88, 64, 36, 0.18);
+}
+
+.pdf-theme-sepia .pdf-page-canvas {
+  filter: sepia(0.35) contrast(0.96) brightness(0.98);
+}
+
+.pdf-theme-sepia .pdf-text-layer ::selection {
+  background: rgba(180, 130, 60, 0.32);
+}
+
+/* Dark Theme */
+.pdf-theme-dark .pdf-pages-scroll-area {
+  background: #18191c;
+}
+
+.pdf-theme-dark .pdf-page-view {
+  background: #202124;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+.pdf-theme-dark .pdf-page-canvas {
+  filter: invert(0.88) hue-rotate(180deg) contrast(0.95);
+}
+
+.pdf-theme-dark .pdf-text-layer ::selection {
+  background: rgba(46, 168, 229, 0.45);
+}
+
 .pdf-page-view {
   position: relative;
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
   user-select: text;
-}
-
-.pdf-theme-dark .pdf-page-view {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
 
 .pdf-page-canvas {
@@ -1783,6 +1824,42 @@
   cursor: pointer;
 }
 
+.pdf-annot-highlight-group:hover polygon,
+.pdf-annot-highlight-group:hover rect {
+  fill-opacity: 0.52;
+}
+
+/* Underline Markup */
+.pdf-annot-underline-group {
+  cursor: pointer;
+}
+
+.pdf-annot-underline-group line {
+  transition: stroke-width 0.15s ease, filter 0.15s ease;
+}
+
+.pdf-annot-underline-group:hover line:not([stroke="transparent"]) {
+  stroke-width: 3.5px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
+}
+
+.pdf-annot-underline-group.is-selected line:not([stroke="transparent"]) {
+  filter: drop-shadow(0 0 3px var(--interactive-accent));
+}
+
+/* Zotero Bookmark Ribbon Badge Indicator on Highlights/Underlines with notes */
+.pdf-annot-bookmark-badge {
+  cursor: pointer;
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), filter 0.16s ease;
+  transform-origin: center top;
+  z-index: 5;
+}
+
+.pdf-annot-bookmark-badge:hover {
+  transform: scale(1.25);
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55));
+}
+
 .pdf-annot-shape-group {
   cursor: move;
   transition: filter 0.15s ease;
@@ -1825,6 +1902,8 @@
   transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
   user-select: text;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .pdf-annot-freetext-box:hover {
@@ -1832,23 +1911,19 @@
   background: rgba(var(--interactive-accent-rgb), 0.04);
 }
 
-.pdf-annot-freetext-box.is-selected {
-  border-color: var(--interactive-accent);
-  background: rgba(var(--interactive-accent-rgb), 0.08);
-  box-shadow: 0 0 0 1px var(--interactive-accent);
-}
-
+.pdf-annot-freetext-box.is-selected,
 .pdf-annot-freetext-box.is-editing {
   border: 1px solid var(--interactive-accent);
   background: var(--background-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
 }
 
 .pdf-annot-freetext-handle {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1px 6px;
+  gap: 4px;
+  padding: 2px 6px;
   background: var(--background-secondary);
   border-top-left-radius: 3px;
   border-top-right-radius: 3px;
@@ -1858,7 +1933,7 @@
   cursor: grab;
   font-size: 11px;
   user-select: none;
-  height: 18px;
+  min-height: 22px;
 }
 
 .pdf-annot-freetext-box:hover .pdf-annot-freetext-handle,
@@ -1875,6 +1950,56 @@
   color: var(--text-muted);
   font-weight: bold;
   letter-spacing: -1px;
+  cursor: grab;
+  padding: 0 2px;
+}
+
+.pdf-annot-freetext-format-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pdf-annot-freetext-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  line-height: 1.2;
+}
+
+.pdf-annot-freetext-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdf-annot-freetext-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-freetext-size-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 14px;
+  text-align: center;
+}
+
+.pdf-annot-freetext-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  transition: transform 0.12s ease;
+  margin: 0 2px;
+}
+
+.pdf-annot-freetext-color-dot:hover {
+  transform: scale(1.25);
 }
 
 .pdf-annot-freetext-del {
@@ -1900,12 +2025,55 @@
   word-break: break-word;
   cursor: text;
   font-family: var(--font-text);
+  flex: 1;
 }
 
 .pdf-annot-freetext-content:empty::before {
   content: attr(placeholder);
   color: var(--text-faint);
   pointer-events: none;
+}
+
+/* Transform / Resize Handles for Text Box */
+.pdf-annot-resize-handle {
+  position: absolute;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.pdf-annot-freetext-box:hover .pdf-annot-resize-handle,
+.pdf-annot-freetext-box.is-selected .pdf-annot-resize-handle,
+.pdf-annot-freetext-box.is-editing .pdf-annot-resize-handle {
+  opacity: 1;
+}
+
+.pdf-annot-resize-handle-e {
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.pdf-annot-resize-handle-s {
+  bottom: -3px;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.pdf-annot-resize-handle-se {
+  bottom: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  cursor: nwse-resize;
+  background: var(--interactive-accent);
+  border: 1px solid #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .pdf-annot-selection-handles rect {
@@ -1931,14 +2099,41 @@
   position: fixed;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 4px 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  padding: 3px 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
   z-index: 1000;
   transition: opacity 0.12s ease;
+}
+
+.pdf-selection-colors {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-right: 6px;
+  border-right: 1px solid var(--background-modifier-border);
+  margin-right: 2px;
+}
+
+.pdf-selection-color-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.12s ease;
+}
+
+.pdf-selection-color-dot:hover {
+  transform: scale(1.25);
+}
+
+.pdf-selection-color-dot.is-active {
+  border-color: var(--interactive-accent);
+  transform: scale(1.15);
 }
 
 .pdf-selection-action-bar.is-hidden {
@@ -1950,7 +2145,7 @@
   border: none;
   font-size: 11px;
   font-weight: 500;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-normal);
@@ -2022,15 +2217,38 @@
   color: var(--text-normal);
 }
 
-.pdf-popover-quote {
+.pdf-popover-quote-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 12px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pdf-popover-quote {
   font-size: 11px;
   font-style: italic;
   color: var(--text-normal);
-  background: var(--background-secondary-alt);
-  border-bottom: 1px solid var(--background-modifier-border);
   line-height: 1.4;
   user-select: text;
+  flex: 1;
+}
+
+.pdf-popover-copy-btn {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.pdf-popover-copy-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 .pdf-popover-body {
