@@ -300,6 +300,7 @@ export class PdfView
     if (closestPage !== this.currentPage) {
       this.currentPage = closestPage;
       this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+      this.sidebar.setCurrentPage(closestPage - 1);
     }
   };
 
@@ -796,12 +797,47 @@ export class PdfView
   }
 
   onSelectAnnotation(annotation: PdfAnnotation): void {
-    this.scrollToPage(annotation.pageIndex);
+    this.scrollToAnnotation(annotation);
     this.pulseAnnotation(annotation.id);
   }
 
+  scrollToAnnotation(annotation: PdfAnnotation): void {
+    const pv = this.pageViews.get(annotation.pageIndex);
+    if (pv && this.pagesScrollEl) {
+      const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        pv.element.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      this.currentPage = annotation.pageIndex + 1;
+      this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+      this.sidebar.setCurrentPage(annotation.pageIndex);
+    }
+  }
+
+  onChangeAnnotationColor(id: string, color: PdfRgbColor): void {
+    if (!this.pdfDoc) return;
+    const annot = this.pdfDoc.getAllAnnotations().find((a) => a.id === id);
+    if (!annot) return;
+    annot.color = color;
+    if (annot.type === "square" || annot.type === "circle" || annot.type === "line") {
+      (annot as any).strokeColor = color;
+    }
+    this.pdfDoc.upsertAnnotation(annot);
+    this.syncAnnotationsToViews();
+    this.scheduleSave();
+    new Notice("Annotation color updated");
+  }
+
+  onOpenLinkedNote(vaultPath: string): void {
+    if (this.app?.workspace) {
+      this.app.workspace.openLinkText(vaultPath, "", false);
+    }
+  }
+
   onEditAnnotation(annotation: PdfAnnotation): void {
-    this.scrollToPage(annotation.pageIndex);
+    this.scrollToAnnotation(annotation);
     const pv = this.pageViews.get(annotation.pageIndex);
     if (pv) {
       const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;

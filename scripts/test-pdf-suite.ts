@@ -19,6 +19,13 @@ import {
   ensureValidProfile,
   normalizeHexColor,
   PdfColorSchemeProfile,
+  sortAnnotations,
+  groupAnnotationsByColor,
+  groupAnnotationsByType,
+  filterAnnotations,
+  getAnnotationColorInfo,
+  formatAnnotationDate,
+  formatTypeLabel,
 } from "../src/domain/pdf";
 import { normalizeSettings, DEFAULT_OFFICE_SETTINGS } from "../src/settings/office-settings";
 
@@ -663,6 +670,163 @@ async function runTestSuite() {
     throw new Error("Exported markdown missing tagged sticky note callout!");
   }
   console.log("✓ Verified Markdown export includes color scheme legend table and semantic tag callouts");
+
+  // ==================== Zotero Left Sidebar 1:1 Annotations & Sorting Tests ====================
+  console.log("--- Testing Zotero Left Panel Sorting & Color Grouping ---");
+
+  const greenHex = normalizeHexColor("#5fb236");
+  const redHex = normalizeHexColor("#ff6666");
+  const yellowHex = normalizeHexColor("#ffd400");
+
+  const testAnnots = [
+    {
+      id: "a1",
+      type: "highlight" as const,
+      pageIndex: 1,
+      rect: [100, 200, 300, 220] as [number, number, number, number],
+      color: [1.0, 0.40, 0.40] as [number, number, number], // Red -> "Important Points"
+      highlightedText: "Red highlight on page 2",
+      contents: "Important point to review",
+      createdAt: new Date("2026-10-31T10:00:00Z"),
+    },
+    {
+      id: "a2",
+      type: "highlight" as const,
+      pageIndex: 0,
+      rect: [100, 700, 300, 720] as [number, number, number, number],
+      color: [0.37, 0.70, 0.22] as [number, number, number], // Green -> "New Info"
+      highlightedText: "Green highlight on page 1 top",
+      contents: "New insight discovered",
+      createdAt: new Date("2026-10-31T11:00:00Z"),
+    },
+    {
+      id: "a3",
+      type: "underline" as const,
+      pageIndex: 0,
+      rect: [100, 500, 300, 520] as [number, number, number, number],
+      color: [0.37, 0.70, 0.22] as [number, number, number], // Green -> "New Info"
+      highlightedText: "Green underline on page 1 middle",
+      createdAt: new Date("2026-10-31T12:00:00Z"),
+    },
+    {
+      id: "a4",
+      type: "text" as const,
+      pageIndex: 0,
+      rect: [100, 300, 120, 320] as [number, number, number, number],
+      color: [1.0, 0.83, 0.0] as [number, number, number], // Yellow -> "Processes"
+      contents: "Yellow note on page 1 bottom",
+      createdAt: new Date("2026-10-31T09:00:00Z"),
+    },
+    {
+      id: "a5",
+      type: "underline" as const,
+      pageIndex: 1,
+      rect: [100, 600, 300, 620] as [number, number, number, number],
+      color: [1.0, 0.40, 0.40] as [number, number, number], // Red -> "Important Points"
+      highlightedText: "Red underline on page 2 top",
+      createdAt: new Date("2026-10-31T13:00:00Z"),
+    },
+  ];
+
+  // 1. Group by Color
+  const colorGroups = groupAnnotationsByColor(testAnnots, ZOTERO_DEFAULT_PROFILE);
+  if (colorGroups.length !== 3) {
+    throw new Error(`Expected 3 color groups, got ${colorGroups.length}`);
+  }
+
+  // ZOTERO_DEFAULT_PROFILE has colors in order: Green ("New Info"), Red ("Important Points"), Yellow ("Processes")
+  if (colorGroups[0].name !== "Green" || colorGroups[0].tag !== "New Info" || colorGroups[0].annotations.length !== 2) {
+    throw new Error(`First group should be Green (New Info) with 2 annotations, got ${colorGroups[0].name} (${colorGroups[0].tag}) with ${colorGroups[0].annotations.length}`);
+  }
+  if (colorGroups[1].name !== "Red" || colorGroups[1].tag !== "Important Points" || colorGroups[1].annotations.length !== 2) {
+    throw new Error(`Second group should be Red (Important Points) with 2 annotations, got ${colorGroups[1].name}`);
+  }
+  if (colorGroups[2].name !== "Yellow" || colorGroups[2].tag !== "Processes" || colorGroups[2].annotations.length !== 1) {
+    throw new Error(`Third group should be Yellow (Processes) with 1 annotation, got ${colorGroups[2].name}`);
+  }
+
+  // Verify annotations inside Green group are ordered by page / reading order
+  if (colorGroups[0].annotations[0].id !== "a2" || colorGroups[0].annotations[1].id !== "a3") {
+    throw new Error("Annotations inside Green color group should be sorted in reading order (a2 before a3)");
+  }
+  console.log("✓ Verified Zotero Group by Color: Groups created with correct tags (Green=New Info, Red=Important Points, Yellow=Processes) and reading order");
+
+  // 2. Sort by Page (Reading order)
+  const pageSorted = sortAnnotations(testAnnots, { field: "page", direction: "asc" }, ZOTERO_DEFAULT_PROFILE);
+  // Page 0 has: a2 (rect Y=720), a3 (rect Y=520), a4 (rect Y=320)
+  // Page 1 has: a5 (rect Y=620), a1 (rect Y=220)
+  const pageOrderIds = pageSorted.map((a) => a.id);
+  if (JSON.stringify(pageOrderIds) !== JSON.stringify(["a2", "a3", "a4", "a5", "a1"])) {
+    throw new Error(`Page sorting incorrect order: ${JSON.stringify(pageOrderIds)}`);
+  }
+  console.log("✓ Verified Zotero Sort by Page: Document reading order matches pageIndex and vertical Y coordinates");
+
+  // 3. Sort by Date
+  const dateSortedDesc = sortAnnotations(testAnnots, { field: "date", direction: "desc" });
+  if (dateSortedDesc[0].id !== "a5" || dateSortedDesc[dateSortedDesc.length - 1].id !== "a4") {
+    throw new Error("Date sorting (descending) failed");
+  }
+  const dateSortedAsc = sortAnnotations(testAnnots, { field: "date", direction: "asc" });
+  if (dateSortedAsc[0].id !== "a4" || dateSortedAsc[dateSortedAsc.length - 1].id !== "a5") {
+    throw new Error("Date sorting (ascending) failed");
+  }
+  console.log("✓ Verified Zotero Sort by Date: Ascending and Descending chronological ordering");
+
+  // 4. Sort & Group by Type
+  const typeGroups = groupAnnotationsByType(testAnnots);
+  if (typeGroups.length !== 3) {
+    throw new Error(`Expected 3 type groups (Highlights, Underlines, Sticky Notes), got ${typeGroups.length}`);
+  }
+  if (typeGroups[0].type !== "highlight" || typeGroups[0].annotations.length !== 2) {
+    throw new Error("First type group should be Highlights with 2 annotations");
+  }
+  if (typeGroups[1].type !== "underline" || typeGroups[1].annotations.length !== 2) {
+    throw new Error("Second type group should be Underlines with 2 annotations");
+  }
+  if (typeGroups[2].type !== "text" || typeGroups[2].annotations.length !== 1) {
+    throw new Error("Third type group should be Sticky Notes with 1 annotation");
+  }
+  console.log("✓ Verified Zotero Group by Type: Highlights, Underlines, and Sticky Notes grouped cleanly");
+
+  // 5. Quick Color Filter & Tag Filter
+  const greenFiltered = filterAnnotations(testAnnots, { colorHex: greenHex }, ZOTERO_DEFAULT_PROFILE);
+  if (greenFiltered.length !== 2 || !greenFiltered.every((a) => a.id === "a2" || a.id === "a3")) {
+    throw new Error("Filtering by Green color hex failed");
+  }
+
+  const importantTagFiltered = filterAnnotations(testAnnots, { tag: "Important Points" }, ZOTERO_DEFAULT_PROFILE);
+  if (importantTagFiltered.length !== 2 || !importantTagFiltered.every((a) => a.id === "a1" || a.id === "a5")) {
+    throw new Error("Filtering by 'Important Points' tag failed");
+  }
+  console.log("✓ Verified Zotero Quick Color Filter & Semantic Tag Filter");
+
+  // 6. Search Query Filter
+  const textFiltered = filterAnnotations(testAnnots, { searchQuery: "insight" }, ZOTERO_DEFAULT_PROFILE);
+  if (textFiltered.length !== 1 || textFiltered[0].id !== "a2") {
+    throw new Error("Search query filtering for 'insight' failed");
+  }
+  const pageSearchFiltered = filterAnnotations(testAnnots, { searchQuery: "p. 2" }, ZOTERO_DEFAULT_PROFILE);
+  if (pageSearchFiltered.length !== 2 || !pageSearchFiltered.every((a) => a.pageIndex === 1)) {
+    throw new Error("Search query filtering by page 'p. 2' failed");
+  }
+  console.log("✓ Verified Search across text, comments, and page numbers");
+
+  // 7. Annotation Color Change & Info Resolution
+  const recoloredA4 = { ...testAnnots[3], color: [1.0, 0.40, 0.40] as [number, number, number] }; // Changed Yellow -> Red
+  const recoloredInfo = getAnnotationColorInfo(recoloredA4, ZOTERO_DEFAULT_PROFILE);
+  if (recoloredInfo.name !== "Red" || recoloredInfo.tag !== "Important Points") {
+    throw new Error("Re-colored annotation did not resolve to Red and 'Important Points'");
+  }
+  console.log("✓ Verified Annotation re-coloring dynamically updates color info and semantic tag");
+
+  // 8. Human-friendly Date Formatting
+  const now = new Date();
+  const justNowStr = formatAnnotationDate(now);
+  if (justNowStr !== "Just now") {
+    throw new Error(`Expected 'Just now', got '${justNowStr}'`);
+  }
+  console.log("✓ Verified Human-friendly date formatting");
+
 
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");

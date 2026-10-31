@@ -1325,27 +1325,49 @@
   justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
 }
 
 .pdf-sidebar-tabs {
   display: flex;
   gap: 4px;
+  align-items: center;
 }
 
 .pdf-sidebar-tab {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-muted);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.pdf-sidebar-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 
 .pdf-sidebar-tab.is-active {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+  background: var(--background-primary);
+  color: var(--interactive-accent);
+  border-color: var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pdf-sidebar-tab svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-sidebar-tab-label {
+  font-size: 11px;
 }
 
 .pdf-sidebar-close-btn {
@@ -1354,9 +1376,15 @@
   cursor: pointer;
   padding: 4px;
   color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
 }
 
 .pdf-sidebar-close-btn:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
@@ -1366,7 +1394,830 @@
   padding: 8px;
 }
 
-/* Thumbnails Grid */
+/* ==================== Zotero Annotations View ==================== */
+
+.pdf-annot-view-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Search Row */
+.pdf-annot-search-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.pdf-annot-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.pdf-annot-search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-search-input {
+  width: 100%;
+  height: 28px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  padding: 0 26px 0 26px;
+  font-size: 12px;
+  color: var(--text-normal);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pdf-annot-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.pdf-annot-search-clear {
+  position: absolute;
+  right: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.pdf-annot-search-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-search-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Sort & Group Controls Bar */
+.pdf-annot-sort-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+  gap: 6px;
+}
+
+.pdf-annot-sort-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+
+.pdf-annot-sort-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.pdf-annot-sort-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-sort-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pdf-annot-sort-select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 3px 6px;
+  color: var(--text-normal);
+  cursor: pointer;
+  flex: 1;
+  max-width: 220px;
+}
+
+.pdf-annot-sort-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-dir-btn {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-dir-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-dir-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Color Palette Quick Filter Row (Zotero Palette Selector) */
+.pdf-annot-color-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 2px 0 6px 0;
+  scrollbar-width: thin;
+}
+
+.pdf-annot-color-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdf-annot-color-pill:hover {
+  border-color: var(--text-muted);
+  color: var(--text-normal);
+}
+
+.pdf-annot-color-pill.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: 0 1px 4px rgba(var(--interactive-accent-rgb), 0.25);
+}
+
+.pdf-annot-color-pill-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pdf-annot-color-pill-dot.mod-all {
+  background: linear-gradient(135deg, #ffd400 0%, #ff6666 33%, #5fb236 66%, #2ea8e5 100%);
+}
+
+.pdf-annot-color-pill-text {
+  font-weight: 500;
+}
+
+.pdf-annot-color-pill-count {
+  font-size: 10px;
+  opacity: 0.8;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0 4px;
+  border-radius: 8px;
+}
+
+.pdf-annot-color-pill.is-active .pdf-annot-color-pill-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Type Filter Chips Row */
+.pdf-annot-type-filter-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pdf-annot-type-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdf-annot-type-chip:hover {
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-type-chip.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+/* Actions & Count Summary Row */
+.pdf-annot-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 2px;
+}
+
+.pdf-annot-count-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.pdf-annot-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--interactive-accent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-export-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-export-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Cards Container & Groupings */
+.pdf-annot-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* Group Section Header (Sort by Color / Sort by Type) */
+.pdf-annot-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.pdf-annot-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pdf-annot-group-header:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pdf-annot-group-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-group-color-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+}
+
+.pdf-annot-group-type-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-type-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-annot-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pdf-annot-group-color-name {
+  color: var(--text-normal);
+}
+
+.pdf-annot-group-sep {
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-tag-name {
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.pdf-annot-group-count {
+  font-size: 10px;
+  background: var(--background-modifier-hover);
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pdf-annot-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 6px;
+}
+
+/* ==================== 1:1 Zotero Annotation Card ==================== */
+
+.pdf-annot-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  /* Left accent color strip is dynamically assigned via inline style: borderLeft = 5px solid hex */
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.pdf-annot-card:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.pdf-annot-card.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
+  background: var(--background-primary);
+}
+
+/* Card Header */
+.pdf-annot-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pdf-annot-card-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pdf-annot-card-type-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-card-type-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-annot-card-tag-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  line-height: 1.3;
+}
+
+.pdf-annot-card-page-badge {
+  font-size: 10px;
+  background: var(--background-modifier-hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-card-page-badge:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-card-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-annot-card-date {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.pdf-annot-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Card Action: Color Switcher Button */
+.pdf-annot-card-color-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.pdf-annot-card-color-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-card-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  display: inline-block;
+}
+
+.pdf-annot-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdf-annot-icon-btn.mod-danger:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Card Body: Quoted Text Block (Highlights & Underlines) */
+.pdf-annot-card-quote {
+  font-size: 12px;
+  color: var(--text-normal);
+  line-height: 1.45;
+  padding: 5px 8px;
+  border-left: 2.5px solid var(--interactive-accent);
+  border-radius: 3px;
+  background: rgba(var(--mono-rgb-100), 0.04);
+}
+
+.pdf-annot-card-quote.mod-highlight {
+  /* Subtle background tint set via inline style */
+}
+
+.pdf-annot-card-quote.mod-underline {
+  background: rgba(var(--mono-rgb-100), 0.03);
+}
+
+.pdf-annot-quote-mark {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.pdf-annot-quote-text {
+  font-style: normal;
+}
+
+.pdf-annot-quote-text.mod-underlined {
+  /* Underline decoration set via inline style */
+}
+
+.pdf-annot-card-quote.mod-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Card Body: User Comment / Note */
+.pdf-annot-card-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+
+.pdf-annot-card-comment-icon {
+  color: var(--text-muted);
+  display: flex;
+  margin-top: 1px;
+}
+
+.pdf-annot-card-comment-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pdf-annot-card-comment-text {
+  flex: 1;
+}
+
+.pdf-annot-card-comment.mod-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.pdf-annot-card-freetext-preview {
+  font-size: 11px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+/* Card Body: Linked Obsidian Note */
+.pdf-annot-card-linked-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb), 0.08);
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  width: fit-content;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-card-linked-note:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-link-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.pdf-annot-link-name {
+  font-weight: 500;
+}
+
+/* Empty State */
+.pdf-annot-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 16px;
+  gap: 8px;
+}
+
+.pdf-annot-empty-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.pdf-annot-empty-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.pdf-annot-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pdf-annot-empty-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-width: 240px;
+}
+
+/* Quick Color Picker Popup */
+.pdf-annot-color-popup {
+  position: fixed;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  max-width: 240px;
+}
+
+.pdf-annot-color-popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 4px 4px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pdf-annot-color-popup-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.pdf-annot-color-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pdf-annot-color-popup-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-color-popup-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+.pdf-annot-color-popup-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-normal);
+}
+
+.pdf-annot-color-popup-name {
+  font-weight: 500;
+}
+
+.pdf-annot-color-popup-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ==================== Outline (Table of Contents) Tab ==================== */
+
+.pdf-outline-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pdf-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pdf-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-normal);
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.pdf-outline-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-outline-item.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.pdf-outline-caret {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  width: 14px;
+}
+
+.pdf-outline-caret.is-leaf {
+  width: 14px;
+}
+
+.pdf-outline-caret svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-outline-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-outline-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ==================== Thumbnails Grid Tab ==================== */
+
 .pdf-thumbnail-grid {
   display: flex;
   flex-direction: column;
@@ -1378,18 +2229,23 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid var(--background-modifier-border);
   border-radius: 6px;
   padding: 6px;
   background: var(--background-primary);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: all 0.15s ease;
   width: 90%;
 }
 
 .pdf-thumbnail-card:hover {
   border-color: var(--interactive-accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pdf-thumbnail-card.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
 }
 
 .pdf-thumbnail-canvas-wrap {
@@ -1429,10 +2285,12 @@
   color: var(--text-muted);
   display: flex;
   align-items: center;
+  border-radius: 3px;
 }
 
 .pdf-thumbnail-menu-btn:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 /* Action Popup for Page actions */
@@ -1469,227 +2327,6 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Export to Obsidian Markdown Note */
-.pdf-export-all-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: opacity 0.15s ease, transform 0.1s ease;
-  margin-bottom: 2px;
-}
-
-.pdf-export-all-btn:hover {
-  opacity: 0.92;
-  transform: translateY(-1px);
-}
-
-.pdf-export-all-btn:active {
-  transform: translateY(0);
-}
-
-.pdf-toolbar-btn.pdf-toolbar-export-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--interactive-accent);
-  border-color: rgba(var(--interactive-accent-rgb), 0.35);
-  background: rgba(var(--interactive-accent-rgb), 0.08);
-}
-
-.pdf-toolbar-btn.pdf-toolbar-export-btn:hover {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-}
-
-/* Annotations List Tab */
-.pdf-annot-list-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pdf-annot-search-wrap {
-  width: 100%;
-}
-
-.pdf-annot-search-input {
-  width: 100%;
-  height: 28px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  padding: 0 8px;
-  font-size: 12px;
-  color: var(--text-normal);
-}
-
-.pdf-annot-filter-row {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.pdf-annot-filter-pill {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 12px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.pdf-annot-filter-pill:hover {
-  border-color: var(--interactive-accent);
-}
-
-.pdf-annot-filter-pill.is-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-}
-
-.pdf-annot-cards-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.pdf-annot-empty-state {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 24px 8px;
-}
-
-.pdf-annot-card {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.pdf-annot-card:hover {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-}
-
-.pdf-annot-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.pdf-annot-card-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pdf-annot-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.pdf-annot-card-type {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-normal);
-}
-
-.pdf-annot-card-page-badge {
-  font-size: 10px;
-  background: var(--background-modifier-hover);
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: var(--text-muted);
-}
-
-.pdf-annot-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.pdf-annot-icon-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-  color: var(--text-muted);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-}
-
-.pdf-annot-icon-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.pdf-annot-icon-btn.mod-danger:hover {
-  color: #ef4444;
-}
-
-.pdf-annot-card-quote {
-  font-size: 11px;
-  color: var(--text-normal);
-  font-style: italic;
-  line-height: 1.4;
-  background: rgba(var(--mono-rgb-100), 0.04);
-  padding: 4px 6px;
-  border-left: 2px solid var(--interactive-accent);
-  border-radius: 2px;
-}
-
-.pdf-annot-card-quote.mod-empty {
-  color: var(--text-faint);
-  border-left-color: var(--background-modifier-border);
-}
-
-.pdf-annot-card-comment {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-
-.pdf-annot-card-comment.mod-empty {
-  color: var(--text-faint);
-  font-style: italic;
-}
-
-.pdf-annot-card-linked-note {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--interactive-accent);
-  margin-top: 2px;
-}
 
 /* Scroll Area & Page View */
 .pdf-pages-scroll-area {

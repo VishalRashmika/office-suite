@@ -5,4 +5,5 @@ export * from "./models/citation";
 export * from "./services/pdf-annotation-serializer";
 export * from "./services/pdf-annotation-parser";
 export * from "./services/citation-service";
+export * from "./services/pdf-annotation-sorter";
 
