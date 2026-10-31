@@ -10,6 +10,9 @@ import { PptxViewMode } from "./pptx-toolbar";
 export interface PptxStageDelegate {
   onSlideChanged(newIndex: number): void;
   onSelectSlide(index: number): void;
+  onElementSelected?(slideIndex: number, elementId: string | null): void;
+  onElementTextChange?(slideIndex: number, elementId: string, newText: string): void;
+  onDeleteElement?(slideIndex: number, elementId: string): void;
 }
 
 export class PptxStage {
@@ -21,6 +24,9 @@ export class PptxStage {
   private zoomLevel: number | "fit" = "fit";
   private transitionOverride: TransitionType | "auto" = "auto";
   private isTransitioning = false;
+
+  private selectedElementId: string | null = null;
+  private isEditingText = false;
 
   private stageInnerEl: HTMLElement | null = null;
   private currentSlideEl: HTMLElement | null = null;
@@ -38,6 +44,8 @@ export class PptxStage {
     this.activeSlideIndex = activeSlideIndex;
     this.viewMode = viewMode;
     this.delegate = delegate;
+    this.selectedElementId = null;
+    this.isEditingText = false;
 
     this.containerEl.empty();
     this.containerEl.addClass("office-pptx-stage-container");
@@ -66,8 +74,29 @@ export class PptxStage {
     }
   }
 
+  getSelectedElementId(): string | null {
+    return this.selectedElementId;
+  }
+
+  isEditing(): boolean {
+    return this.isEditingText;
+  }
+
+  selectElement(elId: string | null): void {
+    this.selectedElementId = elId;
+    if (!this.stageInnerEl) return;
+    const elements = this.stageInnerEl.querySelectorAll(".office-pptx-element");
+    elements.forEach((el) => {
+      const isTarget = (el as HTMLElement).dataset.elementId === elId;
+      el.classList.toggle("is-selected", isTarget);
+    });
+    this.delegate?.onElementSelected?.(this.activeSlideIndex, elId);
+  }
+
   setViewMode(mode: PptxViewMode): void {
     this.viewMode = mode;
+    this.selectedElementId = null;
+    this.isEditingText = false;
     this.refreshView();
   }
 
@@ -86,6 +115,9 @@ export class PptxStage {
     if (!this.presentation) return;
     if (newIndex < 0 || newIndex >= this.presentation.slides.length) return;
     if (newIndex === this.activeSlideIndex && !forceInstant) return;
+
+    this.selectedElementId = null;
+    this.isEditingText = false;
 
     const oldIndex = this.activeSlideIndex;
     this.activeSlideIndex = newIndex;
@@ -151,6 +183,9 @@ export class PptxStage {
     transHost.appendChild(slideNode);
     this.currentSlideEl = slideNode;
 
+    // Attach interactive selection and text editing
+    this.attachElementInteractions(slideNode, index);
+
     // Hover navigation overlay arrows
     const leftArrow = viewportWrapper.createDiv({
       cls: "office-pptx-nav-overlay nav-left",
@@ -173,6 +208,88 @@ export class PptxStage {
     };
 
     this.updateScale();
+  }
+
+  private attachElementInteractions(slideNode: HTMLElement, slideIndex: number): void {
+    const elements = slideNode.querySelectorAll(".office-pptx-element");
+    elements.forEach((elNode) => {
+      const el = elNode as HTMLElement;
+      const elId = el.dataset.elementId;
+      if (!elId) return;
+
+      if (this.selectedElementId === elId) {
+        el.classList.add("is-selected");
+      }
+
+      // Single click selects element
+      el.addEventListener("click", (e) => {
+        if (this.viewMode !== "single" || this.isEditingText) return;
+        e.stopPropagation();
+        this.selectElement(elId);
+      });
+
+      // Double click starts inline text editing
+      el.addEventListener("dblclick", (e) => {
+        if (this.viewMode !== "single") return;
+        e.stopPropagation();
+        this.startEditingElement(el, slideIndex, elId);
+      });
+    });
+
+    // Deselect when clicking empty slide area
+    slideNode.addEventListener("click", (e) => {
+      if ((e.target as HTMLElement).closest(".office-pptx-element")) return;
+      this.selectElement(null);
+    });
+  }
+
+  private startEditingElement(
+    elNode: HTMLElement,
+    slideIndex: number,
+    elementId: string
+  ): void {
+    let textWrapper = elNode.querySelector(".office-pptx-text-content") as HTMLElement;
+    if (!textWrapper) {
+      textWrapper = document.createElement("div");
+      textWrapper.className = "office-pptx-text-content";
+      elNode.appendChild(textWrapper);
+    }
+
+    this.isEditingText = true;
+    this.selectElement(elementId);
+    elNode.classList.add("is-editing");
+    textWrapper.contentEditable = "true";
+    textWrapper.focus();
+
+    // Select text or collapse selection to end
+    const selection = window.getSelection();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(textWrapper);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+
+    const finishEditing = () => {
+      if (!this.isEditingText) return;
+      this.isEditingText = false;
+      elNode.classList.remove("is-editing");
+      textWrapper.contentEditable = "false";
+      const rawText = textWrapper.innerText || textWrapper.textContent || "";
+      this.delegate?.onElementTextChange?.(slideIndex, elementId, rawText.trimEnd());
+    };
+
+    textWrapper.onblur = () => finishEditing();
+
+    textWrapper.onkeydown = (e: KeyboardEvent) => {
+      e.stopPropagation(); // Avoid triggering slide navigation keys while typing
+      if (e.key === "Escape") {
+        e.preventDefault();
+        finishEditing();
+        this.selectElement(null);
+      }
+    };
   }
 
   private executeTransition(fromIndex: number, toIndex: number): void {
@@ -243,6 +360,7 @@ export class PptxStage {
       newSlideEl.style.animationDuration = "";
       this.currentSlideEl = newSlideEl;
       this.isTransitioning = false;
+      this.attachElementInteractions(newSlideEl, toIndex);
     };
 
     setTimeout(finishTransition, duration + 50);
@@ -263,7 +381,6 @@ export class PptxStage {
 
     if (this.zoomLevel === "fit") {
       scale = Math.min(containerW / presW, containerH / presH);
-      // Reasonable scale boundaries
       scale = Math.max(0.2, Math.min(2.5, scale));
     } else {
       scale = this.zoomLevel / 100;

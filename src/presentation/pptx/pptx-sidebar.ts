@@ -1,7 +1,13 @@
+import { setIcon } from "obsidian";
 import { PptxPresentation, PptxSlide, PptxRenderer } from "../../domain/pptx";
 
 export interface PptxSidebarDelegate {
   onSlideSelected(slideIndex: number): void;
+  onAddSlide?(): void;
+  onDuplicateSlide?(slideIndex: number): void;
+  onDeleteSlide?(slideIndex: number): void;
+  onMoveSlideUp?(slideIndex: number): void;
+  onMoveSlideDown?(slideIndex: number): void;
 }
 
 export class PptxSidebar {
@@ -29,11 +35,22 @@ export class PptxSidebar {
 
     // Sidebar header
     const headerEl = this.containerEl.createDiv({ cls: "office-pptx-sidebar-header" });
-    headerEl.createSpan({ cls: "office-pptx-sidebar-title", text: "Slides" });
-    headerEl.createSpan({
+    const headerLeft = headerEl.createDiv({ cls: "office-pptx-sidebar-header-left" });
+    headerLeft.createSpan({ cls: "office-pptx-sidebar-title", text: "Slides" });
+    headerLeft.createSpan({
       cls: "office-pptx-sidebar-count",
       text: `${presentation.slides.length} slides`,
     });
+
+    const addBtn = headerEl.createEl("button", {
+      cls: "office-pptx-sidebar-add-btn office-pptx-thumb-btn",
+      attr: { title: "Add New Slide" },
+    });
+    setIcon(addBtn, "plus");
+    addBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.delegate?.onAddSlide?.();
+    };
 
     // Thumbnail List Container
     const listEl = this.containerEl.createDiv({ cls: "office-pptx-thumbnail-list" });
@@ -46,10 +63,56 @@ export class PptxSidebar {
       cardEl.dataset.slideIndex = String(i);
 
       // Slide number badge
-      const numBadge = cardEl.createDiv({
+      cardEl.createDiv({
         cls: "office-pptx-thumbnail-num",
         text: String(slide.slideNumber),
       });
+
+      // Quick hover action buttons for slide
+      const actionsEl = cardEl.createDiv({ cls: "office-pptx-thumbnail-actions" });
+
+      const dupBtn = actionsEl.createEl("button", {
+        cls: "office-pptx-thumb-btn",
+        attr: { title: "Duplicate Slide" },
+      });
+      setIcon(dupBtn, "copy");
+      dupBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.delegate?.onDuplicateSlide?.(i);
+      };
+
+      const moveUpBtn = actionsEl.createEl("button", {
+        cls: "office-pptx-thumb-btn",
+        attr: { title: "Move Slide Up" },
+      });
+      setIcon(moveUpBtn, "arrow-up");
+      if (i === 0) moveUpBtn.disabled = true;
+      moveUpBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.delegate?.onMoveSlideUp?.(i);
+      };
+
+      const moveDownBtn = actionsEl.createEl("button", {
+        cls: "office-pptx-thumb-btn",
+        attr: { title: "Move Slide Down" },
+      });
+      setIcon(moveDownBtn, "arrow-down");
+      if (i === presentation.slides.length - 1) moveDownBtn.disabled = true;
+      moveDownBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.delegate?.onMoveSlideDown?.(i);
+      };
+
+      const delBtn = actionsEl.createEl("button", {
+        cls: "office-pptx-thumb-btn mod-danger",
+        attr: { title: "Delete Slide" },
+      });
+      setIcon(delBtn, "trash-2");
+      if (presentation.slides.length <= 1) delBtn.disabled = true;
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.delegate?.onDeleteSlide?.(i);
+      };
 
       // Preview box
       const previewBox = cardEl.createDiv({ cls: "office-pptx-thumbnail-preview" });
@@ -71,7 +134,7 @@ export class PptxSidebar {
 
       slidePreview.style.transform = `scale(${scale})`;
       slidePreview.style.transformOrigin = "top left";
-      slidePreview.style.pointerEvents = "none"; // Disable clicks inside preview elements
+      slidePreview.style.pointerEvents = "none";
       previewBox.appendChild(slidePreview);
 
       // Title / summary

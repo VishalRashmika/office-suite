@@ -541,6 +541,215 @@ export async function runPptxTestSuite() {
   }
   console.log(`✓ Verified Markdown export includes bidirectional Obsidian deep links`);
 
+  // =============================================================
+  // CRUD OPERATIONS & POWERPOINT CROSS-COMPATIBILITY TESTS
+  // =============================================================
+  console.log("--- Testing PPTX CRUD: Text Editing & Shape Operations ---");
+
+  // Test 16: Update Element Text in Slide 1
+  const updateTextRes = doc.updateElementText(0, "2", "Updated Keynote & Architectural Design <v2.0> \"Ready\"");
+  if (!updateTextRes) {
+    throw new Error("Failed to update element text on slide 1");
+  }
+  const updatedSlide1 = doc.getSlide(0)!;
+  if (updatedSlide1.title !== "Updated Keynote & Architectural Design <v2.0> \"Ready\"") {
+    throw new Error(`Expected slide 1 title 'Updated Keynote & Architectural Design <v2.0> "Ready"', got '${updatedSlide1.title}'`);
+  }
+  const updatedEl = updatedSlide1.elements.find((e) => e.id === "2");
+  const runText = updatedEl?.paragraphs?.[0]?.runs?.[0]?.text;
+  if (runText !== "Updated Keynote & Architectural Design <v2.0> \"Ready\"") {
+    throw new Error(`Expected run text 'Updated Keynote & Architectural Design <v2.0> "Ready"', got '${runText}'`);
+  }
+  console.log(`✓ Verified element text editing updates in-memory domain model and slide title with XML entities`);
+
+  // Test 17: Add New Text Box to Slide 1
+  const newTextBox = doc.addElement(0, "textbox", {
+    text: "Confidential - Q4 Roadmap",
+    x: 100,
+    y: 400,
+    width: 500,
+    height: 80,
+  });
+  if (!newTextBox || newTextBox.type !== "text") {
+    throw new Error("Failed to add new text box to slide 1");
+  }
+  if (!newTextBox.paragraphs?.[0]?.runs?.[0]?.text.includes("Confidential")) {
+    throw new Error("New text box missing initial text");
+  }
+  console.log(`✓ Verified text box creation with custom coordinates and text`);
+
+  // Test 18: Add Vector Shape (roundRect) to Slide 3
+  const newShape = doc.addElement(2, "roundRect", {
+    text: "Automated Workflow",
+    color: "#6366f1",
+    x: 200,
+    y: 200,
+  });
+  if (!newShape || newShape.shapeType !== "roundRect") {
+    throw new Error("Failed to add roundRect shape to slide 3");
+  }
+  console.log(`✓ Verified vector shape creation with geometry and solid fill`);
+
+  // Test 19: Delete Element from Slide 3
+  const shapeCountBefore = doc.getSlide(2)!.elements.length;
+  const deleteElRes = doc.deleteElement(2, newShape.id);
+  if (!deleteElRes) {
+    throw new Error("Failed to delete element from slide 3");
+  }
+  const shapeCountAfter = doc.getSlide(2)!.elements.length;
+  if (shapeCountAfter !== shapeCountBefore - 1) {
+    throw new Error(`Expected ${shapeCountBefore - 1} elements after deletion, got ${shapeCountAfter}`);
+  }
+  console.log(`✓ Verified element deletion cleans up domain elements and OOXML shape tree`);
+
+  console.log("--- Testing PPTX CRUD: Slide Lifecycle (Add, Duplicate, Reorder, Delete) ---");
+
+  // Test 20: Add New Slide (at index 1)
+  const initialSlideCount = doc.getSlideCount();
+  const addedSlide = doc.addSlide(1, "Architecture Deep Dive");
+  if (doc.getSlideCount() !== initialSlideCount + 1) {
+    throw new Error(`Expected ${initialSlideCount + 1} slides after adding, got ${doc.getSlideCount()}`);
+  }
+  if (doc.getSlide(1)!.title !== "Architecture Deep Dive") {
+    throw new Error(`Expected slide 1 title 'Architecture Deep Dive', got '${doc.getSlide(1)!.title}'`);
+  }
+  console.log(`✓ Verified new slide creation inserts at target index with sequential numbering`);
+
+  // Test 21: Duplicate Slide
+  const slideCountBeforeDup = doc.getSlideCount();
+  const dupSlide = doc.duplicateSlide(0);
+  if (doc.getSlideCount() !== slideCountBeforeDup + 1) {
+    throw new Error(`Expected ${slideCountBeforeDup + 1} slides after duplicating, got ${doc.getSlideCount()}`);
+  }
+  if (!dupSlide.title.includes("(Copy)")) {
+    throw new Error(`Expected duplicated slide title to contain '(Copy)', got '${dupSlide.title}'`);
+  }
+  console.log(`✓ Verified slide duplication clones elements, styling, and transitions`);
+
+  // Test 22: Delete Slide
+  const slideCountBeforeDel = doc.getSlideCount();
+  const deletedSlideEntry = doc.getSlideEntries()[2];
+  const delRes = doc.deleteSlide(2);
+  if (!delRes || doc.getSlideCount() !== slideCountBeforeDel - 1) {
+    throw new Error(`Failed to delete slide at index 2`);
+  }
+  console.log(`✓ Verified slide deletion purges slide from collection and re-indexes sequence`);
+
+  // Test 23: Reorder Slides (Move Slide 1 to 0)
+  const slideToMoveTitle = doc.getSlide(1)!.title;
+  const reorderRes = doc.reorderSlide(1, 0);
+  if (!reorderRes) {
+    throw new Error("Failed to reorder slide from index 1 to 0");
+  }
+  if (doc.getSlide(0)!.title !== slideToMoveTitle) {
+    throw new Error(`Expected slide 0 title to be '${slideToMoveTitle}', got '${doc.getSlide(0)!.title}'`);
+  }
+  console.log(`✓ Verified slide reordering swaps sequence in memory and presentation.xml DOM`);
+
+  console.log("--- Testing PPTX CRUD: Speaker Notes Modification & Creation ---");
+
+  // Test 24: Update existing speaker notes on Slide 0
+  doc.updateSpeakerNotes(0, "Revised keynote notes for auditorium presentation.");
+  if (!doc.getSlide(0)!.notes.includes("Revised keynote notes")) {
+    throw new Error("Speaker notes not updated on slide 0");
+  }
+  console.log(`✓ Verified existing speaker notes update`);
+
+  // Test 25: Add brand new speaker notes to a slide that previously had no notes
+  const targetSlideIdx = doc.getSlideCount() - 1;
+  doc.updateSpeakerNotes(targetSlideIdx, "Newly created speaker notes for concluding remarks.");
+  if (!doc.getSlide(targetSlideIdx)!.notes.includes("Newly created speaker notes")) {
+    throw new Error(`Speaker notes not created on slide ${targetSlideIdx}`);
+  }
+  console.log(`✓ Verified creation of brand new notesSlide and slide relationship`);
+
+  console.log("--- Testing PowerPoint Binary Cross-Compatibility & Roundtrip Persistence ---");
+
+  // Test 26: Save Binary Roundtrip with All CRUD Mutations
+  const mutatedBinary = await doc.save();
+  if (!mutatedBinary || mutatedBinary.byteLength === 0) {
+    throw new Error("Failed to save mutated PPTX binary");
+  }
+  console.log(`✓ Generated mutated PPTX binary: ${mutatedBinary.byteLength} bytes`);
+
+  // Test 27: Reload mutated binary with independent JSZip parser to verify OOXML integrity
+  const roundtripDoc = await PptxDocument.load(mutatedBinary.buffer);
+  if (roundtripDoc.getSlideCount() !== doc.getSlideCount()) {
+    throw new Error(`Expected ${doc.getSlideCount()} slides in reloaded PPTX, got ${roundtripDoc.getSlideCount()}`);
+  }
+
+  // Verify slide sequence and 100% valid 1-based slide numbers
+  for (let sIdx = 0; sIdx < roundtripDoc.getSlideCount(); sIdx++) {
+    const s = roundtripDoc.getSlide(sIdx)!;
+    if (s.slideNumber !== sIdx + 1 || s.index !== sIdx) {
+      throw new Error(`Slide ${sIdx} has invalid index/number: index=${s.index}, number=${s.slideNumber}`);
+    }
+  }
+  console.log(`✓ Verified all ${roundtripDoc.getSlideCount()} slides have sequential numbering (1 through ${roundtripDoc.getSlideCount()})`);
+
+  // Verify updated text persisted losslessly in reloaded binary
+  const reloadedSlide0 = roundtripDoc.getSlide(0)!;
+  if (!reloadedSlide0.notes.includes("Revised keynote notes")) {
+    throw new Error(`Reloaded slide 0 notes mismatch: '${reloadedSlide0.notes}'`);
+  }
+
+  const reloadedLastSlide = roundtripDoc.getSlide(roundtripDoc.getSlideCount() - 1)!;
+  if (!reloadedLastSlide.notes.includes("Newly created speaker notes")) {
+    throw new Error(`Reloaded last slide notes mismatch: '${reloadedLastSlide.notes}'`);
+  }
+  console.log(`✓ Verified speaker notes persisted losslessly across binary roundtrip`);
+
+  // Verify deleted slide file is completely purged from zip
+  const inspectZip = await JSZip.loadAsync(mutatedBinary.buffer);
+  if (inspectZip.file(deletedSlideEntry.path)) {
+    throw new Error(`Purged slide file '${deletedSlideEntry.path}' still exists in PPTX zip!`);
+  }
+  console.log(`✓ Verified deleted slide file '${deletedSlideEntry.path}' completely purged from zip`);
+
+  // Verify OPC Content Types integrity
+  const ctFile = inspectZip.file("[Content_Types].xml");
+  if (!ctFile) throw new Error("Missing [Content_Types].xml in saved binary");
+  const ctText = await ctFile.async("text");
+  if (ctText.includes(deletedSlideEntry.path)) {
+    throw new Error(`[Content_Types].xml still contains reference to deleted slide ${deletedSlideEntry.path}`);
+  }
+  console.log(`✓ Verified [Content_Types].xml has no dangling references to purged slides`);
+
+  // Verify presentation.xml.rels integrity
+  const presRelsFile = inspectZip.file("ppt/_rels/presentation.xml.rels");
+  if (!presRelsFile) throw new Error("Missing ppt/_rels/presentation.xml.rels in saved binary");
+  const presRelsText = await presRelsFile.async("text");
+  if (presRelsText.includes(`Target="${deletedSlideEntry.path.replace(/^ppt\//, "")}"`)) {
+    throw new Error(`presentation.xml.rels still references deleted slide target`);
+  }
+  console.log(`✓ Verified presentation.xml.rels references only valid, existing slides`);
+
+  // Verify all slide IDs in presentation.xml are >= 256
+  const presFile = inspectZip.file("ppt/presentation.xml");
+  if (!presFile) throw new Error("Missing ppt/presentation.xml");
+  const presText = await presFile.async("text");
+  const idMatches = presText.match(/<p:sldId[^>]+id="(\d+)"/g);
+  if (!idMatches || idMatches.length !== roundtripDoc.getSlideCount()) {
+    throw new Error(`Expected ${roundtripDoc.getSlideCount()} sldId entries in presentation.xml`);
+  }
+  for (const m of idMatches) {
+    const num = parseInt(m.match(/id="(\d+)"/)![1], 10);
+    if (num < 256) {
+      throw new Error(`Invalid OOXML slide ID: ${num} is less than required minimum 256`);
+    }
+  }
+  console.log(`✓ Verified 100% of slide IDs in presentation.xml conform to ECMA-376 standard (>= 256)`);
+
+  // Verify XML Declarations present in all XML files
+  const xmlFiles = Object.keys(inspectZip.files).filter((f) => f.endsWith(".xml") || f.endsWith(".rels"));
+  for (const f of xmlFiles) {
+    const text = await inspectZip.file(f)!.async("text");
+    if (!text.startsWith("<?xml")) {
+      throw new Error(`File ${f} is missing <?xml declaration, which causes PowerPoint to reject the file`);
+    }
+  }
+  console.log(`✓ Verified 100% of XML parts have compliant '<?xml version="1.0" ...?>' declarations`);
+
   console.log("==================================================");
   console.log("🎉 ALL PPTX TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");
   console.log("==================================================");

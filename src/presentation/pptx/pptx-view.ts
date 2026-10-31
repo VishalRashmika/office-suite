@@ -36,6 +36,9 @@ export class PptxView
   private transitionOverride: TransitionType | "auto" = "auto";
   private zoomLevel: number | "fit" = "fit";
 
+  private dirty = false;
+  private saveTimer: number | null = null;
+
   private rootEl: HTMLElement | null = null;
   private toolbarEl: HTMLElement | null = null;
   private mainBodyEl: HTMLElement | null = null;
@@ -87,13 +90,26 @@ export class PptxView
 
     // Keyboard Shortcuts inside view
     this.registerDomEvent(container, "keydown", (e: KeyboardEvent) => {
-      // Don't intercept if typing in an input
+      // Don't intercept if typing in an input, textarea, or contenteditable
       const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
-      if (targetTag === "input" || targetTag === "textarea" || targetTag === "select") {
+      const isEditable =
+        targetTag === "input" ||
+        targetTag === "textarea" ||
+        targetTag === "select" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) {
         return;
       }
 
-      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " " || e.key === "Enter") {
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (this.stage.getSelectedElementId() && !this.stage.isEditing()) {
+          e.preventDefault();
+          this.onDeleteElement();
+          return;
+        }
+      }
+
+      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") {
         e.preventDefault();
         this.onNextSlide();
       } else if (e.key === "ArrowLeft" || e.key === "PageUp" || e.key === "Backspace") {
@@ -123,6 +139,7 @@ export class PptxView
       const pres = this.pptxDoc.getPresentation();
 
       this.activeSlideIndex = 0;
+      this.dirty = false;
 
       // Check URL deep link / subpath (e.g. #slide=3)
       const subpath = this.leaf.getViewState()?.state?.subpath;
@@ -155,6 +172,7 @@ export class PptxView
       this.toolbar.updateViewMode(this.viewMode);
       this.toolbar.updateSidebarState(this.isSidebarOpen);
       this.toolbar.updateNotesState(this.isNotesOpen);
+      this.toolbar.setSaveStatus("saved");
 
       this.updateNotesPanel();
     } catch (err: any) {
@@ -169,7 +187,15 @@ export class PptxView
     }
   }
 
+  async onUnloadFile(file: TFile): Promise<void> {
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.dirty) await this.saveNow();
+    return super.onUnloadFile(file);
+  }
+
   async onClose(): Promise<void> {
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.dirty) await this.saveNow();
     this.stage.destroy();
     this.slideshow.stop();
   }
@@ -178,6 +204,38 @@ export class PptxView
     if (this.stageEl && this.viewMode === "single") {
       this.stage.setZoom(this.zoomLevel);
     }
+  }
+
+  // -------------------------------------------------------------
+  // AUTOSAVE & PERSISTENCE
+  // -------------------------------------------------------------
+
+  private requestSave(): void {
+    this.dirty = true;
+    this.toolbar.setSaveStatus("unsaved");
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
+      void this.saveNow();
+    }, 800);
+  }
+
+  private async saveNow(): Promise<void> {
+    if (!this.dirty || !this.pptxDoc || !this.file) return;
+    try {
+      this.toolbar.setSaveStatus("saving");
+      const bytes = await this.pptxDoc.save();
+      await this.app.vault.modifyBinary(this.file, bytes.buffer);
+      this.dirty = false;
+      this.toolbar.setSaveStatus("saved");
+    } catch (err: any) {
+      console.error("Failed to save PowerPoint presentation:", err);
+      new Notice(`Failed to save presentation: ${err?.message || err}`);
+      this.toolbar.setSaveStatus("error");
+    }
+  }
+
+  onSave(): void {
+    void this.saveNow();
   }
 
   // -------------------------------------------------------------
@@ -209,6 +267,7 @@ export class PptxView
     this.stage.goToSlide(index);
     this.sidebar.setActiveSlide(index);
     this.toolbar.updateSlideState(index + 1, this.pptxDoc?.getSlideCount() || 1);
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
     this.updateNotesPanel();
   }
 
@@ -240,6 +299,7 @@ export class PptxView
     this.viewMode = mode;
     this.stage.setViewMode(mode);
     this.toolbar.updateViewMode(mode);
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
   }
 
   onStartSlideshow(): void {
@@ -306,6 +366,174 @@ export class PptxView
   }
 
   // -------------------------------------------------------------
+  // CRUD OPERATIONS: SLIDES & CONTENT
+  // -------------------------------------------------------------
+
+  onAddSlide(): void {
+    if (!this.pptxDoc) return;
+    const targetIdx = this.activeSlideIndex + 1;
+    const slide = this.pptxDoc.addSlide(targetIdx);
+    if (slide) {
+      this.activeSlideIndex = targetIdx;
+      this.refreshAll();
+      this.requestSave();
+      new Notice(`Added Slide ${targetIdx + 1}`);
+    }
+  }
+
+  onDuplicateSlide(slideIndex?: number): void {
+    if (!this.pptxDoc) return;
+    const targetIdx = slideIndex ?? this.activeSlideIndex;
+    const dup = this.pptxDoc.duplicateSlide(targetIdx);
+    if (dup) {
+      this.activeSlideIndex = targetIdx + 1;
+      this.refreshAll();
+      this.requestSave();
+      new Notice(`Duplicated slide to Slide ${this.activeSlideIndex + 1}`);
+    }
+  }
+
+  onDeleteSlide(slideIndex?: number): void {
+    if (!this.pptxDoc) return;
+    const targetIdx = slideIndex ?? this.activeSlideIndex;
+    if (this.pptxDoc.getSlideCount() <= 1) {
+      new Notice("A presentation must contain at least one slide.");
+      return;
+    }
+    const success = this.pptxDoc.deleteSlide(targetIdx);
+    if (success) {
+      this.activeSlideIndex = Math.max(
+        0,
+        Math.min(this.activeSlideIndex, this.pptxDoc.getSlideCount() - 1)
+      );
+      this.refreshAll();
+      this.requestSave();
+      new Notice(`Deleted slide`);
+    }
+  }
+
+  onMoveSlideUp(slideIndex?: number): void {
+    if (!this.pptxDoc) return;
+    const targetIdx = slideIndex ?? this.activeSlideIndex;
+    if (targetIdx > 0) {
+      this.pptxDoc.reorderSlide(targetIdx, targetIdx - 1);
+      this.activeSlideIndex = targetIdx - 1;
+      this.refreshAll();
+      this.requestSave();
+    }
+  }
+
+  onMoveSlideDown(slideIndex?: number): void {
+    if (!this.pptxDoc) return;
+    const targetIdx = slideIndex ?? this.activeSlideIndex;
+    if (targetIdx < this.pptxDoc.getSlideCount() - 1) {
+      this.pptxDoc.reorderSlide(targetIdx, targetIdx + 1);
+      this.activeSlideIndex = targetIdx + 1;
+      this.refreshAll();
+      this.requestSave();
+    }
+  }
+
+  onAddTextBox(): void {
+    if (!this.pptxDoc) return;
+    const el = this.pptxDoc.addElement(this.activeSlideIndex, "textbox");
+    if (el) {
+      this.refreshStage();
+      this.refreshSidebarThumbnails();
+      this.stage.selectElement(el.id);
+      this.requestSave();
+      new Notice("Text box added (double-click to edit text)");
+    }
+  }
+
+  onAddShape(type: "roundRect" | "rect" | "ellipse"): void {
+    if (!this.pptxDoc) return;
+    const el = this.pptxDoc.addElement(this.activeSlideIndex, type);
+    if (el) {
+      this.refreshStage();
+      this.refreshSidebarThumbnails();
+      this.stage.selectElement(el.id);
+      this.requestSave();
+      new Notice(`Shape added (${type})`);
+    }
+  }
+
+  onDeleteElement(slideIndex?: number, elementId?: string): void {
+    if (!this.pptxDoc) return;
+    const sIdx = slideIndex ?? this.activeSlideIndex;
+    const elId = elementId ?? this.stage.getSelectedElementId();
+    if (elId) {
+      this.pptxDoc.deleteElement(sIdx, elId);
+      this.stage.selectElement(null);
+      this.refreshStage();
+      this.refreshSidebarThumbnails();
+      this.requestSave();
+      new Notice("Element deleted");
+    }
+  }
+
+  onElementSelected(slideIndex: number, elementId: string | null): void {
+    this.toolbar.setElementSelected(Boolean(elementId));
+  }
+
+  onElementTextChange(
+    slideIndex: number,
+    elementId: string,
+    newText: string
+  ): void {
+    if (!this.pptxDoc) return;
+    this.pptxDoc.updateElementText(slideIndex, elementId, newText);
+    this.refreshSidebarThumbnails();
+    this.requestSave();
+  }
+
+  onNotesChange(slideIndex: number, newNotes: string): void {
+    if (!this.pptxDoc) return;
+    this.pptxDoc.updateSpeakerNotes(slideIndex, newNotes);
+    this.requestSave();
+  }
+
+  // -------------------------------------------------------------
+  // REFRESH HELPERS
+  // -------------------------------------------------------------
+
+  private refreshAll(): void {
+    if (!this.pptxDoc) return;
+    const pres = this.pptxDoc.getPresentation();
+    if (this.sidebarEl) {
+      this.sidebar.render(this.sidebarEl, pres, this.activeSlideIndex, this);
+    }
+    if (this.stageEl) {
+      this.stage.render(
+        this.stageEl,
+        pres,
+        this.activeSlideIndex,
+        this.viewMode,
+        this
+      );
+    }
+    this.toolbar.updateSlideState(this.activeSlideIndex + 1, pres.slides.length);
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
+    this.updateNotesPanel();
+  }
+
+  private refreshStage(): void {
+    if (!this.pptxDoc) return;
+    this.stage.goToSlide(this.activeSlideIndex, true);
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
+  }
+
+  private refreshSidebarThumbnails(): void {
+    if (!this.pptxDoc || !this.sidebarEl) return;
+    this.sidebar.render(
+      this.sidebarEl,
+      this.pptxDoc.getPresentation(),
+      this.activeSlideIndex,
+      this
+    );
+  }
+
+  // -------------------------------------------------------------
   // SIDEBAR & STAGE DELEGATE EVENTS
   // -------------------------------------------------------------
 
@@ -317,21 +545,24 @@ export class PptxView
     this.activeSlideIndex = newIndex;
     this.sidebar.setActiveSlide(newIndex);
     this.toolbar.updateSlideState(newIndex + 1, this.pptxDoc?.getSlideCount() || 1);
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
     this.updateNotesPanel();
   }
 
   onSelectSlide(index: number): void {
-    // When clicking in grid mode, switch to single slide mode
     this.activeSlideIndex = index;
     this.onSetViewMode("single");
     this.goToSlide(index);
   }
 
   onExit(): void {
-    // Slideshow exited, sync current active slide
     this.stage.goToSlide(this.activeSlideIndex, true);
     this.sidebar.setActiveSlide(this.activeSlideIndex);
-    this.toolbar.updateSlideState(this.activeSlideIndex + 1, this.pptxDoc?.getSlideCount() || 1);
+    this.toolbar.updateSlideState(
+      this.activeSlideIndex + 1,
+      this.pptxDoc?.getSlideCount() || 1
+    );
+    this.toolbar.setElementSelected(Boolean(this.stage.getSelectedElementId()));
     this.updateNotesPanel();
   }
 }

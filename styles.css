@@ -4761,3 +4761,167 @@
   align-items: center;
   color: var(--text-muted);
 }
+
+/* --- PPTX CRUD, Selection & In-Place Editing --- */
+.office-pptx-element {
+  cursor: pointer;
+  transition: outline 0.1s ease, box-shadow 0.1s ease;
+}
+
+.office-pptx-element.is-selected {
+  outline: 2px solid var(--interactive-accent) !important;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb), 0.25);
+}
+
+.office-pptx-element.is-editing {
+  outline: 2px dashed var(--interactive-accent) !important;
+  outline-offset: 2px;
+  background-color: rgba(var(--interactive-accent-rgb), 0.05);
+}
+
+.office-pptx-element.is-editing .office-pptx-text-content {
+  cursor: text;
+  user-select: text;
+  outline: none;
+}
+
+/* Toolbar Buttons Variants */
+.office-pptx-toolbar-btn.mod-danger:hover:not(:disabled) {
+  background-color: var(--background-modifier-error-hover);
+  color: var(--text-error);
+}
+
+/* Save Status Pill */
+.office-pptx-save-status {
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  user-select: none;
+  cursor: pointer;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  transition: all 0.15s ease;
+}
+
+.office-pptx-save-status.is-saved {
+  color: var(--text-muted);
+}
+
+.office-pptx-save-status.is-unsaved {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(245, 158, 11, 0.08);
+}
+
+.office-pptx-save-status.is-saving {
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  background-color: rgba(var(--interactive-accent-rgb), 0.08);
+}
+
+.office-pptx-save-status.is-error {
+  color: var(--text-error);
+  border-color: var(--text-error);
+  background-color: var(--background-modifier-error);
+}
+
+.office-pptx-save-icon {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+/* Sidebar Header Controls */
+.office-pptx-sidebar-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.office-pptx-sidebar-add-btn {
+  width: 22px;
+  height: 22px;
+}
+
+/* Thumbnail Card Hover Action Buttons */
+.office-pptx-thumbnail-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 2px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.office-pptx-thumbnail-card:hover .office-pptx-thumbnail-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.office-pptx-thumb-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  transition: all 0.1s ease;
+}
+
+.office-pptx-thumb-btn:hover:not(:disabled) {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.office-pptx-thumb-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.office-pptx-thumb-btn.mod-danger:hover:not(:disabled) {
+  background-color: var(--background-modifier-error-hover);
+  color: var(--text-error);
+}
+
+/* Speaker Notes Editor Textarea */
+.office-pptx-notes-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 90px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.office-pptx-notes-editor:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+

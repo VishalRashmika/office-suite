@@ -3,6 +3,7 @@ import { PptxSlide } from "../../domain/pptx";
 
 export interface PptxNotesDelegate {
   onClose(): void;
+  onNotesChange?(slideIndex: number, newNotes: string): void;
 }
 
 export class PptxNotes {
@@ -10,6 +11,8 @@ export class PptxNotes {
   private delegate: PptxNotesDelegate | null = null;
   private contentEl: HTMLElement | null = null;
   private titleEl: HTMLElement | null = null;
+  private textareaEl: HTMLTextAreaElement | null = null;
+  private currentSlideIndex = 0;
 
   render(container: HTMLElement, delegate: PptxNotesDelegate): void {
     this.containerEl = container;
@@ -23,7 +26,10 @@ export class PptxNotes {
     const titleWrap = headerEl.createDiv({ cls: "office-pptx-notes-title-wrap" });
     const iconSpan = titleWrap.createSpan({ cls: "office-pptx-notes-icon" });
     setIcon(iconSpan, "file-text");
-    this.titleEl = titleWrap.createSpan({ cls: "office-pptx-notes-title", text: "Speaker Notes" });
+    this.titleEl = titleWrap.createSpan({
+      cls: "office-pptx-notes-title",
+      text: "Speaker Notes",
+    });
 
     const closeBtn = headerEl.createEl("button", {
       cls: "office-pptx-toolbar-btn office-pptx-notes-close",
@@ -32,29 +38,34 @@ export class PptxNotes {
     setIcon(closeBtn, "x");
     closeBtn.onclick = () => this.delegate?.onClose();
 
-    // Notes content body
+    // Notes content body with editable textarea
     this.contentEl = this.containerEl.createDiv({ cls: "office-pptx-notes-content" });
+    this.textareaEl = this.contentEl.createEl("textarea", {
+      cls: "office-pptx-notes-editor",
+      attr: { placeholder: "Add speaker notes for this slide here..." },
+    });
+
+    this.textareaEl.oninput = () => {
+      this.delegate?.onNotesChange?.(
+        this.currentSlideIndex,
+        this.textareaEl?.value || ""
+      );
+    };
   }
 
   updateSlide(slide: PptxSlide | undefined): void {
-    if (!this.titleEl || !this.contentEl) return;
+    if (!this.titleEl || !this.textareaEl) return;
 
     if (!slide) {
       this.titleEl.textContent = "Speaker Notes";
-      this.contentEl.innerHTML = `<div class="office-pptx-notes-empty">No slide selected</div>`;
+      this.textareaEl.value = "";
+      this.textareaEl.disabled = true;
       return;
     }
 
+    this.currentSlideIndex = slide.index;
     this.titleEl.textContent = `Speaker Notes — Slide ${slide.slideNumber}`;
-
-    if (slide.notes && slide.notes.trim()) {
-      this.contentEl.empty();
-      for (const line of slide.notes.trim().split("\n")) {
-        const p = this.contentEl.createEl("p", { text: line });
-        p.className = "office-pptx-notes-line";
-      }
-    } else {
-      this.contentEl.innerHTML = `<div class="office-pptx-notes-empty">No speaker notes recorded for this slide.</div>`;
-    }
+    this.textareaEl.disabled = false;
+    this.textareaEl.value = slide.notes || "";
   }
 }
