@@ -1,25 +1,8 @@
+# #1 when a pdf is opened cant select/highlight text
+all the other featurse are perfect but when i open the pdf i cant highlight, select or under line text. the pdf text lines are not rendered properly as selectable text fix this. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
 
-# #1 follow zotero pdf editor style
-i fell in love with the zotero pdf editor, the operations are minimalistic have a good color pallette and the reader color themes are also pretty good. so lets make our pdf editor option to adapt that kind of a style too. the sleek zotero style. zotero has basic operations like underline text, highlight text add a sticky note like thing. and add a text box with proper format and transform handling (can adjust the size).
-also one of the special features i like in zotero is if i click any highlighed, underlined sentence/word or field i get to add my annotation or note for that and the highlighed text / or underlined text is marked with a a small subtle bookmark like thing which i love the most. that feature is pretty handy. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs. 1:1 copy of zotero editor. ensure that the text highlighting featues and text selecting feature is smooth and does not work in blocks, cant highlight single words without highlighting a full text block.
+# #2 allow to zoom the pdf by trackpad with 2 fingers
+like we have in other softwares allow us to zoom into pdfs using 2 fingers. currently this is not supported. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
 
-# #2 use the zotero color pallette
-zotero has a good color pallette for text highlighting, underling and as text colors. use colors like that follow zotero properly. also a feature that i thought that lack in obsidian is allowing to tag colors (changes from pdf to pdf). for pdfs let us define our own color sceheme like thing manually. like green for new info. red for important points. yellow for processes. also like these allow us to keep color scheme templates/ profiles that we can quickly import and use rather than defining schemas for each pdf. there are some pdfs that we need to define color schemas manually but most of them can follow one template the user can create manually. in the plugin settings allow us to define these color schems. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #3 zotero left side panel
-zotero has a special left size panel when opened (it is collapsible) we see the highlighed text, underlined text, added annotations / notes all the annotations we did which is a handle feature. also in the same left side panel we can sort the annotations by color. so i am researched this feature is pretty handy. if i used for e.g. green for new info. red for things that are iporting this side panel with proper display of annotations and sorting options is pretty handy. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs. left side panel sould display the annotations like zotero, try to clone the left side panel that we have in zotero 1:1 copy. 
-
-# #4 cross platform support
-while we support all these fancy features we must ensure that the changes that we do to the pdf are saved to the pdf itself and other generic pdf reader can also render these changes / annotations and all the other changes we do to the pdf. so ensure the pdf is properly handled. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #5 handle text boxes properly
-when adding text boxes  handle them properly allow proper text box transform tools.and afer making the text allow us to click it and move acorss the pdf like we need. allow to edit a already made textbox. delete a textbox completely basically ensure that all the CRUD operations related to the textboxes are handles properly. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #6 pptx support
-lets allow this plugin to open pptx (power points inside obsidian itselt). allow people to open pptx documents inside obisidian. properly render the slides with proper slides number and if only possible with proper transitions. make the viewport proper usable user friendly and UX wise good one. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #7 basic editing of pptx documents
-within the opened pptx document allow users to do the basic CRUD operations on pptx documents like editing text and oter basic CRUD operations. removing slides. ensure that the CRUD operations and changes that the user do. they are supported when opened in powerpoint. so if a user opended a pptx in our obsidian plugin edit it and when he try to open it in powerpoint we must ensure that it wont fail and the plugin should properly provide cross compatibility. go thorugh this multiple times and check for bug. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #8 obsidian plugin deployment checks 
-prepare the full plugin to deploy on obsidian official plugins. the plugin checklist is fullstrict so ensure that our plugin will pass the checks on the obsidian plugins deployment. rename the plugin version to v1.0.0
+# #3 the pdf is not properly cetnered
+when we open a pdf there is an additional gap in the left side and the pdf is not properly centered fix this. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
