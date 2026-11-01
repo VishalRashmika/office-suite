@@ -77,7 +77,7 @@ export class PdfSidebar {
   private pdfAdapter: PdfDocumentAdapter | null = null;
   private pdfjsDoc: any = null;
   private fileName = "";
-  private isVisible = true;
+  private isVisible = false;
   private colorScheme?: PdfColorSchemeProfile;
 
   // Header UI elements
@@ -101,21 +101,32 @@ export class PdfSidebar {
     }
   }
 
+  getIsVisible(): boolean {
+    return this.isVisible;
+  }
+
   build(
     parentEl: HTMLElement,
     pdfAdapter: PdfDocumentAdapter,
     pdfjsDoc: any,
     fileName: string,
     delegate: PdfSidebarDelegate,
-    colorScheme?: PdfColorSchemeProfile
+    colorScheme?: PdfColorSchemeProfile,
+    initialVisible = false
   ): void {
     this.pdfAdapter = pdfAdapter;
     this.pdfjsDoc = pdfjsDoc;
     this.fileName = fileName;
     this.delegate = delegate;
     this.colorScheme = colorScheme;
+    this.isVisible = initialVisible;
 
-    this.containerEl = parentEl.createDiv({ cls: "pdf-sidebar-container" });
+    this.containerEl = parentEl.createDiv({
+      cls: `pdf-sidebar-container${initialVisible ? "" : " is-hidden"}`,
+    });
+    if (!initialVisible) {
+      this.containerEl.style.display = "none";
+    }
 
     // 1. Resizer drag handle
     const resizer = this.containerEl.createDiv({ cls: "pdf-sidebar-resizer" });
@@ -196,9 +207,11 @@ export class PdfSidebar {
     if (!this.containerEl) return false;
     this.isVisible = !this.isVisible;
     if (this.isVisible) {
+      this.containerEl.style.display = "";
       this.containerEl.removeClass("is-hidden");
     } else {
       this.containerEl.addClass("is-hidden");
+      this.containerEl.style.display = "none";
     }
     this.onVisibilityChange?.(this.isVisible);
     return this.isVisible;
@@ -206,13 +219,19 @@ export class PdfSidebar {
 
   show(): void {
     this.isVisible = true;
-    this.containerEl?.removeClass("is-hidden");
+    if (this.containerEl) {
+      this.containerEl.style.display = "";
+      this.containerEl.removeClass("is-hidden");
+    }
     this.onVisibilityChange?.(true);
   }
 
   hide(): void {
     this.isVisible = false;
-    this.containerEl?.addClass("is-hidden");
+    if (this.containerEl) {
+      this.containerEl.addClass("is-hidden");
+      this.containerEl.style.display = "none";
+    }
     this.onVisibilityChange?.(false);
   }
 

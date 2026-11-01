@@ -186,21 +186,22 @@ export class PdfView
 
     // Retractable Edge Tab for expanding/retracting sidebar when retracted
     this.retractTabEl = this.mainContainerEl.createDiv({
-      cls: "pdf-sidebar-retract-tab is-hidden",
+      cls: "pdf-sidebar-retract-tab",
       attr: { title: "Expand Annotations & Pages Panel" },
     });
     this.retractTabEl.createSpan({ text: "📑" });
     this.retractTabEl.createSpan({ cls: "pdf-sidebar-retract-label", text: "Annotations" });
     this.retractTabEl.onclick = () => this.onToggleSidebar();
 
-    // Sidebar
+    // Sidebar (collapsed by default so PDF opens cleanly centered)
     this.sidebar.build(
       this.mainContainerEl,
       this.pdfDoc,
       this.pdfjsDoc,
       file.name,
       this,
-      this.activeColorScheme
+      this.activeColorScheme,
+      false
     );
     this.sidebar.onVisibilityChange = (visible) => {
       this.toolbar.setSidebarActive(visible);
@@ -655,16 +656,24 @@ export class PdfView
     }
   }
 
+  onResize(): void {
+    super.onResize();
+    const currentZoom = this.toolbar.getZoomSelection();
+    if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+      void this.onZoomChanged(currentZoom);
+    }
+  }
+
   async onZoomChanged(scale: number | "fit-width" | "fit-page"): Promise<void> {
     let targetScale = this.zoomScale;
     if (typeof scale === "number") {
       targetScale = scale;
     } else if (scale === "fit-width" && this.pagesScrollEl) {
-      const containerWidth = this.pagesScrollEl.clientWidth - 60;
+      const containerWidth = this.pagesScrollEl.clientWidth - 48;
       const firstPageWidth = this.pdfDoc?.getPageInfo(0).width || 612;
       targetScale = Math.max(0.25, Math.min(5.0, containerWidth / firstPageWidth));
     } else if (scale === "fit-page" && this.pagesScrollEl) {
-      const containerHeight = this.pagesScrollEl.clientHeight - 60;
+      const containerHeight = this.pagesScrollEl.clientHeight - 48;
       const firstPageHeight = this.pdfDoc?.getPageInfo(0).height || 792;
       targetScale = Math.max(0.25, Math.min(5.0, containerHeight / firstPageHeight));
     }
@@ -940,6 +949,11 @@ export class PdfView
       this.retractTabEl?.addClass("is-hidden");
     } else {
       this.retractTabEl?.removeClass("is-hidden");
+    }
+
+    const currentZoom = this.toolbar.getZoomSelection();
+    if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+      void this.onZoomChanged(currentZoom);
     }
   }
 

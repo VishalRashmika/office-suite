@@ -84,7 +84,7 @@ export class PdfToolbar {
     this.sidebarBtnEl = this.createIconButton(groupSidebar, "panel-left", "Toggle Sidebar (Thumbnails & Annotations)", () => {
       this.delegate?.onToggleSidebar();
     });
-    this.setSidebarActive(true);
+    this.setSidebarActive(false);
 
     this.createSeparator();
 
@@ -311,6 +311,10 @@ export class PdfToolbar {
     this.currentPage = current;
     this.totalPages = total;
     this.updatePageIndicator();
+  }
+
+  getZoomSelection(): string | null {
+    return this.zoomSelectEl?.value || null;
   }
 
   setZoom(zoom: number): void {

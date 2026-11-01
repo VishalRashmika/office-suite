@@ -1252,12 +1252,19 @@
   transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
   z-index: 10;
   position: relative;
+  box-sizing: border-box;
 }
 
 .pdf-sidebar-container.is-hidden {
-  margin-left: -301px;
-  opacity: 0;
-  pointer-events: none;
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .pdf-sidebar-resizer {
@@ -2341,6 +2348,8 @@
   background: var(--background-primary-alt);
   touch-action: pan-x pan-y;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
 }
 
 .pdf-pages-container {
@@ -2349,9 +2358,14 @@
   align-items: center;
   gap: 24px;
   margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
   min-width: min-content;
+  max-width: 100%;
   transform-origin: 0 0;
   will-change: transform;
+  box-sizing: border-box;
 }
 
 .pdf-theme-light .pdf-pages-scroll-area {
@@ -2414,6 +2428,9 @@
   border-radius: 2px;
   user-select: text !important;
   -webkit-user-select: text !important;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .pdf-page-canvas {

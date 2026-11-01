@@ -2,6 +2,7 @@ import { runPptxTestSuite } from "./test-pptx-suite";
 import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
 import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
 import { runPdfTwoFingerZoomTestSuite } from "./test-pdf-two-finger-zoom";
+import { runPdfCenteringAndLayoutTestSuite } from "./test-pdf-centering-and-layout";
 
 async function main() {
   console.log("==================================================");
@@ -19,6 +20,9 @@ async function main() {
 
   // 4. Run PDF Two-Finger Zoom & Pinch Gestures Suite
   await runPdfTwoFingerZoomTestSuite();
+
+  // 5. Run PDF Centering & Layout Suite
+  await runPdfCenteringAndLayoutTestSuite();
 
   console.log("==================================================");
   console.log("⭐ ALL TEST SUITES PASSED! OFFICE SUITE READY! ⭐");

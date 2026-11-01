@@ -223,6 +223,21 @@ export default class OfficeSuitePlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "pdf-toggle-sidebar",
+      name: "PDF: Toggle annotations & thumbnails sidebar",
+      checkCallback: (checking: boolean) => {
+        const activeLeaf = this.app.workspace.getActiveViewOfType(PdfView);
+        if (activeLeaf) {
+          if (!checking) {
+            activeLeaf.onToggleSidebar();
+          }
+          return true;
+        }
+        return false;
+      },
+    });
+
     // Flush any pending debounced save when Obsidian is closing/reloading.
     this.registerEvent(
       this.app.workspace.on("quit", (tasks: Tasks) => {
