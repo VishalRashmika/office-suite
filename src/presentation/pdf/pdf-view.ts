@@ -52,6 +52,7 @@ export class PdfView
   private activeColorScheme: PdfColorSchemeProfile = ZOTERO_DEFAULT_PROFILE;
   private unregisterColorSchemeListener?: () => void;
 
+  private pdfjsLib: any = null;
   private pdfjsDoc: any = null;
   private toolbar = new PdfToolbar();
   private sidebar = new PdfSidebar();
@@ -130,6 +131,7 @@ export class PdfView
 
     try {
       const pdfjsLib = await this.getPdfJsLibrary();
+      this.pdfjsLib = pdfjsLib;
       this.pdfjsDoc = await pdfjsLib.getDocument({
         data: new Uint8Array(bytes.slice(0)),
         cMapUrl: "https://unpkg.com/pdfjs-dist@3.11.174/cmaps/",
@@ -286,7 +288,7 @@ export class PdfView
 
       try {
         const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
-        await pageView.render(pdfjsPage, this.zoomScale);
+        await pageView.render(pdfjsPage, this.zoomScale, this.pdfjsLib);
       } catch (err) {
         console.error(`Error rendering page ${i + 1}:`, err);
       }
@@ -357,6 +359,11 @@ export class PdfView
     const bar = document.createElement("div");
     bar.className = "pdf-selection-action-bar is-hidden";
 
+    // Prevent button clicks and touches from taking focus or canceling selection
+    bar.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+    });
+
     // Quick Color Swatches from active Scheme
     this.selectionColorsWrap = bar.createDiv({ cls: "pdf-selection-colors" });
     this.renderSelectionBarColors();
@@ -366,7 +373,11 @@ export class PdfView
     hlBtn.onclick = () => {
       if (this.selectedTextInfo) {
         const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-        pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+        pv?.createHighlightFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
       }
       this.hideSelectionBar();
     };
@@ -376,7 +387,11 @@ export class PdfView
     ulBtn.onclick = () => {
       if (this.selectedTextInfo) {
         const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-        pv?.createUnderlineFromSelection(this.selectedTextInfo.text, this.activeColor);
+        pv?.createUnderlineFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
       }
       this.hideSelectionBar();
     };
@@ -386,7 +401,11 @@ export class PdfView
     noteBtn.onclick = () => {
       if (this.selectedTextInfo) {
         const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-        pv?.addAnnotatedNoteFromSelection(this.selectedTextInfo.text, this.activeColor);
+        pv?.addAnnotatedNoteFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
       }
       this.hideSelectionBar();
     };
@@ -427,11 +446,20 @@ export class PdfView
     });
   }
 
-  private selectedTextInfo: { text: string; pageIndex: number } | null = null;
+  private selectedTextInfo: {
+    text: string;
+    pageIndex: number;
+    lines?: { left: number; top: number; right: number; bottom: number }[];
+  } | null = null;
 
-  onTextSelected(selectedText: string, screenRect: DOMRect, pageIndex: number): void {
+  onTextSelected(
+    selectedText: string,
+    screenRect: DOMRect,
+    pageIndex: number,
+    lines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void {
     if (!this.selectionBarEl) return;
-    this.selectedTextInfo = { text: selectedText, pageIndex };
+    this.selectedTextInfo = { text: selectedText, pageIndex, lines };
 
     const barW = 380;
     let left = screenRect.left + screenRect.width / 2 - barW / 2;
@@ -687,7 +715,11 @@ export class PdfView
         this.toolbar.setActiveTool(this.activeTool);
         if (this.selectedTextInfo) {
           const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-          pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+          pv?.createHighlightFromSelection(
+            this.selectedTextInfo.text,
+            this.activeColor,
+            this.selectedTextInfo.lines
+          );
           this.hideSelectionBar();
         }
       };
@@ -914,16 +946,28 @@ export class PdfView
   // ==================== Document Reloading after Page Operations ====================
 
   private async getPdfJsLibrary(): Promise<any> {
+    if (this.pdfjsLib) {
+      return this.pdfjsLib;
+    }
+    if ((window as any).pdfjsLib) {
+      this.pdfjsLib = (window as any).pdfjsLib;
+      return this.pdfjsLib;
+    }
     if (typeof loadPdfJs === "function") {
       try {
         const lib = await loadPdfJs();
-        if (lib) return lib;
+        if (lib) {
+          this.pdfjsLib = lib;
+          (window as any).pdfjsLib = lib;
+          return lib;
+        }
       } catch (e) {
         console.warn("loadPdfJs failed, falling back to window.pdfjsLib", e);
       }
     }
     if ((window as any).pdfjsLib) {
-      return (window as any).pdfjsLib;
+      this.pdfjsLib = (window as any).pdfjsLib;
+      return this.pdfjsLib;
     }
     throw new Error("PDF.js engine is not available in this Obsidian environment.");
   }

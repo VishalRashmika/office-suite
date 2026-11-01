@@ -29,7 +29,12 @@ export interface PdfPageViewDelegate {
   onUpdateAnnotation(annotation: PdfAnnotation): void;
   onDeleteAnnotation(id: string): void;
   onClickAnnotation(annotation: PdfAnnotation, element: HTMLElement | SVGElement): void;
-  onTextSelected?(selectedText: string, screenRect: DOMRect, pageIndex: number): void;
+  onTextSelected?(
+    selectedText: string,
+    screenRect: DOMRect,
+    pageIndex: number,
+    lines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void;
   getPageView?(pageIndex: number): PdfPageView | undefined;
 }
 
@@ -53,8 +58,10 @@ export class PdfPageView {
   private svgOverlayEl: SVGSVGElement;
   private htmlOverlayEl: HTMLElement;
   private onKeyDownListener: ((e: KeyboardEvent) => void) | null = null;
+  private onMouseUpListener: ((e: MouseEvent) => void) | null = null;
   private delegate: PdfPageViewDelegate | null = null;
 
+  private pdfjsLib: any = null;
   private pdfjsPage: any = null;
   private coordinateTransformer: PdfCoordinateTransformer | null = null;
   private scale = 1.0;
@@ -63,6 +70,7 @@ export class PdfPageView {
   private strokeWidth = 2;
   private isRendering = false;
   private annotations: PdfAnnotation[] = [];
+  private cachedSelectionLines: { left: number; top: number; right: number; bottom: number }[] = [];
   private colorScheme?: PdfColorSchemeProfile;
 
   // Selection & Drag State
@@ -89,7 +97,7 @@ export class PdfPageView {
     this.containerEl.dataset.pageIndex = `${pageIndex}`;
 
     this.canvasEl = this.containerEl.createEl("canvas", { cls: "pdf-page-canvas" });
-    this.textLayerEl = this.containerEl.createDiv({ cls: "pdf-text-layer" });
+    this.textLayerEl = this.containerEl.createDiv({ cls: "pdf-text-layer textLayer" });
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "pdf-annotation-overlay");
@@ -98,6 +106,7 @@ export class PdfPageView {
 
     this.htmlOverlayEl = this.containerEl.createDiv({ cls: "pdf-html-annotation-overlay" });
 
+    this.setTool("hand", this.currentColor, this.strokeWidth);
     this.setupPointerEvents();
     this.setupTextSelection();
     this.setupKeyboardShortcuts();
@@ -129,12 +138,14 @@ export class PdfPageView {
     // In draw and shape creation modes, SVG overlay captures all pointer events to draw
     if (tool === "draw" || tool === "square" || tool === "circle" || tool === "line") {
       this.svgOverlayEl.style.pointerEvents = "auto";
+      this.svgOverlayEl.classList.add("is-drawing");
       this.textLayerEl.style.pointerEvents = "none";
     } else {
-      // In hand, highlight, note, freetext, eraser:
+      // In hand, highlight, underline, note, freetext, eraser:
       // SVG root has pointer-events: none (so textLayer can be selected),
-      // while child annotation elements have pointer-events: auto (so they can be clicked and dragged)
+      // while child annotation elements handle their own pointer events
       this.svgOverlayEl.style.pointerEvents = "none";
+      this.svgOverlayEl.classList.remove("is-drawing");
       this.textLayerEl.style.pointerEvents = "auto";
     }
   }
@@ -156,11 +167,14 @@ export class PdfPageView {
   /**
    * Renders the page using PDF.js with High-DPI support.
    */
-  async render(pdfjsPage: any, scale: number): Promise<void> {
+  async render(pdfjsPage: any, scale: number, pdfjsLib?: any): Promise<void> {
     if (this.isRendering) return;
     this.isRendering = true;
     this.pdfjsPage = pdfjsPage;
     this.scale = scale;
+    if (pdfjsLib) {
+      this.pdfjsLib = pdfjsLib;
+    }
 
     try {
       const dpr = window.devicePixelRatio || 1;
@@ -200,7 +214,7 @@ export class PdfPageView {
       }
 
       // Render Text Layer for native selection
-      await this.renderTextLayer(pdfjsPage, cssViewport);
+      await this.renderTextLayer(pdfjsPage, cssViewport, this.pdfjsLib);
 
       // Render Annotations Overlay
       this.renderAnnotations();
@@ -211,65 +225,164 @@ export class PdfPageView {
     }
   }
 
-  private async renderTextLayer(pdfjsPage: any, viewport: any): Promise<void> {
+  private async renderTextLayer(pdfjsPage: any, viewport: any, pdfjsLibInstance?: any): Promise<void> {
     this.textLayerEl.empty();
-    const pdfjsLib = (window as any).pdfjsLib;
+    this.textLayerEl.className = "pdf-text-layer textLayer";
+    this.textLayerEl.style.setProperty("--scale-factor", `${viewport.scale}`);
+    this.textLayerEl.style.width = `${Math.floor(viewport.width)}px`;
+    this.textLayerEl.style.height = `${Math.floor(viewport.height)}px`;
+    this.textLayerEl.style.pointerEvents = "auto";
+
+    const pdfjsLib = pdfjsLibInstance || this.pdfjsLib || (window as any).pdfjsLib;
+
+    let renderedSuccessfully = false;
 
     try {
-      const textContent = await pdfjsPage.getTextContent();
+      const textContent = await pdfjsPage.getTextContent({
+        includeMarkedContent: true,
+        disableNormalization: false,
+      });
 
-      // Try official PDF.js text layer if available
-      if (pdfjsLib?.renderTextLayer) {
+      // 1. Try official PDF.js renderTextLayer if available
+      if (pdfjsLib && typeof pdfjsLib.renderTextLayer === "function") {
         try {
-          await pdfjsLib.renderTextLayer({
-            textContent,
+          const task = pdfjsLib.renderTextLayer({
+            textContentSource: textContent,
+            textContent: textContent,
             container: this.textLayerEl,
-            viewport,
+            viewport: viewport,
             textDivs: [],
-          }).promise;
-          return;
+          });
+          await task.promise;
+          renderedSuccessfully = true;
         } catch (e) {
-          // fall through to precise manual renderer
+          console.warn("Official renderTextLayer failed, falling back to precise manual renderer:", e);
+          this.textLayerEl.empty();
         }
-      } else if (pdfjsLib?.TextLayer) {
+      } else if (pdfjsLib && typeof pdfjsLib.TextLayer === "function") {
         try {
           const tl = new pdfjsLib.TextLayer({
             textContentSource: textContent,
             container: this.textLayerEl,
-            viewport,
+            viewport: viewport,
           });
           await tl.render();
-          return;
+          renderedSuccessfully = true;
         } catch (e) {
-          // fall through to precise manual renderer
+          console.warn("TextLayer class rendering failed, falling back to precise manual renderer:", e);
+          this.textLayerEl.empty();
         }
       }
 
-      // Precise manual renderer with subpixel glyph matching
-      for (const item of textContent.items) {
-        if (!("str" in item) || !item.str) continue;
-
-        const tx = pdfjsLib?.Util?.transform?.(viewport.transform, item.transform) || item.transform;
-        const fontHeight = Math.hypot(tx[2], tx[3]) || (item.height * this.scale) || 12;
-        const fontWidth = item.width * this.scale;
-
-        const span = this.textLayerEl.createSpan({ text: item.str });
-        span.style.left = `${tx[4]}px`;
-        span.style.top = `${tx[5] - fontHeight}px`;
-        span.style.fontSize = `${fontHeight}px`;
-        span.style.fontFamily = item.fontName ? `"${item.fontName}", sans-serif` : "sans-serif";
-
-        const naturalWidth = span.getBoundingClientRect().width;
-        if (naturalWidth > 0 && fontWidth > 0) {
-          const scaleX = fontWidth / naturalWidth;
-          span.style.transform = `scaleX(${scaleX})`;
-          span.style.transformOrigin = `0% 0%`;
-          span.style.width = `${naturalWidth}px`;
-        }
+      // 2. High-precision fallback renderer matching PDF.js subpixel glyph layout
+      if (!renderedSuccessfully) {
+        this.renderManualTextLayer(textContent, viewport);
       }
     } catch (err) {
-      // TextContent extraction fallback
+      console.error(`Failed to render text layer for page ${this.pageNumber}:`, err);
     }
+  }
+
+  private renderManualTextLayer(textContent: any, viewport: any): void {
+    if (!textContent || !textContent.items) return;
+
+    // Helper for affine 2D transform multiplication: m1 * m2
+    const multiplyTransform = (m1: number[], m2: number[]): number[] => {
+      return [
+        m1[0] * m2[0] + m1[2] * m2[1],
+        m1[1] * m2[0] + m1[3] * m2[1],
+        m1[0] * m2[2] + m1[2] * m2[3],
+        m1[1] * m2[2] + m1[3] * m2[3],
+        m1[0] * m2[4] + m1[2] * m2[5] + m1[4],
+        m1[1] * m2[4] + m1[3] * m2[5] + m1[5],
+      ];
+    };
+
+    // Shared measuring canvas for font metrics
+    let measureCanvas: HTMLCanvasElement | null = null;
+    let measureCtx: CanvasRenderingContext2D | null = null;
+    try {
+      measureCanvas = document.createElement("canvas");
+      measureCtx = measureCanvas.getContext("2d");
+    } catch (_) {
+      // Offscreen canvas fallback
+    }
+
+    const styles = textContent.styles || {};
+
+    for (const item of textContent.items) {
+      if (!("str" in item) || item.str === undefined) continue;
+
+      const str = item.str;
+      const tx = multiplyTransform(viewport.transform, item.transform);
+      const style = styles[item.fontName];
+      const fontFamily = style?.fontFamily || (item.fontName ? `"${item.fontName}", sans-serif` : "sans-serif");
+
+      let angle = Math.atan2(tx[1], tx[0]);
+      if (style?.vertical) {
+        angle += Math.PI / 2;
+      }
+
+      const fontHeight = Math.hypot(tx[2], tx[3]) || Math.hypot(tx[0], tx[1]) || (item.height * viewport.scale) || 12;
+      const ascentRatio = style && typeof style.ascent === "number" && style.ascent > 0 ? style.ascent : 0.8;
+      const fontAscent = fontHeight * ascentRatio;
+
+      let left: number;
+      let top: number;
+      if (Math.abs(angle) < 1e-4) {
+        left = tx[4];
+        top = tx[5] - fontAscent;
+      } else {
+        left = tx[4] + fontAscent * Math.sin(angle);
+        top = tx[5] - fontAscent * Math.cos(angle);
+      }
+
+      const span = document.createElement("span");
+      span.textContent = str;
+      span.setAttribute("role", "presentation");
+      if (item.dir) span.setAttribute("dir", item.dir);
+
+      const s = span.style;
+      s.position = "absolute";
+      s.left = `${left.toFixed(2)}px`;
+      s.top = `${top.toFixed(2)}px`;
+      s.fontSize = `${fontHeight.toFixed(2)}px`;
+      s.fontFamily = fontFamily;
+      s.transformOrigin = "0% 0%";
+      s.whiteSpace = "pre";
+      s.cursor = "text";
+      s.userSelect = "text";
+      (s as any).webkitUserSelect = "text";
+
+      // Scale X to precisely match rendered font width on canvas
+      const targetWidth = item.width * viewport.scale;
+      if (measureCtx && targetWidth > 0 && str.trim().length > 0) {
+        measureCtx.font = `${fontHeight}px ${fontFamily}`;
+        const measuredWidth = measureCtx.measureText(str).width;
+        if (measuredWidth > 0) {
+          const scaleX = targetWidth / measuredWidth;
+          if (Math.abs(angle) > 1e-4) {
+            s.transform = `rotate(${angle}rad) scaleX(${scaleX.toFixed(4)})`;
+          } else if (Math.abs(scaleX - 1) > 0.01) {
+            s.transform = `scaleX(${scaleX.toFixed(4)})`;
+          }
+        }
+      } else if (Math.abs(angle) > 1e-4) {
+        s.transform = `rotate(${angle}rad)`;
+      }
+
+      this.textLayerEl.appendChild(span);
+
+      if (item.hasEOL) {
+        const br = document.createElement("br");
+        br.setAttribute("role", "presentation");
+        this.textLayerEl.appendChild(br);
+      }
+    }
+
+    const endOfContent = document.createElement("div");
+    endOfContent.className = "endOfContent";
+    this.textLayerEl.appendChild(endOfContent);
   }
 
   // ==================== Annotation Overlay Rendering ====================
@@ -1696,34 +1809,50 @@ export class PdfPageView {
   // ==================== Text Selection Support ====================
 
   private setupTextSelection(): void {
-    const handleMouseUp = () => {
+    const handleMouseUp = (_e: MouseEvent) => {
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+
+      const range = sel.getRangeAt(0);
+
+      // Verify selection intersects this page container or text layer
+      const intersectsThisPage =
+        this.containerEl.contains(range.commonAncestorContainer) ||
+        this.textLayerEl.contains(range.startContainer) ||
+        this.textLayerEl.contains(range.endContainer);
+
+      if (!intersectsThisPage) {
+        return;
+      }
 
       const text = sel.toString().trim();
       if (!text) return;
 
+      const lines = this.getMergedLineRectsFromSelection();
+      if (lines.length === 0) return;
+      this.cachedSelectionLines = lines;
+
       // In Highlight tool mode: instantly create highlight!
       if (this.currentTool === "highlight") {
-        this.createHighlightFromSelection(text, this.currentColor);
+        this.createHighlightFromSelection(text, this.currentColor, lines);
         return;
       }
 
       // In Underline tool mode: instantly create underline!
       if (this.currentTool === "underline") {
-        this.createUnderlineFromSelection(text, this.currentColor);
+        this.createUnderlineFromSelection(text, this.currentColor, lines);
         return;
       }
 
       // In Hand tool mode: open sleek Zotero selection bar!
       if (this.currentTool === "hand") {
-        const range = sel.getRangeAt(0);
         const rect = range.getBoundingClientRect();
-        this.delegate?.onTextSelected?.(text, rect, this.pageIndex);
+        this.delegate?.onTextSelected?.(text, rect, this.pageIndex, lines);
       }
     };
 
-    this.textLayerEl.addEventListener("mouseup", handleMouseUp);
+    this.onMouseUpListener = handleMouseUp;
+    window.addEventListener("mouseup", handleMouseUp);
   }
 
   private setupKeyboardShortcuts(): void {
@@ -1798,14 +1927,20 @@ export class PdfPageView {
 
     const pageRect = this.containerEl.getBoundingClientRect();
 
-    // 1. Convert to page-relative coordinates & filter out zero-width/height rects
+    // 1. Convert to page-relative coordinates & filter out zero-width/height rects and rects from other pages
     const localRects = rawRects
-      .filter((r) => r.width > 0.5 && r.height > 0.5)
+      .filter((r) => {
+        if (r.width <= 0.5 || r.height <= 0.5) return false;
+        // Verify intersection with this page container
+        const vOverlap = Math.min(r.bottom, pageRect.bottom) - Math.max(r.top, pageRect.top);
+        const hOverlap = Math.min(r.right, pageRect.right) - Math.max(r.left, pageRect.left);
+        return vOverlap > 0.5 && hOverlap > 0.5;
+      })
       .map((r) => ({
-        left: r.left - pageRect.left,
-        top: r.top - pageRect.top,
-        right: r.right - pageRect.left,
-        bottom: r.bottom - pageRect.top,
+        left: Math.max(0, Math.min(pageRect.width, r.left - pageRect.left)),
+        top: Math.max(0, Math.min(pageRect.height, r.top - pageRect.top)),
+        right: Math.max(0, Math.min(pageRect.width, r.right - pageRect.left)),
+        bottom: Math.max(0, Math.min(pageRect.height, r.bottom - pageRect.top)),
         height: r.height,
       }));
 
@@ -1836,10 +1971,20 @@ export class PdfPageView {
     return lines;
   }
 
-  createHighlightFromSelection(selectedText: string, color: PdfRgbColor): void {
+  createHighlightFromSelection(
+    selectedText: string,
+    color: PdfRgbColor,
+    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void {
     if (!this.coordinateTransformer) return;
-    const lines = this.getMergedLineRectsFromSelection();
+    const lines =
+      explicitLines && explicitLines.length > 0
+        ? explicitLines
+        : this.cachedSelectionLines.length > 0
+        ? this.cachedSelectionLines
+        : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
+    this.cachedSelectionLines = [];
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1881,10 +2026,20 @@ export class PdfPageView {
     this.delegate?.onAddAnnotation(annot);
   }
 
-  createUnderlineFromSelection(selectedText: string, color: PdfRgbColor): void {
+  createUnderlineFromSelection(
+    selectedText: string,
+    color: PdfRgbColor,
+    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void {
     if (!this.coordinateTransformer) return;
-    const lines = this.getMergedLineRectsFromSelection();
+    const lines =
+      explicitLines && explicitLines.length > 0
+        ? explicitLines
+        : this.cachedSelectionLines.length > 0
+        ? this.cachedSelectionLines
+        : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
+    this.cachedSelectionLines = [];
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -1930,10 +2085,20 @@ export class PdfPageView {
    * Creates a text-attached annotated note directly on the selected sentence or phrase.
    * Immediately opens the note popover so the user can type their note!
    */
-  addAnnotatedNoteFromSelection(selectedText: string, color: PdfRgbColor): void {
+  addAnnotatedNoteFromSelection(
+    selectedText: string,
+    color: PdfRgbColor,
+    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void {
     if (!this.coordinateTransformer) return;
-    const lines = this.getMergedLineRectsFromSelection();
+    const lines =
+      explicitLines && explicitLines.length > 0
+        ? explicitLines
+        : this.cachedSelectionLines.length > 0
+        ? this.cachedSelectionLines
+        : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
+    this.cachedSelectionLines = [];
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2012,6 +2177,10 @@ export class PdfPageView {
   }
 
   dispose(): void {
+    if (this.onMouseUpListener) {
+      window.removeEventListener("mouseup", this.onMouseUpListener);
+      this.onMouseUpListener = null;
+    }
     this.containerEl.removeEventListener("pointerdown", this.onPointerDown);
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointerup", this.onPointerUp);
@@ -2022,5 +2191,6 @@ export class PdfPageView {
     this.containerEl.remove();
     this.delegate = null;
     this.pdfjsPage = null;
+    this.pdfjsLib = null;
   }
 }

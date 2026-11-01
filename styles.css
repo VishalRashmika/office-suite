@@ -2364,8 +2364,12 @@
   filter: sepia(0.35) contrast(0.96) brightness(0.98);
 }
 
-.pdf-theme-sepia .pdf-text-layer ::selection {
-  background: rgba(180, 130, 60, 0.32);
+.pdf-theme-sepia .pdf-text-layer ::selection,
+.pdf-theme-sepia .textLayer ::selection,
+.pdf-theme-sepia .pdf-text-layer ::-moz-selection,
+.pdf-theme-sepia .textLayer ::-moz-selection {
+  background: rgba(180, 130, 60, 0.38) !important;
+  color: transparent !important;
 }
 
 /* Dark Theme */
@@ -2382,8 +2386,12 @@
   filter: invert(0.88) hue-rotate(180deg) contrast(0.95);
 }
 
-.pdf-theme-dark .pdf-text-layer ::selection {
-  background: rgba(46, 168, 229, 0.45);
+.pdf-theme-dark .pdf-text-layer ::selection,
+.pdf-theme-dark .textLayer ::selection,
+.pdf-theme-dark .pdf-text-layer ::-moz-selection,
+.pdf-theme-dark .textLayer ::-moz-selection {
+  background: rgba(46, 168, 229, 0.5) !important;
+  color: transparent !important;
 }
 
 .pdf-page-view {
@@ -2391,7 +2399,8 @@
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
-  user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }
 
 .pdf-page-canvas {
@@ -2400,7 +2409,8 @@
   height: 100%;
 }
 
-.pdf-text-layer {
+.pdf-text-layer,
+.textLayer {
   position: absolute;
   top: 0;
   left: 0;
@@ -2410,19 +2420,65 @@
   line-height: 1;
   opacity: 1;
   z-index: 2;
-  user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: auto;
+  box-sizing: border-box;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
 }
 
-.pdf-text-layer span {
+.pdf-text-layer :is(span, br),
+.textLayer :is(span, br),
+.pdf-text-layer span,
+.textLayer span {
   position: absolute;
-  color: transparent;
-  cursor: text;
+  color: transparent !important;
+  cursor: text !important;
   transform-origin: 0% 0%;
   white-space: pre;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  box-sizing: border-box;
 }
 
-.pdf-text-layer ::selection {
-  background: rgba(30, 64, 175, 0.28);
+.pdf-text-layer span.markedContent,
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.pdf-text-layer .endOfContent,
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: -1;
+  cursor: default;
+  user-select: none;
+  pointer-events: none;
+}
+
+.pdf-text-layer ::selection,
+.textLayer ::selection {
+  background: rgba(30, 64, 175, 0.35) !important;
+  color: transparent !important;
+}
+
+.pdf-text-layer ::-moz-selection,
+.textLayer ::-moz-selection {
+  background: rgba(30, 64, 175, 0.35) !important;
+  color: transparent !important;
+}
+
+.pdf-text-layer br::selection,
+.textLayer br::selection,
+.pdf-text-layer br::-moz-selection,
+.textLayer br::-moz-selection {
+  background: transparent !important;
 }
 
 /* Annotation SVG Overlay */
@@ -2434,6 +2490,34 @@
   height: 100%;
   z-index: 3;
   overflow: visible;
+  pointer-events: none !important;
+}
+
+.pdf-annotation-overlay.is-drawing {
+  pointer-events: auto !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"],
+.pdf-page-view[data-active-tool="underline"] {
+  cursor: text;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="highlight"] .textLayer,
+.pdf-page-view[data-active-tool="highlight"] .textLayer span,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="underline"] .textLayer,
+.pdf-page-view[data-active-tool="underline"] .textLayer span {
+  cursor: text !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-highlight-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-underline-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-highlight-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-underline-group {
+  pointer-events: none !important;
 }
 
 .pdf-annot-pin-group {

@@ -1,5 +1,6 @@
 import { runPptxTestSuite } from "./test-pptx-suite";
 import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
+import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
 
 async function main() {
   console.log("==================================================");
@@ -11,6 +12,9 @@ async function main() {
 
   // 2. Run PDF Suite
   await runPdfTestSuite();
+
+  // 3. Run PDF Text Layer & Selection Suite
+  await runPdfTextSelectionTestSuite();
 
   console.log("==================================================");
   console.log("⭐ ALL TEST SUITES PASSED! OFFICE SUITE READY! ⭐");
