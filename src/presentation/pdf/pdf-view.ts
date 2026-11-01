@@ -62,6 +62,7 @@ export class PdfView
   private toolbarEl: HTMLElement | null = null;
   private mainContainerEl: HTMLElement | null = null;
   private pagesScrollEl: HTMLElement | null = null;
+  private pagesContainerEl: HTMLElement | null = null;
   private selectionBarEl: HTMLElement | null = null;
   private selectionColorsWrap: HTMLElement | null = null;
 
@@ -79,6 +80,29 @@ export class PdfView
   private hasPendingSave = false;
   private isInternalSaving = false;
   private lastInternalSaveTime = 0;
+
+  // Zoom & Pinch Gestures State
+  private isGesturePinching = false;
+  private currentRenderId = 0;
+
+  // Trackpad & Wheel zoom state
+  private isWheelZooming = false;
+  private wheelZoomDebounceTimer: number | null = null;
+  private startWheelZoomScale = 1.0;
+  private cumulativeWheelScale = 1.0;
+  private wheelFocalX = 0;
+  private wheelFocalY = 0;
+
+  // Touchscreen 2-finger pinch state
+  private isTouchPinching = false;
+  private touchStartDist = 0;
+  private touchStartScale = 1.0;
+  private touchStartMidX = 0;
+  private touchStartMidY = 0;
+  private touchCurrentMidX = 0;
+  private touchCurrentMidY = 0;
+  private touchCurrentRatio = 1.0;
+  private touchCooldownTimer: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
@@ -209,6 +233,20 @@ export class PdfView
     this.pagesScrollEl.addEventListener("scroll", this.onScroll);
     this.notePopover.setScrollContainer(this.pagesScrollEl);
 
+    // Inner Pages Container for hardware-accelerated transforms and flex alignment
+    this.pagesContainerEl = this.pagesScrollEl.createDiv({ cls: "pdf-pages-container" });
+
+    // 2-Finger Zoom Gestures (Trackpad Pinch, Ctrl/Cmd + Wheel, Touchscreen Pinch, WebKit Gestures)
+    this.pagesScrollEl.addEventListener("wheel", this.onWheel, { passive: false });
+    this.pagesScrollEl.addEventListener("touchstart", this.onTouchStart, { passive: false });
+    window.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    window.addEventListener("touchend", this.onTouchEnd);
+    window.addEventListener("touchcancel", this.onTouchCancel);
+
+    this.pagesScrollEl.addEventListener("gesturestart", this.onGestureStart as any, { passive: false });
+    this.pagesScrollEl.addEventListener("gesturechange", this.onGestureChange as any, { passive: false });
+    this.pagesScrollEl.addEventListener("gestureend", this.onGestureEnd as any, { passive: false });
+
     // Contextual Text Selection Action Bar
     this.buildTextSelectionBar();
 
@@ -252,7 +290,19 @@ export class PdfView
     window.removeEventListener("blur", this.onWindowBlur);
     this.contentEl.removeEventListener("keydown", this.onKeyDown);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.wheelZoomDebounceTimer) window.clearTimeout(this.wheelZoomDebounceTimer);
+    if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
     if (this.pdfDoc?.dirty) await this.saveNow();
+
+    this.pagesScrollEl?.removeEventListener("wheel", this.onWheel);
+    this.pagesScrollEl?.removeEventListener("touchstart", this.onTouchStart);
+    window.removeEventListener("touchmove", this.onTouchMove);
+    window.removeEventListener("touchend", this.onTouchEnd);
+    window.removeEventListener("touchcancel", this.onTouchCancel);
+
+    this.pagesScrollEl?.removeEventListener("gesturestart", this.onGestureStart as any);
+    this.pagesScrollEl?.removeEventListener("gesturechange", this.onGestureChange as any);
+    this.pagesScrollEl?.removeEventListener("gestureend", this.onGestureEnd as any);
 
     this.notePopover.hide();
     this.toolbar.dispose();
@@ -267,19 +317,43 @@ export class PdfView
       this.pdfjsDoc = null;
     }
     this.pdfDoc = null;
+    this.pagesContainerEl = null;
   }
 
   // ==================== Page Rendering & Layout ====================
 
-  private async renderAllPages(): Promise<void> {
-    if (!this.pagesScrollEl || !this.pdfDoc || !this.pdfjsDoc) return;
-    this.pagesScrollEl.empty();
-    this.pageViews.clear();
-
+  private async renderAllPages(preserveViews = false): Promise<void> {
+    if (!this.pagesScrollEl || !this.pagesContainerEl || !this.pdfDoc || !this.pdfjsDoc) return;
+    const renderId = ++this.currentRenderId;
     const pageCount = this.pdfDoc.getPageCount();
 
+    if (preserveViews && this.pageViews.size === pageCount) {
+      for (let i = 0; i < pageCount; i++) {
+        if (this.currentRenderId !== renderId) return;
+        const pageView = this.pageViews.get(i);
+        if (pageView) {
+          try {
+            const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
+            if (this.currentRenderId !== renderId) return;
+            await pageView.render(pdfjsPage, this.zoomScale, this.pdfjsLib);
+          } catch (err) {
+            console.error(`Error re-rendering page ${i + 1}:`, err);
+          }
+        }
+      }
+      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+      return;
+    }
+
+    this.pagesContainerEl.empty();
+    for (const pv of this.pageViews.values()) {
+      pv.dispose();
+    }
+    this.pageViews.clear();
+
     for (let i = 0; i < pageCount; i++) {
-      const pageView = new PdfPageView(i, this.pagesScrollEl);
+      if (this.currentRenderId !== renderId) return;
+      const pageView = new PdfPageView(i, this.pagesContainerEl);
       pageView.setDelegate(this);
       pageView.setColorScheme(this.activeColorScheme);
       pageView.setTool(this.activeTool, this.activeColor, this.strokeWidth);
@@ -288,6 +362,7 @@ export class PdfView
 
       try {
         const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
+        if (this.currentRenderId !== renderId) return;
         await pageView.render(pdfjsPage, this.zoomScale, this.pdfjsLib);
       } catch (err) {
         console.error(`Error rendering page ${i + 1}:`, err);
@@ -502,22 +577,316 @@ export class PdfView
     }
   }
 
+  isPinching(): boolean {
+    return this.isGesturePinching;
+  }
+
+  cancelActiveInteractions(): void {
+    for (const pv of this.pageViews.values()) {
+      pv.cancelActiveInteractions();
+    }
+  }
+
+  public async applyZoomWithFocalPoint(
+    newScale: number,
+    focalScreenX: number,
+    focalScreenY: number
+  ): Promise<void> {
+    if (!this.pagesScrollEl || !this.pdfDoc) return;
+
+    const clampedScale = Math.max(0.25, Math.min(5.0, Math.round(newScale * 100) / 100));
+    const oldScale = this.zoomScale;
+
+    const scrollEl = this.pagesScrollEl;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const focalX = focalScreenX - scrollRect.left;
+    const focalY = focalScreenY - scrollRect.top;
+
+    let anchorPage: PdfPageView | null = null;
+    let normPageX = 0;
+    let normPageY = 0;
+
+    for (const pv of this.pageViews.values()) {
+      const rect = pv.element.getBoundingClientRect();
+      if (
+        focalScreenX >= rect.left &&
+        focalScreenX <= rect.right &&
+        focalScreenY >= rect.top &&
+        focalScreenY <= rect.bottom
+      ) {
+        anchorPage = pv;
+        normPageX = (focalScreenX - rect.left) / oldScale;
+        normPageY = (focalScreenY - rect.top) / oldScale;
+        break;
+      }
+    }
+
+    if (!anchorPage) {
+      const targetIndex = Math.max(0, Math.min(this.currentPage - 1, this.pageViews.size - 1));
+      anchorPage = this.pageViews.get(targetIndex) || this.pageViews.get(0) || null;
+      if (anchorPage) {
+        const rect = anchorPage.element.getBoundingClientRect();
+        const clampedX = Math.max(rect.left, Math.min(rect.right, focalScreenX));
+        const clampedY = Math.max(rect.top, Math.min(rect.bottom, focalScreenY));
+        normPageX = (clampedX - rect.left) / oldScale;
+        normPageY = (clampedY - rect.top) / oldScale;
+      }
+    }
+
+    this.zoomScale = clampedScale;
+    this.toolbar.setZoom(this.zoomScale);
+
+    await this.renderAllPages(true);
+
+    if (anchorPage && anchorPage.element.isConnected) {
+      let pageLeft = anchorPage.element.offsetLeft;
+      let pageTop = anchorPage.element.offsetTop;
+
+      if (this.pagesContainerEl && anchorPage.element.offsetParent === this.pagesContainerEl) {
+        pageLeft += this.pagesContainerEl.offsetLeft;
+        pageTop += this.pagesContainerEl.offsetTop;
+      }
+
+      const targetScrollX = pageLeft + normPageX * clampedScale - focalX;
+      const targetScrollY = pageTop + normPageY * clampedScale - focalY;
+
+      scrollEl.scrollLeft = Math.max(0, targetScrollX);
+      scrollEl.scrollTop = Math.max(0, targetScrollY);
+    }
+  }
+
   async onZoomChanged(scale: number | "fit-width" | "fit-page"): Promise<void> {
+    let targetScale = this.zoomScale;
     if (typeof scale === "number") {
-      this.zoomScale = scale;
+      targetScale = scale;
     } else if (scale === "fit-width" && this.pagesScrollEl) {
       const containerWidth = this.pagesScrollEl.clientWidth - 60;
       const firstPageWidth = this.pdfDoc?.getPageInfo(0).width || 612;
-      this.zoomScale = Math.max(0.4, Math.min(2.5, containerWidth / firstPageWidth));
+      targetScale = Math.max(0.25, Math.min(5.0, containerWidth / firstPageWidth));
     } else if (scale === "fit-page" && this.pagesScrollEl) {
       const containerHeight = this.pagesScrollEl.clientHeight - 60;
       const firstPageHeight = this.pdfDoc?.getPageInfo(0).height || 792;
-      this.zoomScale = Math.max(0.4, Math.min(2.5, containerHeight / firstPageHeight));
+      targetScale = Math.max(0.25, Math.min(5.0, containerHeight / firstPageHeight));
     }
 
-    this.toolbar.setZoom(this.zoomScale);
-    await this.renderAllPages();
+    if (this.pagesScrollEl) {
+      const rect = this.pagesScrollEl.getBoundingClientRect();
+      const focalX = rect.left + this.pagesScrollEl.clientWidth / 2;
+      const focalY = rect.top + this.pagesScrollEl.clientHeight / 2;
+      await this.applyZoomWithFocalPoint(targetScale, focalX, focalY);
+    } else {
+      this.zoomScale = targetScale;
+      this.toolbar.setZoom(this.zoomScale);
+      await this.renderAllPages(true);
+    }
   }
+
+  // ==================== 2-Finger Zoom & Pinch Handlers ====================
+
+  private onWheel = (e: WheelEvent): void => {
+    if (!e.ctrlKey && !e.metaKey) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    this.hideSelectionBar();
+    this.notePopover.hide();
+
+    let delta = e.deltaY;
+    if (e.deltaMode === 1) {
+      delta *= 16;
+    } else if (e.deltaMode === 2) {
+      delta *= 100;
+    }
+
+    const clampedDelta = Math.max(-100, Math.min(100, delta));
+    const zoomFactor = Math.exp(-clampedDelta * 0.003);
+
+    this.handleWheelZoom(zoomFactor, e.clientX, e.clientY);
+  };
+
+  private handleWheelZoom(zoomFactor: number, focalX: number, focalY: number): void {
+    if (!this.pagesContainerEl || !this.pagesScrollEl) return;
+
+    if (!this.isWheelZooming) {
+      this.isWheelZooming = true;
+      this.isGesturePinching = true;
+      this.cancelActiveInteractions();
+      this.hideSelectionBar();
+      this.notePopover.hide();
+
+      this.startWheelZoomScale = this.zoomScale;
+      this.cumulativeWheelScale = 1.0;
+      this.wheelFocalX = focalX;
+      this.wheelFocalY = focalY;
+
+      const rect = this.pagesContainerEl.getBoundingClientRect();
+      const originX = focalX - rect.left;
+      const originY = focalY - rect.top;
+      this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+    }
+
+    this.cumulativeWheelScale *= zoomFactor;
+    const tentativeScale = Math.max(
+      0.25,
+      Math.min(5.0, this.startWheelZoomScale * this.cumulativeWheelScale)
+    );
+    const effectiveRatio = tentativeScale / this.startWheelZoomScale;
+
+    this.pagesContainerEl.style.transform = `scale(${effectiveRatio})`;
+
+    if (this.wheelZoomDebounceTimer) {
+      window.clearTimeout(this.wheelZoomDebounceTimer);
+    }
+
+    this.wheelZoomDebounceTimer = window.setTimeout(async () => {
+      this.isWheelZooming = false;
+      this.isGesturePinching = false;
+
+      if (this.pagesContainerEl) {
+        this.pagesContainerEl.style.transform = "none";
+        this.pagesContainerEl.style.transformOrigin = "";
+      }
+
+      const finalScale = Math.round(this.startWheelZoomScale * this.cumulativeWheelScale * 100) / 100;
+      await this.applyZoomWithFocalPoint(finalScale, this.wheelFocalX, this.wheelFocalY);
+    }, 130);
+  }
+
+  private onTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length === 2) {
+      this.isTouchPinching = true;
+      this.isGesturePinching = true;
+      if (this.touchCooldownTimer) {
+        window.clearTimeout(this.touchCooldownTimer);
+        this.touchCooldownTimer = null;
+      }
+
+      this.cancelActiveInteractions();
+      this.hideSelectionBar();
+      this.notePopover.hide();
+
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      this.touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      this.touchStartMidX = (t1.clientX + t2.clientX) / 2;
+      this.touchStartMidY = (t1.clientY + t2.clientY) / 2;
+      this.touchCurrentMidX = this.touchStartMidX;
+      this.touchCurrentMidY = this.touchStartMidY;
+      this.touchStartScale = this.zoomScale;
+      this.touchCurrentRatio = 1.0;
+
+      if (this.pagesContainerEl) {
+        const rect = this.pagesContainerEl.getBoundingClientRect();
+        const originX = this.touchStartMidX - rect.left;
+        const originY = this.touchStartMidY - rect.top;
+        this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+      }
+    } else if (e.touches.length > 2) {
+      this.isGesturePinching = true;
+      this.cancelActiveInteractions();
+    }
+  };
+
+  private onTouchMove = (e: TouchEvent): void => {
+    if (!this.isTouchPinching || e.touches.length !== 2) return;
+
+    e.preventDefault();
+
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    if (this.touchStartDist <= 0) return;
+
+    this.touchCurrentMidX = (t1.clientX + t2.clientX) / 2;
+    this.touchCurrentMidY = (t1.clientY + t2.clientY) / 2;
+
+    const rawRatio = currentDist / this.touchStartDist;
+    const tentativeScale = Math.max(0.25, Math.min(5.0, this.touchStartScale * rawRatio));
+    this.touchCurrentRatio = tentativeScale / this.touchStartScale;
+
+    const panX = this.touchCurrentMidX - this.touchStartMidX;
+    const panY = this.touchCurrentMidY - this.touchStartMidY;
+
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${this.touchCurrentRatio})`;
+    }
+  };
+
+  private onTouchEnd = async (e: TouchEvent): Promise<void> => {
+    if (!this.isTouchPinching) return;
+
+    if (e.touches.length < 2) {
+      this.isTouchPinching = false;
+
+      if (this.pagesContainerEl) {
+        this.pagesContainerEl.style.transform = "none";
+        this.pagesContainerEl.style.transformOrigin = "";
+      }
+
+      const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
+      await this.applyZoomWithFocalPoint(finalScale, this.touchCurrentMidX, this.touchCurrentMidY);
+
+      if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
+      this.touchCooldownTimer = window.setTimeout(() => {
+        this.isGesturePinching = false;
+        this.touchCooldownTimer = null;
+      }, 150);
+    }
+  };
+
+  private onTouchCancel = (e: TouchEvent): void => {
+    void this.onTouchEnd(e);
+  };
+
+  private onGestureStart = (e: any): void => {
+    e.preventDefault();
+    this.isGesturePinching = true;
+    this.cancelActiveInteractions();
+    this.hideSelectionBar();
+    this.notePopover.hide();
+
+    this.touchStartScale = this.zoomScale;
+    this.touchCurrentRatio = 1.0;
+    this.touchStartMidX = e.clientX ?? ((this.pagesScrollEl?.clientWidth ?? 0) / 2);
+    this.touchStartMidY = e.clientY ?? ((this.pagesScrollEl?.clientHeight ?? 0) / 2);
+
+    if (this.pagesContainerEl) {
+      const rect = this.pagesContainerEl.getBoundingClientRect();
+      const originX = this.touchStartMidX - rect.left;
+      const originY = this.touchStartMidY - rect.top;
+      this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+    }
+  };
+
+  private onGestureChange = (e: any): void => {
+    e.preventDefault();
+    const scale = e.scale ?? 1.0;
+    const tentativeScale = Math.max(0.25, Math.min(5.0, this.touchStartScale * scale));
+    this.touchCurrentRatio = tentativeScale / this.touchStartScale;
+
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = `scale(${this.touchCurrentRatio})`;
+    }
+  };
+
+  private onGestureEnd = async (e: any): Promise<void> => {
+    e.preventDefault();
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = "none";
+      this.pagesContainerEl.style.transformOrigin = "";
+    }
+    const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
+    await this.applyZoomWithFocalPoint(finalScale, this.touchStartMidX, this.touchStartMidY);
+
+    if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
+    this.touchCooldownTimer = window.setTimeout(() => {
+      this.isGesturePinching = false;
+      this.touchCooldownTimer = null;
+    }, 150);
+  };
 
   onPageChanged(pageNumber: number): void {
     this.scrollToPage(pageNumber - 1);

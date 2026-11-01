@@ -1,6 +1,7 @@
 import { runPptxTestSuite } from "./test-pptx-suite";
 import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
 import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
+import { runPdfTwoFingerZoomTestSuite } from "./test-pdf-two-finger-zoom";
 
 async function main() {
   console.log("==================================================");
@@ -15,6 +16,9 @@ async function main() {
 
   // 3. Run PDF Text Layer & Selection Suite
   await runPdfTextSelectionTestSuite();
+
+  // 4. Run PDF Two-Finger Zoom & Pinch Gestures Suite
+  await runPdfTwoFingerZoomTestSuite();
 
   console.log("==================================================");
   console.log("⭐ ALL TEST SUITES PASSED! OFFICE SUITE READY! ⭐");

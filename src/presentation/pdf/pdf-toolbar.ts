@@ -63,6 +63,7 @@ export class PdfToolbar {
   private currentPage = 1;
   private totalPages = 1;
   private zoomLevel = 1.0;
+  private zoomSelectEl: HTMLSelectElement | null = null;
   private saveStatusEl: HTMLElement | null = null;
   private pageInputEl: HTMLInputElement | null = null;
   private sidebarBtnEl: HTMLElement | null = null;
@@ -179,6 +180,7 @@ export class PdfToolbar {
     });
 
     const zoomSelect = groupZoom.createEl("select", { cls: "pdf-toolbar-select" });
+    this.zoomSelectEl = zoomSelect;
     const zoomOptions = [
       { label: "Fit Width", value: "fit-width" },
       { label: "Fit Page", value: "fit-page" },
@@ -313,6 +315,30 @@ export class PdfToolbar {
 
   setZoom(zoom: number): void {
     this.zoomLevel = zoom;
+    if (this.zoomSelectEl) {
+      const rounded = Math.round(zoom * 100);
+      const strVal = zoom.toFixed(2);
+      let matched = false;
+      for (let i = 0; i < this.zoomSelectEl.options.length; i++) {
+        const opt = this.zoomSelectEl.options[i];
+        if (opt.value === strVal || parseFloat(opt.value) === parseFloat(zoom.toFixed(2))) {
+          this.zoomSelectEl.selectedIndex = i;
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        let customOpt = this.zoomSelectEl.querySelector("option.custom-zoom-opt") as HTMLOptionElement | null;
+        if (!customOpt) {
+          customOpt = document.createElement("option");
+          customOpt.className = "custom-zoom-opt";
+          this.zoomSelectEl.appendChild(customOpt);
+        }
+        customOpt.value = `${zoom}`;
+        customOpt.text = `${rounded}%`;
+        customOpt.selected = true;
+      }
+    }
   }
 
   updateSaveStatus(dirty: boolean, saving = false): void {
@@ -523,6 +549,7 @@ export class PdfToolbar {
     this.hideColorSchemeDropdown();
     this.containerEl?.remove();
     this.containerEl = null;
+    this.zoomSelectEl = null;
     this.toolButtons.clear();
     this.delegate = null;
   }

@@ -2339,6 +2339,19 @@
   gap: 24px;
   padding: 24px;
   background: var(--background-primary-alt);
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+}
+
+.pdf-pages-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  margin: 0 auto;
+  min-width: min-content;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
 .pdf-theme-light .pdf-pages-scroll-area {

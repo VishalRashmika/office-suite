@@ -36,6 +36,7 @@ export interface PdfPageViewDelegate {
     lines?: { left: number; top: number; right: number; bottom: number }[]
   ): void;
   getPageView?(pageIndex: number): PdfPageView | undefined;
+  isPinching?(): boolean;
 }
 
 interface DragState {
@@ -69,6 +70,8 @@ export class PdfPageView {
   private currentColor: PdfRgbColor = [0.99, 0.88, 0.28];
   private strokeWidth = 2;
   private isRendering = false;
+  private currentRenderTask: any = null;
+  private pendingRenderParams: { pdfjsPage: any; scale: number; pdfjsLib?: any } | null = null;
   private annotations: PdfAnnotation[] = [];
   private cachedSelectionLines: { left: number; top: number; right: number; bottom: number }[] = [];
   private colorScheme?: PdfColorSchemeProfile;
@@ -168,7 +171,15 @@ export class PdfPageView {
    * Renders the page using PDF.js with High-DPI support.
    */
   async render(pdfjsPage: any, scale: number, pdfjsLib?: any): Promise<void> {
-    if (this.isRendering) return;
+    if (this.isRendering) {
+      this.pendingRenderParams = { pdfjsPage, scale, pdfjsLib };
+      if (this.currentRenderTask) {
+        try {
+          this.currentRenderTask.cancel();
+        } catch (_) {}
+      }
+      return;
+    }
     this.isRendering = true;
     this.pdfjsPage = pdfjsPage;
     this.scale = scale;
@@ -205,12 +216,20 @@ export class PdfPageView {
       this.htmlOverlayEl.style.width = cssWidth;
       this.htmlOverlayEl.style.height = cssHeight;
 
+      if (this.currentRenderTask) {
+        try {
+          this.currentRenderTask.cancel();
+        } catch (_) {}
+        this.currentRenderTask = null;
+      }
+
       const ctx = this.canvasEl.getContext("2d");
       if (ctx) {
-        await pdfjsPage.render({
+        this.currentRenderTask = pdfjsPage.render({
           canvasContext: ctx,
           viewport,
-        }).promise;
+        });
+        await this.currentRenderTask.promise;
       }
 
       // Render Text Layer for native selection
@@ -218,10 +237,19 @@ export class PdfPageView {
 
       // Render Annotations Overlay
       this.renderAnnotations();
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === "RenderingCancelledException") {
+        return;
+      }
       console.error(`Failed to render page ${this.pageNumber}:`, err);
     } finally {
+      this.currentRenderTask = null;
       this.isRendering = false;
+      if (this.pendingRenderParams) {
+        const next = this.pendingRenderParams;
+        this.pendingRenderParams = null;
+        void this.render(next.pdfjsPage, next.scale, next.pdfjsLib);
+      }
     }
   }
 
@@ -1347,7 +1375,36 @@ export class PdfPageView {
     window.addEventListener("pointerup", this.onPointerUp);
   }
 
+  public cancelActiveInteractions(): void {
+    if (this.isDrawing) {
+      this.isDrawing = false;
+      this.activePath = [];
+      if (this.liveDrawEl) {
+        this.liveDrawEl.remove();
+        this.liveDrawEl = null;
+      }
+      if (this.liveShapeEl) {
+        this.liveShapeEl.remove();
+        this.liveShapeEl = null;
+      }
+      this.shapeStartPoint = null;
+    }
+    if (this.isCreatingFreeText) {
+      this.isCreatingFreeText = false;
+      if (this.liveFreeTextEl) {
+        this.liveFreeTextEl.remove();
+        this.liveFreeTextEl = null;
+      }
+      this.freeTextStartPoint = null;
+    }
+    if (this.dragState) {
+      this.dragState = null;
+      this.renderAnnotations();
+    }
+  }
+
   private onPointerDown = (e: PointerEvent): void => {
+    if (this.delegate?.isPinching?.()) return;
     if (!this.coordinateTransformer) return;
     const targetEl = e.target as HTMLElement | SVGElement;
 
@@ -1441,6 +1498,7 @@ export class PdfPageView {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.delegate?.isPinching?.()) return;
     const rect = this.containerEl.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
@@ -1531,6 +1589,10 @@ export class PdfPageView {
 
   private onPointerUp = (e: PointerEvent): void => {
     document.body.style.cursor = "";
+    if (this.delegate?.isPinching?.()) {
+      this.cancelActiveInteractions();
+      return;
+    }
 
     // 1. Handling Drag End on existing annotation
     if (this.dragState) {
@@ -2177,6 +2239,14 @@ export class PdfPageView {
   }
 
   dispose(): void {
+    if (this.currentRenderTask) {
+      try {
+        this.currentRenderTask.cancel();
+      } catch (_) {}
+      this.currentRenderTask = null;
+    }
+    this.pendingRenderParams = null;
+    this.cancelActiveInteractions();
     if (this.onMouseUpListener) {
       window.removeEventListener("mouseup", this.onMouseUpListener);
       this.onMouseUpListener = null;
