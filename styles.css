@@ -2350,6 +2350,8 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pdf-pages-container {
@@ -2366,6 +2368,8 @@
   transform-origin: 0 0;
   will-change: transform;
   box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pdf-theme-light .pdf-pages-scroll-area {
@@ -2426,8 +2430,8 @@
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
-  user-select: text !important;
-  -webkit-user-select: text !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
@@ -2437,6 +2441,9 @@
   display: block;
   width: 100%;
   height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
 .pdf-text-layer,
@@ -2521,6 +2528,8 @@
   z-index: 3;
   overflow: visible;
   pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .pdf-annotation-overlay.is-drawing {
@@ -2550,6 +2559,22 @@
   pointer-events: none !important;
 }
 
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer ::selection,
+.pdf-page-view[data-active-tool="highlight"] .textLayer ::selection,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer ::-moz-selection,
+.pdf-page-view[data-active-tool="highlight"] .textLayer ::-moz-selection {
+  background: rgba(250, 204, 21, 0.45) !important;
+  color: transparent !important;
+}
+
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer ::selection,
+.pdf-page-view[data-active-tool="underline"] .textLayer ::selection,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer ::-moz-selection,
+.pdf-page-view[data-active-tool="underline"] .textLayer ::-moz-selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: transparent !important;
+}
+
 .pdf-annot-pin-group {
   cursor: grab;
 }
@@ -2572,26 +2597,34 @@
 }
 
 .pdf-annot-highlight-group {
-  cursor: pointer;
+  cursor: text;
+}
+
+.pdf-annot-highlight-group polygon,
+.pdf-annot-highlight-group rect {
+  pointer-events: none !important;
+  transition: fill-opacity 0.15s ease, stroke-opacity 0.15s ease;
 }
 
 .pdf-annot-highlight-group:hover polygon,
 .pdf-annot-highlight-group:hover rect {
-  fill-opacity: 0.52;
+  fill-opacity: 0.50;
+  stroke-opacity: 0.50;
 }
 
 /* Underline Markup */
 .pdf-annot-underline-group {
-  cursor: pointer;
+  cursor: text;
 }
 
 .pdf-annot-underline-group line {
-  transition: stroke-width 0.15s ease, filter 0.15s ease;
+  pointer-events: none !important;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
 .pdf-annot-underline-group:hover line:not([stroke="transparent"]) {
-  stroke-width: 3.5px;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  opacity: 1;
 }
 
 .pdf-annot-underline-group.is-selected line:not([stroke="transparent"]) {
@@ -2601,6 +2634,7 @@
 /* Zotero Bookmark Ribbon Badge Indicator on Highlights/Underlines with notes */
 .pdf-annot-bookmark-badge {
   cursor: pointer;
+  pointer-events: auto !important;
   transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), filter 0.16s ease;
   transform-origin: center top;
   z-index: 5;
@@ -2642,6 +2676,8 @@
   z-index: 4;
   pointer-events: none;
   overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pdf-annot-freetext-box {

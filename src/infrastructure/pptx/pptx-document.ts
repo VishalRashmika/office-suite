@@ -231,6 +231,70 @@ export class PptxDocument {
       }
     }
 
+    // 6b. Preload Slide Layouts and Slide Masters
+    const slideLayoutDocs = new Map<string, Document>();
+    const slideLayoutRels = new Map<string, Record<string, string>>();
+    const slideMasterDocs = new Map<string, Document>();
+    const slideMasterRels = new Map<string, Record<string, string>>();
+
+    for (const filePath of Object.keys(zip.files)) {
+      if (
+        filePath.startsWith("ppt/slideMasters/slideMaster") &&
+        filePath.endsWith(".xml") &&
+        !filePath.includes("_rels")
+      ) {
+        try {
+          const xml = await zip.file(filePath)!.async("text");
+          slideMasterDocs.set(filePath, parser.parseFromString(xml, "application/xml"));
+        } catch (e) {
+          console.warn(`Could not parse ${filePath}:`, e);
+        }
+      } else if (
+        filePath.startsWith("ppt/slideMasters/_rels/") &&
+        filePath.endsWith(".rels")
+      ) {
+        try {
+          const xml = await zip.file(filePath)!.async("text");
+          const relsDoc = parser.parseFromString(xml, "application/xml");
+          const map: Record<string, string> = {};
+          const relNodes = relsDoc.getElementsByTagNameNS("*", "Relationship");
+          for (let r = 0; r < relNodes.length; r++) {
+            const id = relNodes[r].getAttribute("Id");
+            const target = relNodes[r].getAttribute("Target");
+            if (id && target) map[id] = target;
+          }
+          slideMasterRels.set(filePath, map);
+        } catch (e) {}
+      } else if (
+        filePath.startsWith("ppt/slideLayouts/slideLayout") &&
+        filePath.endsWith(".xml") &&
+        !filePath.includes("_rels")
+      ) {
+        try {
+          const xml = await zip.file(filePath)!.async("text");
+          slideLayoutDocs.set(filePath, parser.parseFromString(xml, "application/xml"));
+        } catch (e) {
+          console.warn(`Could not parse ${filePath}:`, e);
+        }
+      } else if (
+        filePath.startsWith("ppt/slideLayouts/_rels/") &&
+        filePath.endsWith(".rels")
+      ) {
+        try {
+          const xml = await zip.file(filePath)!.async("text");
+          const relsDoc = parser.parseFromString(xml, "application/xml");
+          const map: Record<string, string> = {};
+          const relNodes = relsDoc.getElementsByTagNameNS("*", "Relationship");
+          for (let r = 0; r < relNodes.length; r++) {
+            const id = relNodes[r].getAttribute("Id");
+            const target = relNodes[r].getAttribute("Target");
+            if (id && target) map[id] = target;
+          }
+          slideLayoutRels.set(filePath, map);
+        } catch (e) {}
+      }
+    }
+
     // 7. Parse Slides
     const slides: PptxSlide[] = [];
     const slideXmlDocs = new Map<string, Document>();
@@ -295,19 +359,86 @@ export class PptxDocument {
         }
       }
 
+      // Resolve layout document and rels
+      let layoutDoc: Document | undefined = undefined;
+      let layoutRelMap: Record<string, string> = {};
+      let layoutPath: string | undefined = undefined;
+
+      for (const target of Object.values(slideRelMap)) {
+        if (target.includes("slideLayout")) {
+          layoutPath = target.startsWith("../")
+            ? `ppt/${target.substring(3)}`
+            : target.startsWith("ppt/")
+            ? target
+            : `ppt/slideLayouts/${target.split("/").pop()}`;
+          break;
+        }
+      }
+
+      if (layoutPath && slideLayoutDocs.has(layoutPath)) {
+        layoutDoc = slideLayoutDocs.get(layoutPath);
+        const layoutFileName = layoutPath.split("/").pop()!;
+        const layoutRelsPath = `ppt/slideLayouts/_rels/${layoutFileName}.rels`;
+        layoutRelMap = slideLayoutRels.get(layoutRelsPath) || {};
+      }
+
+      // Resolve master document
+      let masterDoc: Document | undefined = undefined;
+      if (layoutPath && layoutRelMap) {
+        for (const target of Object.values(layoutRelMap)) {
+          if (target.includes("slideMaster")) {
+            const masterPath = target.startsWith("../")
+              ? `ppt/${target.substring(3)}`
+              : target.startsWith("ppt/")
+              ? target
+              : `ppt/slideMasters/${target.split("/").pop()}`;
+            masterDoc = slideMasterDocs.get(masterPath);
+            break;
+          }
+        }
+      }
+
       // Slide Transition
       const transition = parseSlideTransition(slideDoc);
 
-      // Slide Background
-      const background = parseSlideBackground(slideDoc, themeColors, mediaDataUrls);
+      // Slide Background (Inheritance: slide -> layout -> master)
+      let background = parseSlideBackground(slideDoc, themeColors, mediaDataUrls, slideRelMap);
+      if (!background && layoutDoc) {
+        background = parseSlideBackground(layoutDoc, themeColors, mediaDataUrls, layoutRelMap);
+      }
+      if (!background && masterDoc) {
+        background = parseSlideBackground(masterDoc, themeColors, mediaDataUrls);
+      }
 
       // Slide Shapes & Elements
-      const spTree = slideDoc.getElementsByTagNameNS("*", "spTree")[0];
       const elements: PptxElement[] = [];
       let detectedTitle = "";
+      let currentZIndex = 0;
 
+      // Layout non-placeholder shapes (footer lines, branding text, decorative shapes)
+      const showMasterSp = slideDoc.getElementsByTagNameNS("*", "cSld")[0]?.getAttribute("showMasterSp");
+      if (showMasterSp !== "0" && layoutDoc) {
+        const layoutSpTree = layoutDoc.getElementsByTagNameNS("*", "spTree")[0];
+        if (layoutSpTree) {
+          currentZIndex = parseShapeTree(
+            layoutSpTree,
+            elements,
+            layoutRelMap,
+            mediaDataUrls,
+            themeColors,
+            width,
+            height,
+            () => {},
+            currentZIndex,
+            true // skipPlaceholders = true
+          );
+        }
+      }
+
+      // Slide Shapes
+      const spTree = slideDoc.getElementsByTagNameNS("*", "spTree")[0];
       if (spTree) {
-        parseShapeTree(
+        currentZIndex = parseShapeTree(
           spTree,
           elements,
           slideRelMap,
@@ -317,7 +448,9 @@ export class PptxDocument {
           height,
           (t) => {
             if (!detectedTitle) detectedTitle = t;
-          }
+          },
+          currentZIndex,
+          false // skipPlaceholders = false
         );
       }
 
@@ -1822,38 +1955,62 @@ function parseSlideTransition(slideDoc: Document): PptxTransition {
 }
 
 function parseSlideBackground(
-  slideDoc: Document,
+  doc: Document,
   themeColors: Record<string, string>,
-  mediaDataUrls: Map<string, string>
+  mediaDataUrls: Map<string, string>,
+  relMap?: Record<string, string>
 ): string | undefined {
-  const bg = slideDoc.getElementsByTagNameNS("*", "bg")[0];
+  const bg = doc.getElementsByTagNameNS("*", "bg")[0];
   if (!bg) return undefined;
 
+  // 1. Check bgPr
   const bgPr = bg.getElementsByTagNameNS("*", "bgPr")[0];
-  if (!bgPr) return undefined;
+  if (bgPr) {
+    // Solid fill
+    const solidFill = bgPr.getElementsByTagNameNS("*", "solidFill")[0];
+    if (solidFill) {
+      return resolveColor(solidFill, themeColors);
+    }
 
-  // Solid fill
-  const solidFill = bgPr.getElementsByTagNameNS("*", "solidFill")[0];
-  if (solidFill) {
-    return resolveColor(solidFill, themeColors);
-  }
-
-  // Gradient fill
-  const gradFill = bgPr.getElementsByTagNameNS("*", "gradFill")[0];
-  if (gradFill) {
-    const gsLst = gradFill.getElementsByTagNameNS("*", "gsLst")[0];
-    if (gsLst) {
-      const gsNodes = gsLst.getElementsByTagNameNS("*", "gs");
-      const stops: string[] = [];
-      for (let i = 0; i < gsNodes.length; i++) {
-        const pos = Number(gsNodes[i].getAttribute("pos")) / 1000;
-        const clr = resolveColor(gsNodes[i], themeColors) || "#ffffff";
-        stops.push(`${clr} ${pos}%`);
-      }
-      if (stops.length > 0) {
-        return `linear-gradient(180deg, ${stops.join(", ")})`;
+    // Gradient fill
+    const gradFill = bgPr.getElementsByTagNameNS("*", "gradFill")[0];
+    if (gradFill) {
+      const gsLst = gradFill.getElementsByTagNameNS("*", "gsLst")[0];
+      if (gsLst) {
+        const gsNodes = gsLst.getElementsByTagNameNS("*", "gs");
+        const stops: string[] = [];
+        for (let i = 0; i < gsNodes.length; i++) {
+          const pos = Number(gsNodes[i].getAttribute("pos")) / 1000;
+          const clr = resolveColor(gsNodes[i], themeColors) || "#ffffff";
+          stops.push(`${clr} ${pos}%`);
+        }
+        if (stops.length > 0) {
+          return `linear-gradient(180deg, ${stops.join(", ")})`;
+        }
       }
     }
+
+    // Blip / Image fill
+    const blipFill = bgPr.getElementsByTagNameNS("*", "blipFill")[0];
+    if (blipFill) {
+      const blip = blipFill.getElementsByTagNameNS("*", "blip")[0];
+      const embedId = blip?.getAttribute("r:embed");
+      if (embedId && relMap && relMap[embedId]) {
+        const target = relMap[embedId];
+        const dataUrl =
+          mediaDataUrls.get(target) ||
+          mediaDataUrls.get(target.replace(/^ppt\//, "")) ||
+          mediaDataUrls.get(target.split("/").pop() || "");
+        if (dataUrl) return dataUrl;
+      }
+    }
+  }
+
+  // 2. Check bgRef (e.g. <p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef>)
+  const bgRef = bg.getElementsByTagNameNS("*", "bgRef")[0];
+  if (bgRef) {
+    const clr = resolveColor(bgRef, themeColors);
+    if (clr) return clr;
   }
 
   return undefined;
@@ -1867,13 +2024,20 @@ function parseShapeTree(
   themeColors: Record<string, string>,
   slideW: number,
   slideH: number,
-  onTitleDetected: (title: string) => void
-): void {
-  let zIndex = 0;
+  onTitleDetected: (title: string) => void,
+  startZIndex: number = 0,
+  skipPlaceholders: boolean = false
+): number {
+  let zIndex = startZIndex;
 
   for (let i = 0; i < spTree.children.length; i++) {
     const child = spTree.children[i];
     const tag = child.localName;
+
+    if (skipPlaceholders) {
+      const ph = child.getElementsByTagNameNS("*", "ph")[0];
+      if (ph) continue;
+    }
 
     // 1. Shapes (<p:sp>)
     if (tag === "sp") {
@@ -1884,17 +2048,26 @@ function parseShapeTree(
         themeColors,
         onTitleDetected
       );
-      if (el) elements.push(el);
+      if (el) {
+        if (skipPlaceholders) el.isLayoutElement = true;
+        elements.push(el);
+      }
     }
     // 2. Pictures (<p:pic>)
     else if (tag === "pic") {
       const el = parsePicElement(child, zIndex++, slideRelMap, mediaDataUrls);
-      if (el) elements.push(el);
+      if (el) {
+        if (skipPlaceholders) el.isLayoutElement = true;
+        elements.push(el);
+      }
     }
     // 3. Graphic Frames (<p:graphicFrame>) -> Tables
     else if (tag === "graphicFrame") {
       const el = parseGraphicFrameElement(child, zIndex++, themeColors);
-      if (el) elements.push(el);
+      if (el) {
+        if (skipPlaceholders) el.isLayoutElement = true;
+        elements.push(el);
+      }
     }
     // 4. Group Shapes (<p:grpSp>)
     else if (tag === "grpSp") {
@@ -1908,14 +2081,22 @@ function parseShapeTree(
         slideH,
         onTitleDetected
       );
-      if (el) elements.push(el);
+      if (el) {
+        if (skipPlaceholders) el.isLayoutElement = true;
+        elements.push(el);
+      }
     }
     // 5. Connectors (<p:cxnSp>)
     else if (tag === "cxnSp") {
       const el = parseConnectorElement(child, zIndex++, themeColors);
-      if (el) elements.push(el);
+      if (el) {
+        if (skipPlaceholders) el.isLayoutElement = true;
+        elements.push(el);
+      }
     }
   }
+
+  return zIndex;
 }
 
 function parseSpElement(
@@ -1954,12 +2135,17 @@ function parseSpElement(
   let border: PptxElement["border"] = undefined;
   const ln = spPr?.getElementsByTagNameNS("*", "ln")[0];
   if (ln) {
-    const w = ln.getAttribute("w");
-    const widthPx = w ? Math.max(1, Math.round(Number(w) / 12700)) : 1;
-    const lnFill = ln.getElementsByTagNameNS("*", "solidFill")[0];
-    const clr = lnFill ? resolveColor(lnFill, themeColors) : "#000000";
-    if (clr) {
-      border = { color: clr, width: widthPx, style: "solid" };
+    const noFill = ln.getElementsByTagNameNS("*", "noFill")[0];
+    if (!noFill) {
+      const lnFill = ln.getElementsByTagNameNS("*", "solidFill")[0];
+      if (lnFill) {
+        const clr = resolveColor(lnFill, themeColors);
+        if (clr) {
+          const w = ln.getAttribute("w");
+          const widthPx = w ? Math.max(1, Math.round(Number(w) / 12700)) : 1;
+          border = { color: clr, width: widthPx, style: "solid" };
+        }
+      }
     }
   }
 
@@ -2210,12 +2396,15 @@ function parseConnectorElement(
   const ln = spPr?.getElementsByTagNameNS("*", "ln")[0];
   let border: PptxElement["border"] = undefined;
   if (ln) {
-    const w = ln.getAttribute("w");
-    const widthPx = w ? Math.max(1, Math.round(Number(w) / 12700)) : 2;
-    const lnFill = ln.getElementsByTagNameNS("*", "solidFill")[0];
-    const clr = lnFill ? resolveColor(lnFill, themeColors) : "#000000";
-    if (clr) {
-      border = { color: clr, width: widthPx, style: "solid" };
+    const noFill = ln.getElementsByTagNameNS("*", "noFill")[0];
+    if (!noFill) {
+      const w = ln.getAttribute("w");
+      const widthPx = w ? Math.max(1, Math.round(Number(w) / 12700)) : 2;
+      const lnFill = ln.getElementsByTagNameNS("*", "solidFill")[0];
+      const clr = lnFill ? resolveColor(lnFill, themeColors) : "#000000";
+      if (clr) {
+        border = { color: clr, width: widthPx, style: "solid" };
+      }
     }
   }
 
@@ -2242,6 +2431,11 @@ function parseParagraph(
   let align: PptxParagraph["align"] = "left";
   let bullet: PptxParagraph["bullet"] = undefined;
   let indent: number | undefined = undefined;
+
+  let defFontSize: number | undefined = undefined;
+  let defFontFamily: string | undefined = undefined;
+  let defColor: string | undefined = undefined;
+  let defBold: boolean | undefined = undefined;
 
   if (pPr) {
     const algn = pPr.getAttribute("algn");
@@ -2271,7 +2465,25 @@ function parseParagraph(
         number: 1,
       };
     }
+
+    const defRPr = pPr.getElementsByTagNameNS("*", "defRPr")[0];
+    if (defRPr) {
+      const sz = defRPr.getAttribute("sz");
+      if (sz) defFontSize = Math.round(Number(sz) / 100);
+      if (defRPr.getAttribute("b") === "1") defBold = true;
+      const latin = defRPr.getElementsByTagNameNS("*", "latin")[0];
+      if (latin) defFontFamily = latin.getAttribute("typeface") || undefined;
+      const solidFill = defRPr.getElementsByTagNameNS("*", "solidFill")[0];
+      if (solidFill) defColor = resolveColor(solidFill, themeColors);
+    }
   }
+
+  const defaultProps = {
+    fontSize: defFontSize,
+    fontFamily: defFontFamily,
+    color: defColor,
+    bold: defBold,
+  };
 
   const runs: PptxRun[] = [];
 
@@ -2280,10 +2492,10 @@ function parseParagraph(
     const tag = child.localName;
 
     if (tag === "r") {
-      const run = parseRun(child, themeColors);
+      const run = parseRun(child, themeColors, defaultProps);
       runs.push(run);
     } else if (tag === "fld") {
-      const run = parseField(child, themeColors);
+      const run = parseField(child, themeColors, defaultProps);
       runs.push(run);
     } else if (tag === "br") {
       runs.push({ text: "\n" });
@@ -2298,7 +2510,16 @@ function parseParagraph(
   };
 }
 
-function parseRun(rNode: Element, themeColors: Record<string, string>): PptxRun {
+function parseRun(
+  rNode: Element,
+  themeColors: Record<string, string>,
+  defaultProps?: {
+    fontSize?: number;
+    fontFamily?: string;
+    color?: string;
+    bold?: boolean;
+  }
+): PptxRun {
   const t = rNode.getElementsByTagNameNS("*", "t")[0]?.textContent || "";
   const rPr = rNode.getElementsByTagNameNS("*", "rPr")[0];
 
@@ -2340,6 +2561,19 @@ function parseRun(rNode: Element, themeColors: Record<string, string>): PptxRun 
     }
   }
 
+  if (fontSize === undefined && defaultProps?.fontSize) {
+    fontSize = defaultProps.fontSize;
+  }
+  if (color === undefined && defaultProps?.color) {
+    color = defaultProps.color;
+  }
+  if (fontFamily === undefined && defaultProps?.fontFamily) {
+    fontFamily = defaultProps.fontFamily;
+  }
+  if (!bold && defaultProps?.bold) {
+    bold = defaultProps.bold;
+  }
+
   return {
     text: t,
     fontSize,
@@ -2355,7 +2589,12 @@ function parseRun(rNode: Element, themeColors: Record<string, string>): PptxRun 
 
 function parseField(
   fldNode: Element,
-  themeColors: Record<string, string>
+  themeColors: Record<string, string>,
+  defaultProps?: {
+    fontSize?: number;
+    color?: string;
+    bold?: boolean;
+  }
 ): PptxRun {
   const fldType = fldNode.getAttribute("type");
   const isSlideNumber = fldType === "slNum";
@@ -2374,6 +2613,16 @@ function parseField(
     bold = rPr.getAttribute("b") === "1";
     const solidFill = rPr.getElementsByTagNameNS("*", "solidFill")[0];
     if (solidFill) color = resolveColor(solidFill, themeColors);
+  }
+
+  if (fontSize === undefined && defaultProps?.fontSize) {
+    fontSize = defaultProps.fontSize;
+  }
+  if (color === undefined && defaultProps?.color) {
+    color = defaultProps.color;
+  }
+  if (!bold && defaultProps?.bold) {
+    bold = defaultProps.bold;
   }
 
   return {
@@ -2425,37 +2674,370 @@ function parseTransformFromXfrm(xfrm: Element | null | undefined): {
   };
 }
 
+// -------------------------------------------------------------
+// DRAWINGML COLOR RESOLUTION WITH EXTENSIVE PRESETS & MODIFIERS
+// -------------------------------------------------------------
+
+const PRESET_COLORS: Record<string, string> = {
+  aliceblue: "#f0f8ff",
+  antiquewhite: "#faebd7",
+  aqua: "#00ffff",
+  aquamarine: "#7fffd4",
+  azure: "#f0ffff",
+  beige: "#f5f5dc",
+  bisque: "#ffe4c4",
+  black: "#000000",
+  blanchedalmond: "#ffebcd",
+  blue: "#0000ff",
+  blueviolet: "#8a2be2",
+  brown: "#a52a2a",
+  burlywood: "#deb887",
+  cadetblue: "#5f9ea0",
+  chartreuse: "#7fff00",
+  chocolate: "#d2691e",
+  coral: "#ff7f50",
+  cornflowerblue: "#6495ed",
+  cornsilk: "#fff8dc",
+  crimson: "#dc143c",
+  cyan: "#00ffff",
+  darkblue: "#00008b",
+  darkcyan: "#008b8b",
+  darkgoldenrod: "#b8860b",
+  darkgray: "#a9a9a9",
+  darkgrey: "#a9a9a9",
+  darkgreen: "#006400",
+  darkkhaki: "#bdb76b",
+  darkmagenta: "#8b008b",
+  darkolivegreen: "#556b2f",
+  darkorange: "#ff8c00",
+  darkorchid: "#9932cc",
+  darkred: "#8b0000",
+  darksalmon: "#e9967a",
+  darkseagreen: "#8fbc8f",
+  darkslateblue: "#483d8b",
+  darkslategray: "#2f4f4f",
+  darkslategrey: "#2f4f4f",
+  darkturquoise: "#00ced1",
+  darkviolet: "#9400d3",
+  deeppink: "#ff1493",
+  deepskyblue: "#00bfff",
+  dimgray: "#696969",
+  dimgrey: "#696969",
+  dodgerblue: "#1e90ff",
+  firebrick: "#b22222",
+  floralwhite: "#fffaf0",
+  forestgreen: "#228b22",
+  fuchsia: "#ff00ff",
+  gainsboro: "#dcdcdc",
+  ghostwhite: "#f8f8ff",
+  gold: "#ffd700",
+  goldenrod: "#daa520",
+  gray: "#808080",
+  grey: "#808080",
+  green: "#008000",
+  greenyellow: "#adff2f",
+  honeydew: "#f0fff0",
+  hotpink: "#ff69b4",
+  indianred: "#cd5c5c",
+  indigo: "#4b0082",
+  ivory: "#fffff0",
+  khaki: "#f0e68c",
+  lavender: "#e6e6fa",
+  lavenderblush: "#fff0f5",
+  lawngreen: "#7cfc00",
+  lemonchiffon: "#fffacd",
+  lightblue: "#add8e6",
+  lightcoral: "#f08080",
+  lightcyan: "#e0ffff",
+  lightgoldenrodyellow: "#fafad2",
+  lightgray: "#d3d3d3",
+  lightgrey: "#d3d3d3",
+  lightgreen: "#90ee90",
+  lightpink: "#ffb6c1",
+  lightsalmon: "#ffa07a",
+  lightseagreen: "#20b2aa",
+  lightskyblue: "#87cefa",
+  lightslateGray: "#778899",
+  lightslategrey: "#778899",
+  lightsteelblue: "#b0c4de",
+  lightyellow: "#ffffe0",
+  lime: "#00ff00",
+  limegreen: "#32cd32",
+  linen: "#faf0e6",
+  magenta: "#ff00ff",
+  maroon: "#800000",
+  medaquamarine: "#66cdaa",
+  mediumaquamarine: "#66cdaa",
+  medblue: "#0000cd",
+  mediumblue: "#0000cd",
+  medorchid: "#ba55d3",
+  mediumorchid: "#ba55d3",
+  medpurple: "#9370db",
+  mediumpurple: "#9370db",
+  medseagreen: "#3cb371",
+  mediumseagreen: "#3cb371",
+  medslateblue: "#7b68ee",
+  mediumslateblue: "#7b68ee",
+  medspringgreen: "#00fa9a",
+  mediumspringgreen: "#00fa9a",
+  medturquoise: "#48d1cc",
+  mediumturquoise: "#48d1cc",
+  medvioletred: "#c71585",
+  mediumvioletred: "#c71585",
+  midnightblue: "#191970",
+  mintcream: "#f5fffa",
+  mistyrose: "#ffe4e1",
+  moccasin: "#ffe4b5",
+  navajowhite: "#ffdead",
+  navy: "#000080",
+  oldlace: "#fdf5e6",
+  olive: "#808000",
+  olivedrab: "#6b8e23",
+  orange: "#ffa500",
+  orangered: "#ff4500",
+  orchid: "#da70d6",
+  palegoldenrod: "#eee8aa",
+  palegreen: "#98fb98",
+  paleturquoise: "#afeeee",
+  palevioletred: "#db7093",
+  papayawhip: "#ffefd5",
+  peachpuff: "#ffdab9",
+  peru: "#cd853f",
+  pink: "#ffc0cb",
+  plum: "#dda0dd",
+  powderblue: "#b0e0e6",
+  purple: "#800080",
+  red: "#ff0000",
+  rosybrown: "#bc8f8f",
+  royalblue: "#4169e1",
+  saddlebrown: "#8b4513",
+  salmon: "#fa8072",
+  sandybrown: "#f4a460",
+  seagreen: "#2e8b57",
+  seashell: "#fff5ee",
+  sienna: "#a0522d",
+  silver: "#c0c0c0",
+  skyblue: "#87ceeb",
+  slateblue: "#6a5acd",
+  slategray: "#708090",
+  slategrey: "#708090",
+  snow: "#fffafa",
+  springgreen: "#00ff7f",
+  steelblue: "#4682b4",
+  tan: "#d2b48c",
+  teal: "#008080",
+  thistle: "#d8bfd8",
+  tomato: "#ff6347",
+  turquoise: "#40e0d0",
+  violet: "#ee82ee",
+  wheat: "#f5deb3",
+  white: "#ffffff",
+  whitesmoke: "#f5f5f5",
+  yellow: "#ffff00",
+  yellowgreen: "#9acd32",
+};
+
+function hexToRgb(hex: string): [number, number, number] {
+  hex = hex.replace("#", "");
+  if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+  const num = parseInt(hex.slice(0, 6), 16) || 0;
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b),
+    min = Math.min(r, g, b);
+  let h = 0,
+    s = 0,
+    l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  let r: number, g: number, b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function applyColorModifiers(baseHex: string, colorNode: Element): string {
+  let [r, g, b] = hexToRgb(baseHex);
+  let alpha = 1;
+
+  const alphaNode = colorNode.getElementsByTagNameNS("*", "alpha")[0];
+  if (alphaNode) {
+    const val = Number(alphaNode.getAttribute("val"));
+    if (!isNaN(val)) {
+      alpha = Math.max(0, Math.min(1, val / 100000));
+    }
+  }
+
+  const tintNode = colorNode.getElementsByTagNameNS("*", "tint")[0];
+  if (tintNode) {
+    const val = Number(tintNode.getAttribute("val")) / 100000;
+    if (!isNaN(val)) {
+      r = Math.round(r * val + 255 * (1 - val));
+      g = Math.round(g * val + 255 * (1 - val));
+      b = Math.round(b * val + 255 * (1 - val));
+    }
+  }
+
+  const shadeNode = colorNode.getElementsByTagNameNS("*", "shade")[0];
+  if (shadeNode) {
+    const val = Number(shadeNode.getAttribute("val")) / 100000;
+    if (!isNaN(val)) {
+      r = Math.round(r * val);
+      g = Math.round(g * val);
+      b = Math.round(b * val);
+    }
+  }
+
+  const lumModNode = colorNode.getElementsByTagNameNS("*", "lumMod")[0];
+  const lumOffNode = colorNode.getElementsByTagNameNS("*", "lumOff")[0];
+  const satModNode = colorNode.getElementsByTagNameNS("*", "satMod")[0];
+  const satOffNode = colorNode.getElementsByTagNameNS("*", "satOff")[0];
+
+  if (lumModNode || lumOffNode || satModNode || satOffNode) {
+    let [h, s, l] = rgbToHsl(r, g, b);
+    if (lumModNode) {
+      const mod = Number(lumModNode.getAttribute("val")) / 100000;
+      if (!isNaN(mod)) l *= mod;
+    }
+    if (lumOffNode) {
+      const off = Number(lumOffNode.getAttribute("val")) / 100000;
+      if (!isNaN(off)) l += off;
+    }
+    if (satModNode) {
+      const mod = Number(satModNode.getAttribute("val")) / 100000;
+      if (!isNaN(mod)) s *= mod;
+    }
+    if (satOffNode) {
+      const off = Number(satOffNode.getAttribute("val")) / 100000;
+      if (!isNaN(off)) s += off;
+    }
+    l = Math.max(0, Math.min(1, l));
+    s = Math.max(0, Math.min(1, s));
+    [r, g, b] = hslToRgb(h, s, l);
+  }
+
+  r = Math.max(0, Math.min(255, r));
+  g = Math.max(0, Math.min(255, g));
+  b = Math.max(0, Math.min(255, b));
+
+  if (alpha < 1) {
+    return `rgba(${r}, ${g}, ${b}, ${parseFloat(alpha.toFixed(3))})`;
+  }
+  const toHex = (c: number) => c.toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 function resolveColor(
   container: Element,
   themeColors: Record<string, string>
 ): string | undefined {
-  const srgb = container.getElementsByTagNameNS("*", "srgbClr")[0];
+  const local = container.localName;
+
+  // 1. srgbClr
+  const srgb =
+    local === "srgbClr"
+      ? container
+      : container.getElementsByTagNameNS("*", "srgbClr")[0];
   if (srgb) {
     const val = srgb.getAttribute("val");
-    if (val) return `#${val}`;
+    if (val) {
+      return applyColorModifiers(`#${val}`, srgb);
+    }
   }
 
-  const schemeClr = container.getElementsByTagNameNS("*", "schemeClr")[0];
+  // 2. schemeClr
+  const schemeClr =
+    local === "schemeClr"
+      ? container
+      : container.getElementsByTagNameNS("*", "schemeClr")[0];
   if (schemeClr) {
     const val = schemeClr.getAttribute("val");
     if (val) {
-      if (themeColors[val]) return themeColors[val];
-      const mapping: Record<string, string> = {
-        bg1: "lt1",
-        bg2: "lt2",
-        tx1: "dk1",
-        tx2: "dk2",
-      };
-      if (mapping[val] && themeColors[mapping[val]]) {
-        return themeColors[mapping[val]];
+      let baseClr: string | undefined = themeColors[val];
+      if (!baseClr) {
+        const mapping: Record<string, string> = {
+          bg1: "lt1",
+          bg2: "lt2",
+          tx1: "dk1",
+          tx2: "dk2",
+        };
+        if (mapping[val] && themeColors[mapping[val]]) {
+          baseClr = themeColors[mapping[val]];
+        }
+      }
+      if (baseClr) {
+        return applyColorModifiers(baseClr, schemeClr);
       }
     }
   }
 
-  const sysClr = container.getElementsByTagNameNS("*", "sysClr")[0];
+  // 3. prstClr (Preset color names: white, black, red, etc.)
+  const prstClr =
+    local === "prstClr"
+      ? container
+      : container.getElementsByTagNameNS("*", "prstClr")[0];
+  if (prstClr) {
+    const val = prstClr.getAttribute("val");
+    if (val) {
+      const lower = val.toLowerCase();
+      const baseClr = PRESET_COLORS[val] || PRESET_COLORS[lower];
+      if (baseClr) {
+        return applyColorModifiers(baseClr, prstClr);
+      }
+    }
+  }
+
+  // 4. sysClr
+  const sysClr =
+    local === "sysClr"
+      ? container
+      : container.getElementsByTagNameNS("*", "sysClr")[0];
   if (sysClr) {
     const lastClr = sysClr.getAttribute("lastClr");
-    if (lastClr) return `#${lastClr}`;
+    if (lastClr) {
+      return applyColorModifiers(`#${lastClr}`, sysClr);
+    }
+    const val = sysClr.getAttribute("val");
+    if (val === "windowText") return "#000000";
+    if (val === "window") return "#ffffff";
   }
 
   return undefined;

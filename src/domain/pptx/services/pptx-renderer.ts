@@ -35,17 +35,25 @@ export class PptxRenderer {
     slideEl.style.height = `${height}px`;
 
     // Slide background
+    let isDarkBg = false;
     if (slide.background) {
       if (slide.background.startsWith("#") || slide.background.startsWith("rgb")) {
         slideEl.style.backgroundColor = slide.background;
+        isDarkBg = this.isDarkColor(slide.background);
       } else if (slide.background.startsWith("linear-gradient") || slide.background.startsWith("radial-gradient")) {
         slideEl.style.backgroundImage = slide.background;
       } else if (slide.background.startsWith("data:") || slide.background.startsWith("blob:") || slide.background.startsWith("http")) {
         slideEl.style.backgroundImage = `url("${slide.background}")`;
       } else {
         slideEl.style.backgroundColor = slide.background;
+        isDarkBg = this.isDarkColor(slide.background);
       }
+    } else {
+      slideEl.style.backgroundColor = "#ffffff";
     }
+
+    // Default text color based on background luminance
+    slideEl.style.color = isDarkBg ? "#ffffff" : "#000000";
 
     // Sort elements by zIndex to preserve stacking order
     const sortedElements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
@@ -197,14 +205,40 @@ export class PptxRenderer {
         container.style.clipPath = "polygon(0% 25%, 65% 25%, 65% 0%, 100% 50%, 65% 100%, 65% 75%, 0% 75%)";
         break;
       case "line":
-        container.style.borderBottom = `${Math.max(1, el.border?.width || 2)}px ${el.border?.style || "solid"} ${el.border?.color || "#000000"}`;
+        container.style.borderBottom = `${Math.max(1, el.border?.width || 1)}px ${el.border?.style || "solid"} ${el.border?.color || "#000000"}`;
         container.style.borderTop = "none";
         container.style.borderLeft = "none";
         container.style.borderRight = "none";
+        container.style.backgroundColor = "transparent";
         break;
       default:
         break;
     }
+  }
+
+  private static isDarkColor(color: string): boolean {
+    try {
+      if (color.startsWith("#")) {
+        let hex = color.slice(1);
+        if (hex.length === 3) hex = hex.split("").map((c) => c + c).join("");
+        const num = parseInt(hex.slice(0, 6), 16);
+        const r = (num >> 16) & 255;
+        const g = (num >> 8) & 255;
+        const b = num & 255;
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        return lum < 0.45;
+      } else if (color.startsWith("rgb")) {
+        const parts = color.match(/\d+/g);
+        if (parts && parts.length >= 3) {
+          const r = Number(parts[0]);
+          const g = Number(parts[1]);
+          const b = Number(parts[2]);
+          const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+          return lum < 0.45;
+        }
+      }
+    } catch (e) {}
+    return false;
   }
 
   /**

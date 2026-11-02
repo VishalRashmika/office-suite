@@ -614,7 +614,7 @@ Q`;
     const g = Math.round(c[1] * 100) / 100;
     const b = Math.round(c[2] * 100) / 100;
 
-    let ops = `q\n/GS0 gs\n${r} ${g} ${b} rg\n`;
+    let ops = `q\n/GS0 gs\n${r} ${g} ${b} rg\n${r} ${g} ${b} RG\n0.8 w\n1 j\n1 J\n`;
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
         const x1 = Math.round((annot.quadPoints[i] - llx) * 100) / 100;
@@ -626,7 +626,7 @@ Q`;
         const x4 = Math.round((annot.quadPoints[i + 6] - llx) * 100) / 100;
         const y4 = Math.round((annot.quadPoints[i + 7] - lly) * 100) / 100;
 
-        ops += `${x1} ${y1} m ${x2} ${y2} l ${x4} ${y4} l ${x3} ${y3} l h f\n`;
+        ops += `${x1} ${y1} m ${x2} ${y2} l ${x4} ${y4} l ${x3} ${y3} l h b\n`;
       }
     } else {
       ops += `0 0 ${width} ${height} re f\n`;
@@ -667,17 +667,19 @@ Q`;
     const g = Math.round(c[1] * 100) / 100;
     const b = Math.round(c[2] * 100) / 100;
 
-    let ops = `q\n1.5 w\n1 J\n${r} ${g} ${b} RG\n`;
+    let ops = `q\n1.2 w\n1 J\n${r} ${g} ${b} RG\n`;
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
+        const lineH = Math.max(10, Math.abs(annot.quadPoints[i + 1] - annot.quadPoints[i + 5]));
+        const offset = Math.min(1.0, Math.max(0.4, lineH * 0.03));
         const x3 = Math.round((annot.quadPoints[i + 4] - llx) * 100) / 100;
-        const y3 = Math.round((annot.quadPoints[i + 5] - lly) * 100) / 100;
+        const y3 = Math.max(0.5, Math.round((annot.quadPoints[i + 5] - offset - lly) * 100) / 100);
         const x4 = Math.round((annot.quadPoints[i + 6] - llx) * 100) / 100;
-        const y4 = Math.round((annot.quadPoints[i + 7] - lly) * 100) / 100;
+        const y4 = Math.max(0.5, Math.round((annot.quadPoints[i + 7] - offset - lly) * 100) / 100);
         ops += `${x3} ${y3} m ${x4} ${y4} l S\n`;
       }
     } else {
-      ops += `0 0 m ${width} 0 l S\n`;
+      ops += `0 1.0 m ${width} 1.0 l S\n`;
     }
     ops += `Q`;
 

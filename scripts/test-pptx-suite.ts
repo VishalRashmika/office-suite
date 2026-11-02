@@ -750,6 +750,69 @@ export async function runPptxTestSuite() {
   }
   console.log(`✓ Verified 100% of XML parts have compliant '<?xml version="1.0" ...?>' declarations`);
 
+  // --- Testing DrawingML Color Enhancements, Phantom Border Elimination & Layout Inheritance ---
+  console.log("--- Testing DrawingML Color Enhancements, Phantom Border Elimination & Layout Inheritance ---");
+  const fs = require("fs");
+  const uclDeckPath = "/home/vishal/Documents/tests/pluginTestVault/UCL_Innovation_Workshop2_Deck_Colour.pptx";
+  if (fs.existsSync(uclDeckPath)) {
+    const uclBuffer = fs.readFileSync(uclDeckPath);
+    const uclDoc = await PptxDocument.load(uclBuffer);
+    const uclPres = uclDoc.getPresentation();
+
+    if (uclPres.slides.length !== 46) {
+      throw new Error(`Expected 46 slides in UCL deck, got ${uclPres.slides.length}`);
+    }
+    console.log(`✓ Verified 46 slides parsed from rich real-world deck`);
+
+    // Verify Slide 1 background inheritance from slideLayout2.xml (TITLE_DARK: schemeClr="tx1" -> #1e2240)
+    const slide1Ucl = uclPres.slides[0];
+    if (slide1Ucl.background?.toLowerCase() !== "#1e2240") {
+      throw new Error(`Expected Slide 1 background to inherit '#1e2240', got '${slide1Ucl.background}'`);
+    }
+    console.log(`✓ Verified Slide 1 dark navy background inherited from slide layout (#1e2240)`);
+
+    // Verify Title on Slide 1 has NO phantom black border and has white font color
+    const titleShape = slide1Ucl.elements.find((e) => e.name === "Text 0" && e.paragraphs?.[0]?.runs?.[0]?.text?.includes("Find the Gap"));
+    if (!titleShape) {
+      throw new Error("Could not find title shape on Slide 1");
+    }
+    if (titleShape.border !== undefined) {
+      throw new Error(`Expected title shape border to be undefined, got: ${JSON.stringify(titleShape.border)}`);
+    }
+    const titleRun = titleShape.paragraphs![0].runs[0];
+    if (titleRun.color?.toLowerCase() !== "#ffffff") {
+      throw new Error(`Expected title text color to be '#ffffff', got '${titleRun.color}'`);
+    }
+    console.log(`✓ Verified Slide 1 title has 0 phantom border and resolves schemeClr 'bg1' to crisp white font (#ffffff)`);
+
+    // Verify Slide 2 layout non-placeholder elements (footer divider line & branding text)
+    const slide2Ucl = uclPres.slides[1];
+    const layoutElements = slide2Ucl.elements.filter((e) => e.isLayoutElement);
+    if (layoutElements.length < 2) {
+      throw new Error(`Expected at least 2 layout non-placeholder elements on Slide 2, found ${layoutElements.length}`);
+    }
+    const footerText = layoutElements.find((e) => e.paragraphs?.some((p) => p.runs.some((r) => r.text.includes("UCL x Knovik"))));
+    if (!footerText) {
+      throw new Error("Slide 2 missing layout branding footer text 'UCL x Knovik'");
+    }
+    console.log(`✓ Verified Slide 2 inherits footer divider line and branding text from slide layout`);
+
+    // Verify Slide 5 section divider background inheritance
+    const slide5Ucl = uclPres.slides[4];
+    if (slide5Ucl.background?.toLowerCase() !== "#1e2240") {
+      throw new Error(`Expected Slide 5 background '#1e2240', got '${slide5Ucl.background}'`);
+    }
+    console.log(`✓ Verified Slide 5 section divider background inherited from slide layout`);
+
+    // Verify Slide 45 translucent cards with DrawingML alpha modifier
+    const slide45Ucl = uclPres.slides[44];
+    const rgbaElements = slide45Ucl.elements.filter((e) => e.fill?.color?.startsWith("rgba"));
+    if (rgbaElements.length < 3) {
+      throw new Error(`Expected translucent cards on Slide 45 with rgba fill colors, found ${rgbaElements.length}`);
+    }
+    console.log(`✓ Verified DrawingML alpha modifier creates translucent rgba fills for cards (${rgbaElements[0].fill?.color})`);
+  }
+
   console.log("==================================================");
   console.log("🎉 ALL PPTX TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");
   console.log("==================================================");

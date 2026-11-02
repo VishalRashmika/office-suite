@@ -509,6 +509,16 @@ export class PdfView
       this.hideSelectionBar();
     };
 
+    // Action 6: Copy Text
+    const copyTextBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Copy" });
+    copyTextBtn.onclick = async () => {
+      if (this.selectedTextInfo) {
+        await navigator.clipboard.writeText(this.selectedTextInfo.text);
+        new Notice("Copied text to clipboard!");
+      }
+      this.hideSelectionBar();
+    };
+
     document.body.appendChild(bar);
     this.selectionBarEl = bar;
 
@@ -537,7 +547,7 @@ export class PdfView
     if (!this.selectionBarEl) return;
     this.selectedTextInfo = { text: selectedText, pageIndex, lines };
 
-    const barW = 380;
+    const barW = 440;
     let left = screenRect.left + screenRect.width / 2 - barW / 2;
     let top = screenRect.top - 48;
 

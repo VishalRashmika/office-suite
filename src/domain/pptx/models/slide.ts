@@ -97,6 +97,8 @@ export interface PptxElement {
   table?: PptxTable;
   // Group specific
   children?: PptxElement[];
+  // Layout inherited specific
+  isLayoutElement?: boolean;
 }
 
 export interface PptxSlide {

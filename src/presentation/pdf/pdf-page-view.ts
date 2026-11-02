@@ -267,7 +267,7 @@ export class PdfPageView {
 
     try {
       const textContent = await pdfjsPage.getTextContent({
-        includeMarkedContent: true,
+        includeMarkedContent: false,
         disableNormalization: false,
       });
 
@@ -391,12 +391,15 @@ export class PdfPageView {
           const scaleX = targetWidth / measuredWidth;
           if (Math.abs(angle) > 1e-4) {
             s.transform = `rotate(${angle}rad) scaleX(${scaleX.toFixed(4)})`;
-          } else if (Math.abs(scaleX - 1) > 0.01) {
+          } else if (Math.abs(scaleX - 1) > 0.005) {
             s.transform = `scaleX(${scaleX.toFixed(4)})`;
           }
         }
       } else if (Math.abs(angle) > 1e-4) {
         s.transform = `rotate(${angle}rad)`;
+      } else if (targetWidth > 0 && str.length > 0) {
+        s.display = "inline-block";
+        s.width = `${targetWidth.toFixed(2)}px`;
       }
 
       this.textLayerEl.appendChild(span);
@@ -476,8 +479,7 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-highlight-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "auto";
-    g.style.cursor = "pointer";
+    g.style.pointerEvents = "none";
 
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
@@ -490,7 +492,14 @@ export class PdfPageView {
         poly.setAttribute("points", `${p1.x},${p1.y} ${p2.x},${p2.y} ${p4.x},${p4.y} ${p3.x},${p3.y}`);
         poly.setAttribute("fill", colorHex);
         poly.setAttribute("fill-opacity", "0.38");
+        // Crisp, subtle rounding without excess height
+        poly.setAttribute("stroke", colorHex);
+        poly.setAttribute("stroke-width", "0.8");
+        poly.setAttribute("stroke-linejoin", "round");
+        poly.setAttribute("stroke-linecap", "round");
+        poly.setAttribute("stroke-opacity", "0.38");
         poly.style.mixBlendMode = "multiply";
+        poly.style.pointerEvents = "none";
         g.appendChild(poly);
       }
     } else {
@@ -500,9 +509,12 @@ export class PdfPageView {
       rect.setAttribute("y", `${screenRect.top}`);
       rect.setAttribute("width", `${screenRect.width}`);
       rect.setAttribute("height", `${screenRect.height}`);
+      rect.setAttribute("rx", "2");
+      rect.setAttribute("ry", "2");
       rect.setAttribute("fill", colorHex);
       rect.setAttribute("fill-opacity", "0.38");
       rect.style.mixBlendMode = "multiply";
+      rect.style.pointerEvents = "none";
       g.appendChild(rect);
     }
 
@@ -528,9 +540,27 @@ export class PdfPageView {
     }
 
     if (isSelected) {
-      const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
-      const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
-      g.appendChild(selBox);
+      if (annot.quadPoints && annot.quadPoints.length >= 8) {
+        for (let i = 0; i < annot.quadPoints.length; i += 8) {
+          const p1 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i], annot.quadPoints[i + 1], this.scale);
+          const p2 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 2], annot.quadPoints[i + 3], this.scale);
+          const p4 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 6], annot.quadPoints[i + 7], this.scale);
+          const p3 = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 4], annot.quadPoints[i + 5], this.scale);
+
+          const polyOutline = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+          polyOutline.setAttribute("points", `${p1.x},${p1.y} ${p2.x},${p2.y} ${p4.x},${p4.y} ${p3.x},${p3.y}`);
+          polyOutline.setAttribute("fill", "none");
+          polyOutline.setAttribute("stroke", "var(--interactive-accent)");
+          polyOutline.setAttribute("stroke-width", "1.5");
+          polyOutline.setAttribute("stroke-dasharray", "3 3");
+          polyOutline.style.pointerEvents = "none";
+          g.appendChild(polyOutline);
+        }
+      } else {
+        const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+        const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
+        g.appendChild(selBox);
+      }
     }
 
     this.svgOverlayEl.appendChild(g);
@@ -541,46 +571,58 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-underline-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "auto";
-    g.style.cursor = "pointer";
+    g.style.pointerEvents = "none";
 
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
+        const pTopLeft = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i], annot.quadPoints[i + 1], this.scale);
         const pBottomLeft = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 4], annot.quadPoints[i + 5], this.scale);
         const pBottomRight = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 6], annot.quadPoints[i + 7], this.scale);
 
-        // Invisible wider stroke for easy click hit detection
-        const hitLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        hitLine.setAttribute("x1", `${pBottomLeft.x}`);
-        hitLine.setAttribute("y1", `${pBottomLeft.y}`);
-        hitLine.setAttribute("x2", `${pBottomRight.x}`);
-        hitLine.setAttribute("y2", `${pBottomRight.y}`);
-        hitLine.setAttribute("stroke", "transparent");
-        hitLine.setAttribute("stroke-width", "14");
-        hitLine.style.pointerEvents = "stroke";
-        g.appendChild(hitLine);
+        // Direction vector from top to bottom of text line (orientation-independent)
+        const dx = pBottomLeft.x - pTopLeft.x;
+        const dy = pBottomLeft.y - pTopLeft.y;
+        const lineH = Math.hypot(dx, dy) || 12;
+        const ux = dx / lineH;
+        const uy = dy / lineH;
 
-        // Visible underline stroke
+        // Subtle, precise clearance below text baseline/descenders without reaching the next line below
+        const underlineOffset = Math.min(1.0, Math.max(0.4, lineH * 0.03));
+        const strokeWidth = Math.min(1.4, Math.max(1.0, lineH * 0.07));
+
+        const x1 = pBottomLeft.x + underlineOffset * ux;
+        const y1 = pBottomLeft.y + underlineOffset * uy;
+        const x2 = pBottomRight.x + underlineOffset * ux;
+        const y2 = pBottomRight.y + underlineOffset * uy;
+
+        // Visible underline stroke - placed cleanly below baseline without touching the next line
         const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-        line.setAttribute("x1", `${pBottomLeft.x}`);
-        line.setAttribute("y1", `${pBottomLeft.y}`);
-        line.setAttribute("x2", `${pBottomRight.x}`);
-        line.setAttribute("y2", `${pBottomRight.y}`);
+        line.setAttribute("x1", `${x1.toFixed(2)}`);
+        line.setAttribute("y1", `${y1.toFixed(2)}`);
+        line.setAttribute("x2", `${x2.toFixed(2)}`);
+        line.setAttribute("y2", `${y2.toFixed(2)}`);
         line.setAttribute("stroke", colorHex);
-        line.setAttribute("stroke-width", "2.5");
+        line.setAttribute("stroke-width", `${strokeWidth.toFixed(2)}`);
         line.setAttribute("stroke-linecap", "round");
+        line.style.pointerEvents = "none";
         g.appendChild(line);
       }
     } else {
       const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+      const lineH = Math.max(10, screenRect.height);
+      const underlineOffset = Math.min(1.0, Math.max(0.4, lineH * 0.03));
+      const underlineY = screenRect.top + screenRect.height + underlineOffset;
+      const strokeWidth = Math.min(1.4, Math.max(1.0, lineH * 0.07));
+
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", `${screenRect.left}`);
-      line.setAttribute("y1", `${screenRect.top + screenRect.height}`);
-      line.setAttribute("x2", `${screenRect.left + screenRect.width}`);
-      line.setAttribute("y2", `${screenRect.top + screenRect.height}`);
+      line.setAttribute("x1", `${screenRect.left.toFixed(2)}`);
+      line.setAttribute("y1", `${underlineY.toFixed(2)}`);
+      line.setAttribute("x2", `${(screenRect.left + screenRect.width).toFixed(2)}`);
+      line.setAttribute("y2", `${underlineY.toFixed(2)}`);
       line.setAttribute("stroke", colorHex);
-      line.setAttribute("stroke-width", "2.5");
+      line.setAttribute("stroke-width", `${strokeWidth.toFixed(2)}`);
       line.setAttribute("stroke-linecap", "round");
+      line.style.pointerEvents = "none";
       g.appendChild(line);
     }
 
@@ -606,9 +648,42 @@ export class PdfPageView {
     }
 
     if (isSelected) {
-      const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
-      const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
-      g.appendChild(selBox);
+      if (annot.quadPoints && annot.quadPoints.length >= 8) {
+        for (let i = 0; i < annot.quadPoints.length; i += 8) {
+          const pTopLeft = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i], annot.quadPoints[i + 1], this.scale);
+          const pBottomLeft = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 4], annot.quadPoints[i + 5], this.scale);
+          const pBottomRight = this.coordinateTransformer.pdfToScreen(annot.quadPoints[i + 6], annot.quadPoints[i + 7], this.scale);
+
+          const dx = pBottomLeft.x - pTopLeft.x;
+          const dy = pBottomLeft.y - pTopLeft.y;
+          const lineH = Math.hypot(dx, dy) || 12;
+          const ux = dx / lineH;
+          const uy = dy / lineH;
+
+          const underlineOffset = Math.min(1.0, Math.max(0.4, lineH * 0.03));
+          const selOffset = underlineOffset + 1.6;
+
+          const x1 = pBottomLeft.x + selOffset * ux;
+          const y1 = pBottomLeft.y + selOffset * uy;
+          const x2 = pBottomRight.x + selOffset * ux;
+          const y2 = pBottomRight.y + selOffset * uy;
+
+          const selLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          selLine.setAttribute("x1", `${x1.toFixed(2)}`);
+          selLine.setAttribute("y1", `${y1.toFixed(2)}`);
+          selLine.setAttribute("x2", `${x2.toFixed(2)}`);
+          selLine.setAttribute("y2", `${y2.toFixed(2)}`);
+          selLine.setAttribute("stroke", "var(--interactive-accent)");
+          selLine.setAttribute("stroke-width", "1.5");
+          selLine.setAttribute("stroke-dasharray", "3 3");
+          selLine.style.pointerEvents = "none";
+          g.appendChild(selLine);
+        }
+      } else {
+        const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
+        const selBox = this.createSelectionBox(screenRect.left, screenRect.top, screenRect.width, screenRect.height);
+        g.appendChild(selBox);
+      }
     }
 
     this.svgOverlayEl.appendChild(g);
@@ -1429,6 +1504,11 @@ export class PdfPageView {
           return;
         }
 
+        // Highlights and underlines do not intercept pointerdown or drag; text selection takes precedence!
+        if (annot.type === "highlight" || annot.type === "underline") {
+          return;
+        }
+
         // Existing annotation hit! DO NOT create a new note/shape/text.
         e.stopPropagation();
         this.selectedAnnotId = annot.id;
@@ -1445,7 +1525,7 @@ export class PdfPageView {
           startScreen: { x: sx, y: sy },
           startPdfRect: [...annot.rect] as PdfRect,
           startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
-          startQuadPoints: (annot.type === "highlight" || annot.type === "underline") ? [...(annot as any).quadPoints] : undefined,
+          startQuadPoints: (annot as any).quadPoints ? [...(annot as any).quadPoints] : undefined,
           startLinePoints: (annot as any).linePoints ? ([...(annot as any).linePoints] as [number, number, number, number]) : undefined,
           hasMoved: false,
         };
@@ -1870,10 +1950,67 @@ export class PdfPageView {
 
   // ==================== Text Selection Support ====================
 
+  /**
+   * Checks if a point in PDF user space lies within any highlight or underline annotation.
+   */
+  private findTextAnnotationAtPoint(pdfX: number, pdfY: number): PdfAnnotation | null {
+    for (let i = this.annotations.length - 1; i >= 0; i--) {
+      const a = this.annotations[i];
+      if (a.type !== "highlight" && a.type !== "underline") continue;
+
+      if (a.quadPoints && a.quadPoints.length >= 8) {
+        for (let j = 0; j < a.quadPoints.length; j += 8) {
+          const minX = Math.min(a.quadPoints[j], a.quadPoints[j + 2], a.quadPoints[j + 4], a.quadPoints[j + 6]) - 2;
+          const maxX = Math.max(a.quadPoints[j], a.quadPoints[j + 2], a.quadPoints[j + 4], a.quadPoints[j + 6]) + 2;
+          const minY = Math.min(a.quadPoints[j + 1], a.quadPoints[j + 3], a.quadPoints[j + 5], a.quadPoints[j + 7]) - 2;
+          const maxY = Math.max(a.quadPoints[j + 1], a.quadPoints[j + 3], a.quadPoints[j + 5], a.quadPoints[j + 7]) + 2;
+
+          if (pdfX >= minX && pdfX <= maxX && pdfY >= minY && pdfY <= maxY) {
+            return a;
+          }
+        }
+      } else if (a.rect) {
+        const minX = Math.min(a.rect[0], a.rect[2]) - 2;
+        const maxX = Math.max(a.rect[0], a.rect[2]) + 2;
+        const minY = Math.min(a.rect[1], a.rect[3]) - 2;
+        const maxY = Math.max(a.rect[1], a.rect[3]) + 2;
+        if (pdfX >= minX && pdfX <= maxX && pdfY >= minY && pdfY <= maxY) {
+          return a;
+        }
+      }
+    }
+    return null;
+  }
+
   private setupTextSelection(): void {
-    const handleMouseUp = (_e: MouseEvent) => {
+    const handleMouseUp = (e: MouseEvent) => {
       const sel = window.getSelection();
-      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      if (!sel || sel.isCollapsed || !sel.rangeCount) {
+        // Collapsed click without dragging in hand mode: check if an existing highlight was clicked
+        if (this.currentTool === "hand" && this.coordinateTransformer) {
+          const rect = this.containerEl.getBoundingClientRect();
+          const sx = e.clientX - rect.left;
+          const sy = e.clientY - rect.top;
+          if (sx >= 0 && sx <= rect.width && sy >= 0 && sy <= rect.height) {
+            const pPdf = this.coordinateTransformer.screenToPdf(sx, sy, this.scale);
+            const hitAnnot = this.findTextAnnotationAtPoint(pPdf.x, pPdf.y);
+            if (hitAnnot) {
+              this.selectedAnnotId = hitAnnot.id;
+              this.renderAnnotations();
+              const annotEl = this.containerEl.querySelector(`[data-annot-id="${hitAnnot.id}"]`) as HTMLElement | SVGElement | null;
+              this.delegate?.onClickAnnotation(hitAnnot, annotEl || this.containerEl);
+              return;
+            } else if (this.selectedAnnotId) {
+              const current = this.annotations.find((a) => a.id === this.selectedAnnotId);
+              if (current && (current.type === "highlight" || current.type === "underline")) {
+                this.selectedAnnotId = null;
+                this.renderAnnotations();
+              }
+            }
+          }
+        }
+        return;
+      }
 
       const range = sel.getRangeAt(0);
 
@@ -1881,7 +2018,8 @@ export class PdfPageView {
       const intersectsThisPage =
         this.containerEl.contains(range.commonAncestorContainer) ||
         this.textLayerEl.contains(range.startContainer) ||
-        this.textLayerEl.contains(range.endContainer);
+        this.textLayerEl.contains(range.endContainer) ||
+        (typeof range.intersectsNode === "function" && range.intersectsNode(this.textLayerEl));
 
       if (!intersectsThisPage) {
         return;
@@ -1975,25 +2113,99 @@ export class PdfPageView {
   }
 
   /**
-   * Groups selection client rects by line and merges overlapping/adjacent segments
-   * into clean unified line rectangles. Prevents blocky artifacts and guarantees
-   * single-word selection accuracy!
+   * Extracts precise, granular line rectangles from the user's DOM text selection.
+   * Traverses leaf Text nodes inside textLayerEl to extract exact character bounding boxes,
+   * completely eliminating parent containers, markedContent blocks, or entire-block merging artifacts.
    */
   private getMergedLineRectsFromSelection(): { left: number; top: number; right: number; bottom: number }[] {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return [];
 
     const range = sel.getRangeAt(0);
-    const rawRects = Array.from(range.getClientRects());
+    const pageRect = this.containerEl.getBoundingClientRect();
+    if (pageRect.width <= 0 || pageRect.height <= 0) return [];
+
+    const rawRects: { left: number; top: number; right: number; bottom: number; width: number; height: number }[] = [];
+
+    // Approach 1 (Primary): Traverse leaf Text nodes inside textLayerEl that intersect range.
+    // By querying only text nodes with clamped sub-ranges, we get the EXACT character bounding boxes
+    // of the selected text, completely eliminating enclosing container spans, markedContent, or whole-page blocks.
+    try {
+      if (this.textLayerEl && typeof document.createTreeWalker === "function") {
+        const walker = document.createTreeWalker(this.textLayerEl, NodeFilter.SHOW_TEXT);
+        let textNode: Text | null = null;
+        while ((textNode = walker.nextNode() as Text | null)) {
+          if (!textNode.textContent || textNode.textContent.length === 0) continue;
+
+          let intersects = false;
+          try {
+            if (typeof (range as any).intersectsNode === "function") {
+              intersects = (range as any).intersectsNode(textNode);
+            } else {
+              intersects = true;
+            }
+          } catch (_) {
+            intersects = false;
+          }
+          if (!intersects) continue;
+
+          const subRange = document.createRange();
+          subRange.selectNodeContents(textNode);
+
+          try {
+            // Clamp subRange to selection boundaries
+            if (subRange.compareBoundaryPoints(Range.START_TO_START, range) < 0) {
+              subRange.setStart(range.startContainer, range.startOffset);
+            }
+            if (subRange.compareBoundaryPoints(Range.END_TO_END, range) > 0) {
+              subRange.setEnd(range.endContainer, range.endOffset);
+            }
+          } catch (_) {}
+
+          if (!subRange.collapsed) {
+            const rects = Array.from(subRange.getClientRects());
+            for (const r of rects) {
+              if (r.width > 0.5 && r.height > 0.5) {
+                rawRects.push({
+                  left: r.left,
+                  top: r.top,
+                  right: r.right,
+                  bottom: r.bottom,
+                  width: r.width,
+                  height: r.height,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // TreeWalker fallback
+    }
+
+    // Approach 2 (Fallback): If no text nodes were extracted via TreeWalker (e.g. synthetic test environments),
+    // get raw client rects from the range directly.
+    if (rawRects.length === 0) {
+      const rangeRects = Array.from(range.getClientRects());
+      for (const r of rangeRects) {
+        if (r.width > 0.5 && r.height > 0.5) {
+          rawRects.push({
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+            width: r.width,
+            height: r.height,
+          });
+        }
+      }
+    }
+
     if (rawRects.length === 0) return [];
 
-    const pageRect = this.containerEl.getBoundingClientRect();
-
-    // 1. Convert to page-relative coordinates & filter out zero-width/height rects and rects from other pages
-    const localRects = rawRects
+    // 1. Convert to page-relative coordinates & filter out rects completely outside this page view
+    let localRects = rawRects
       .filter((r) => {
-        if (r.width <= 0.5 || r.height <= 0.5) return false;
-        // Verify intersection with this page container
         const vOverlap = Math.min(r.bottom, pageRect.bottom) - Math.max(r.top, pageRect.top);
         const hOverlap = Math.min(r.right, pageRect.right) - Math.max(r.left, pageRect.left);
         return vOverlap > 0.5 && hOverlap > 0.5;
@@ -2003,34 +2215,148 @@ export class PdfPageView {
         top: Math.max(0, Math.min(pageRect.height, r.top - pageRect.top)),
         right: Math.max(0, Math.min(pageRect.width, r.right - pageRect.left)),
         bottom: Math.max(0, Math.min(pageRect.height, r.bottom - pageRect.top)),
+        width: r.width,
         height: r.height,
       }));
 
     if (localRects.length === 0) return [];
 
-    // 2. Merge fragments on the same line
-    const lines: { left: number; top: number; right: number; bottom: number }[] = [];
+    // 2. Safe container rect filtering:
+    // Only filter out a rect if it is a TRUE multi-line or block container that encompasses other vertically-separated rects.
+    // NEVER discard valid individual letters, punctuation, or words of differing heights!
+    if (localRects.length > 1) {
+      localRects = localRects.filter((r) => {
+        const enclosed = localRects.filter(
+          (other) =>
+            other !== r &&
+            other.left >= r.left - 1.5 &&
+            other.right <= r.right + 1.5 &&
+            other.top >= r.top - 1.5 &&
+            other.bottom <= r.bottom + 1.5
+        );
+        if (enclosed.length >= 2) {
+          const minEnclosedTop = Math.min(...enclosed.map((e) => e.top));
+          const maxEnclosedBottom = Math.max(...enclosed.map((e) => e.bottom));
+          const minEnclosedHeight = Math.min(...enclosed.map((e) => e.height));
+          const verticalSpread = maxEnclosedBottom - minEnclosedTop;
+          // Must span multiple vertically separated lines to be considered an enclosing multi-line container
+          if (verticalSpread > minEnclosedHeight * 1.5 && r.height > minEnclosedHeight * 1.8) {
+            return false;
+          }
+        }
+        return true;
+      });
+    }
+
+    // 3. Cluster rects into distinct lines using vertical center alignment and anti-collision checks.
+    // Rects on the same line share approximately the same vertical baseline and center ((top + bottom) / 2).
+    // Distinct text lines MUST NOT merge into one block!
+    interface LineGroup {
+      top: number;
+      bottom: number;
+      center: number;
+      avgHeight: number;
+      rects: typeof localRects;
+    }
+    const lineGroups: LineGroup[] = [];
+
+    // Sort rects top-to-bottom, then left-to-right
+    localRects.sort((a, b) => a.top - b.top || a.left - b.left);
 
     for (const r of localRects) {
-      const existingLine = lines.find((l) => {
-        const vOverlap = Math.min(l.bottom, r.bottom) - Math.max(l.top, r.top);
-        const minH = Math.min(l.bottom - l.top, r.height);
-        return vOverlap > minH * 0.4 || Math.abs(l.top - r.top) < 6;
-      });
+      const rCenter = (r.top + r.bottom) / 2;
+      const rHeight = r.bottom - r.top;
 
-      if (existingLine) {
-        existingLine.left = Math.min(existingLine.left, r.left);
-        existingLine.right = Math.max(existingLine.right, r.right);
-        existingLine.top = Math.min(existingLine.top, r.top);
-        existingLine.bottom = Math.max(existingLine.bottom, r.bottom);
+      let matchedGroup: LineGroup | null = null;
+      for (const group of lineGroups) {
+        // Check if there is massive horizontal overlap with existing words in the group.
+        // In the same line of text, distinct words DO NOT sit on top of each other horizontally!
+        const hasHorizontalConflict = group.rects.some((existing) => {
+          if (existing.width > 8 && r.width > 8) {
+            const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
+            const minW = Math.min(existing.width, r.width);
+            return hOverlap > minW * 0.4; // 40%+ horizontal overlap indicates a different line!
+          }
+          return false;
+        });
+
+        if (hasHorizontalConflict) {
+          continue; // Cannot be on the same line if words horizontally collide!
+        }
+
+        const centerDiff = Math.abs(rCenter - group.center);
+        const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
+        const minHeight = Math.min(rHeight, group.avgHeight);
+
+        // A smaller fragment (like a comma, period, subscript, apostrophe) is vertically
+        // contained within the line's bounds
+        const isVerticallyContained =
+          r.top >= group.top - 2 &&
+          r.bottom <= group.bottom + 2 &&
+          vOverlap >= minHeight * 0.75;
+
+        // Normal words on the same line have matching vertical centers and strong vertical overlap
+        const isCenterAligned =
+          centerDiff <= minHeight * 0.45 &&
+          vOverlap >= minHeight * 0.45;
+
+        if (isCenterAligned || isVerticallyContained) {
+          matchedGroup = group;
+          break;
+        }
+      }
+
+      if (matchedGroup) {
+        matchedGroup.rects.push(r);
+        matchedGroup.top = Math.min(matchedGroup.top, r.top);
+        matchedGroup.bottom = Math.max(matchedGroup.bottom, r.bottom);
+        matchedGroup.center =
+          matchedGroup.rects.reduce((sum, item) => sum + (item.top + item.bottom) / 2, 0) / matchedGroup.rects.length;
+        matchedGroup.avgHeight =
+          matchedGroup.rects.reduce((sum, item) => sum + item.height, 0) / matchedGroup.rects.length;
       } else {
-        lines.push({ left: r.left, top: r.top, right: r.right, bottom: r.bottom });
+        lineGroups.push({
+          top: r.top,
+          bottom: r.bottom,
+          center: rCenter,
+          avgHeight: rHeight,
+          rects: [r],
+        });
       }
     }
 
-    // 3. Sort lines top-to-bottom
-    lines.sort((a, b) => a.top - b.top);
-    return lines;
+    // 4. For each line group, merge horizontally contiguous/adjacent fragments (e.g. words on the same line)
+    const resultLines: { left: number; top: number; right: number; bottom: number }[] = [];
+    for (const group of lineGroups) {
+      group.rects.sort((a, b) => a.left - b.left);
+
+      let currentSegment: { left: number; top: number; right: number; bottom: number } | null = null;
+      const lineH = group.avgHeight;
+      // Allow merging across normal inter-word spaces (up to 1.5x line height), but keep multi-columns separate
+      const maxWordGap = Math.max(16, lineH * 1.5);
+
+      for (const r of group.rects) {
+        if (!currentSegment) {
+          currentSegment = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        } else if (r.left <= currentSegment.right + maxWordGap) {
+          // Merge horizontally on the same line
+          currentSegment.right = Math.max(currentSegment.right, r.right);
+          currentSegment.top = Math.min(currentSegment.top, r.top);
+          currentSegment.bottom = Math.max(currentSegment.bottom, r.bottom);
+        } else {
+          // Different horizontal column or distant gap on the same line
+          resultLines.push(currentSegment);
+          currentSegment = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        }
+      }
+      if (currentSegment) {
+        resultLines.push(currentSegment);
+      }
+    }
+
+    // Sort lines top-to-bottom, then left-to-right
+    resultLines.sort((a, b) => a.top - b.top || a.left - b.left);
+    return resultLines;
   }
 
   createHighlightFromSelection(
@@ -2052,10 +2378,19 @@ export class PdfPageView {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (const line of lines) {
-      const pTopLeft = this.coordinateTransformer.screenToPdf(line.left, line.top, this.scale);
-      const pTopRight = this.coordinateTransformer.screenToPdf(line.right, line.top, this.scale);
-      const pBottomLeft = this.coordinateTransformer.screenToPdf(line.left, line.bottom, this.scale);
-      const pBottomRight = this.coordinateTransformer.screenToPdf(line.right, line.bottom, this.scale);
+      const lineH = Math.max(10, line.bottom - line.top);
+      // Natural vertical sizing matching exact font line-height without excess ballooning
+      const hPad = Math.min(1.2, Math.max(0.6, lineH * 0.05));
+
+      const paddedLeft = Math.max(0, line.left - hPad);
+      const paddedRight = line.right + hPad;
+      const paddedTop = line.top;
+      const paddedBottom = line.bottom;
+
+      const pTopLeft = this.coordinateTransformer.screenToPdf(paddedLeft, paddedTop, this.scale);
+      const pTopRight = this.coordinateTransformer.screenToPdf(paddedRight, paddedTop, this.scale);
+      const pBottomLeft = this.coordinateTransformer.screenToPdf(paddedLeft, paddedBottom, this.scale);
+      const pBottomRight = this.coordinateTransformer.screenToPdf(paddedRight, paddedBottom, this.scale);
 
       quadPoints.push(
         pTopLeft.x, pTopLeft.y,
@@ -2166,10 +2501,18 @@ export class PdfPageView {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     for (const line of lines) {
-      const pTopLeft = this.coordinateTransformer.screenToPdf(line.left, line.top, this.scale);
-      const pTopRight = this.coordinateTransformer.screenToPdf(line.right, line.top, this.scale);
-      const pBottomLeft = this.coordinateTransformer.screenToPdf(line.left, line.bottom, this.scale);
-      const pBottomRight = this.coordinateTransformer.screenToPdf(line.right, line.bottom, this.scale);
+      const lineH = Math.max(10, line.bottom - line.top);
+      const hPad = Math.min(1.2, Math.max(0.6, lineH * 0.05));
+
+      const paddedLeft = Math.max(0, line.left - hPad);
+      const paddedRight = line.right + hPad;
+      const paddedTop = line.top;
+      const paddedBottom = line.bottom;
+
+      const pTopLeft = this.coordinateTransformer.screenToPdf(paddedLeft, paddedTop, this.scale);
+      const pTopRight = this.coordinateTransformer.screenToPdf(paddedRight, paddedTop, this.scale);
+      const pBottomLeft = this.coordinateTransformer.screenToPdf(paddedLeft, paddedBottom, this.scale);
+      const pBottomRight = this.coordinateTransformer.screenToPdf(paddedRight, paddedBottom, this.scale);
 
       quadPoints.push(
         pTopLeft.x, pTopLeft.y,
