@@ -1,8 +1,2 @@
-# #1 when a pdf is opened cant select/highlight text
-all the other featurse are perfect but when i open the pdf i cant highlight, select or under line text. the pdf text lines are not rendered properly as selectable text fix this. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #2 allow to zoom the pdf by trackpad with 2 fingers
-like we have in other softwares allow us to zoom into pdfs using 2 fingers. currently this is not supported. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
-
-# #3 the pdf is not properly cetnered
-when we open a pdf there is an additional gap in the left side and the pdf is not properly centered fix this. i need this feature. implement this analyzing thoroughly. i want this feature to be perfect. go multiple iterations checking for bugs.
+# #1 fix the text selection when highlighting and underlining
+when underlining and highlighting when we select text sometimes from the middle some letters and words are dropped down and highlighted. and at the end sometimes we cant even select the alst word. analyze the issue thoroughly and fix it. this is the 5th time i am trying to fix this bug
