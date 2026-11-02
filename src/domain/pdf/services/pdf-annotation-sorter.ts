@@ -167,6 +167,11 @@ export function filterAnnotations(
         return true;
       }
 
+      const isShape = a.type === "square" || a.type === "circle" || a.type === "line";
+      if (isShape && (q === "shape" || q === "area" || q === "box" || q === "rectangle" || q === "circle" || q === "line")) {
+        return true;
+      }
+
       // Check page number match
       if (targetPageNum !== null && a.pageIndex + 1 === targetPageNum) {
         return true;
@@ -413,9 +418,9 @@ export function formatTypeLabel(type: PdfAnnotationType | string): string {
     case "freetext":
       return "Text Box";
     case "square":
-      return "Rectangle";
+      return "Rectangle Area";
     case "circle":
-      return "Circle";
+      return "Circle Area";
     case "line":
       return "Line";
     default:

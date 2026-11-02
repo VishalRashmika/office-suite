@@ -19,6 +19,18 @@
  */
 
 import { setIcon, Notice } from "obsidian";
+
+function safeSetIcon(el: HTMLElement, name: string, fallback?: string): void {
+  try {
+    setIcon(el, name);
+  } catch (_) {
+    if (fallback) {
+      try {
+        setIcon(el, fallback);
+      } catch (__) {}
+    }
+  }
+}
 import {
   PdfAnnotation,
   PdfAnnotationType,
@@ -121,6 +133,14 @@ export class PdfSidebar {
     this.colorScheme = colorScheme;
     this.isVisible = initialVisible;
 
+    // Reset filters, search query, and selection on document load
+    this.searchQuery = "";
+    this.filterType = "all";
+    this.filterColorHex = "all";
+    this.filterTag = "all";
+    this.selectedAnnotId = null;
+    this.activeTab = "annotations";
+
     this.containerEl = parentEl.createDiv({
       cls: `pdf-sidebar-container${initialVisible ? "" : " is-hidden"}`,
     });
@@ -160,19 +180,19 @@ export class PdfSidebar {
 
     // Tab 1: Thumbnails (Pages)
     this.thumbTabBtn = tabsEl.createEl("button", {
-      cls: `pdf-sidebar-tab ${this.activeTab === "thumbnails" ? "is-active" : ""}`,
+      cls: `pdf-sidebar-tab ${(this.activeTab as SidebarTab) === "thumbnails" ? "is-active" : ""}`,
       attr: { title: "Page Thumbnails" },
     });
-    setIcon(this.thumbTabBtn, "layout-grid");
+    safeSetIcon(this.thumbTabBtn, "layout-grid", "grid");
     this.thumbTabBtn.createSpan({ cls: "pdf-sidebar-tab-label", text: "Pages" });
     this.thumbTabBtn.onclick = () => this.switchTab("thumbnails");
 
     // Tab 2: Outline (Table of Contents)
     this.outlineTabBtn = tabsEl.createEl("button", {
-      cls: `pdf-sidebar-tab ${this.activeTab === "outline" ? "is-active" : ""}`,
+      cls: `pdf-sidebar-tab ${(this.activeTab as SidebarTab) === "outline" ? "is-active" : ""}`,
       attr: { title: "Document Outline / Table of Contents" },
     });
-    setIcon(this.outlineTabBtn, "list-tree");
+    safeSetIcon(this.outlineTabBtn, "list-tree", "list");
     this.outlineTabBtn.createSpan({ cls: "pdf-sidebar-tab-label", text: "Outline" });
     this.outlineTabBtn.onclick = () => this.switchTab("outline");
 
@@ -182,7 +202,7 @@ export class PdfSidebar {
       cls: `pdf-sidebar-tab ${this.activeTab === "annotations" ? "is-active" : ""}`,
       attr: { title: "Annotations & Highlights List" },
     });
-    setIcon(this.annotTabBtn, "highlighter");
+    safeSetIcon(this.annotTabBtn, "highlighter", "edit");
     this.annotTabBtn.createSpan({
       cls: "pdf-sidebar-tab-label",
       text: annotCount > 0 ? `Annotations (${annotCount})` : "Annotations",
@@ -194,7 +214,7 @@ export class PdfSidebar {
       cls: "pdf-sidebar-close-btn",
       attr: { title: "Collapse side panel" },
     });
-    setIcon(closeBtn, "chevrons-left");
+    safeSetIcon(closeBtn, "chevrons-left", "chevron-left");
     closeBtn.onclick = () => this.toggle();
 
     // 3. Content container
@@ -209,6 +229,7 @@ export class PdfSidebar {
     if (this.isVisible) {
       this.containerEl.style.display = "";
       this.containerEl.removeClass("is-hidden");
+      this.renderActiveTab();
     } else {
       this.containerEl.addClass("is-hidden");
       this.containerEl.style.display = "none";
@@ -222,8 +243,19 @@ export class PdfSidebar {
     if (this.containerEl) {
       this.containerEl.style.display = "";
       this.containerEl.removeClass("is-hidden");
+      this.renderActiveTab();
     }
     this.onVisibilityChange?.(true);
+  }
+
+  showAnnotationsTab(): void {
+    this.activeTab = "annotations";
+    if (this.thumbTabBtn && this.outlineTabBtn && this.annotTabBtn) {
+      this.thumbTabBtn.removeClass("is-active");
+      this.outlineTabBtn.removeClass("is-active");
+      this.annotTabBtn.addClass("is-active");
+    }
+    this.show();
   }
 
   hide(): void {
@@ -265,6 +297,14 @@ export class PdfSidebar {
     if (!this.contentEl || !this.pdfAdapter) return;
     this.contentEl.empty();
 
+    if (this.annotTabBtn) {
+      const count = this.pdfAdapter.getAllAnnotations().length;
+      const label = this.annotTabBtn.querySelector(".pdf-sidebar-tab-label");
+      if (label) {
+        label.setText(count > 0 ? `Annotations (${count})` : "Annotations");
+      }
+    }
+
     if (this.activeTab === "thumbnails") {
       this.renderThumbnails();
     } else if (this.activeTab === "outline") {
@@ -285,7 +325,7 @@ export class PdfSidebar {
     // 1. Search Bar with Instant Clear Button
     const searchRow = viewWrap.createDiv({ cls: "pdf-annot-search-row" });
     const searchIconWrap = searchRow.createSpan({ cls: "pdf-annot-search-icon" });
-    setIcon(searchIconWrap, "search");
+    safeSetIcon(searchIconWrap, "search");
 
     const searchInput = searchRow.createEl("input", {
       cls: "pdf-annot-search-input",
@@ -298,7 +338,7 @@ export class PdfSidebar {
       cls: `pdf-annot-search-clear ${this.searchQuery ? "" : "is-hidden"}`,
       attr: { title: "Clear search" },
     });
-    setIcon(clearSearchBtn, "x");
+    safeSetIcon(clearSearchBtn, "x");
     clearSearchBtn.onclick = () => {
       this.searchQuery = "";
       searchInput.value = "";
@@ -317,7 +357,7 @@ export class PdfSidebar {
 
     const sortLeft = sortRow.createDiv({ cls: "pdf-annot-sort-left" });
     const sortIcon = sortLeft.createSpan({ cls: "pdf-annot-sort-icon" });
-    setIcon(sortIcon, "arrow-up-down");
+    safeSetIcon(sortIcon, "arrow-up-down", "arrow-up");
     sortLeft.createSpan({ cls: "pdf-annot-sort-label", text: "Sort:" });
 
     const sortSelect = sortLeft.createEl("select", { cls: "pdf-annot-sort-select" });
@@ -351,7 +391,7 @@ export class PdfSidebar {
     });
     const updateDirBtn = () => {
       dirBtn.empty();
-      setIcon(dirBtn, this.sortDirection === "asc" ? "arrow-up-narrow-wide" : "arrow-down-narrow-wide");
+      safeSetIcon(dirBtn, this.sortDirection === "asc" ? "arrow-up" : "arrow-down");
       dirBtn.setAttribute("title", `Sort ${this.sortDirection === "asc" ? "Ascending" : "Descending"}`);
     };
     updateDirBtn();
@@ -386,9 +426,15 @@ export class PdfSidebar {
         text: tf.label,
       });
       chip.onclick = () => {
-        this.filterType = tf.type;
-        typeFilterRow.querySelectorAll(".pdf-annot-type-chip").forEach((c) => c.removeClass("is-active"));
-        chip.addClass("is-active");
+        if (this.filterType === tf.type && tf.type !== "all") {
+          this.filterType = "all";
+          typeFilterRow.querySelectorAll(".pdf-annot-type-chip").forEach((c) => c.removeClass("is-active"));
+          typeFilterRow.querySelector(".pdf-annot-type-chip")?.addClass("is-active");
+        } else {
+          this.filterType = tf.type;
+          typeFilterRow.querySelectorAll(".pdf-annot-type-chip").forEach((c) => c.removeClass("is-active"));
+          chip.addClass("is-active");
+        }
         this.renderAnnotationCardsList(cardsContainer, countLabel);
       };
     }
@@ -402,7 +448,7 @@ export class PdfSidebar {
       attr: { title: "Export annotations to Obsidian Markdown Note" },
     });
     const exportIcon = exportBtn.createSpan({ cls: "pdf-annot-export-icon" });
-    setIcon(exportIcon, "file-output");
+    safeSetIcon(exportIcon, "file-output", "file-text");
     exportBtn.createSpan({ text: "Export to Note" });
     exportBtn.onclick = () => {
       this.delegate?.onExportMarkdown?.();
@@ -438,31 +484,58 @@ export class PdfSidebar {
       onFilterChange();
     };
 
-    // Distinct colors present in scheme or annotations
-    const paletteColors = this.colorScheme?.colors || PDF_COLOR_PRESETS.map((p) => ({
-      id: p.name.toLowerCase(),
-      hex: p.hex,
-      name: p.name,
-      tag: "",
-      rgb: p.rgb,
-    }));
+    // Unified palette: active scheme colors (or presets) + every color present on existing annotations
+    const colorMap = new Map<string, { hex: string; name: string; tag?: string; rgb?: PdfRgbColor; count: number }>();
 
-    for (const c of paletteColors) {
-      const hex = normalizeHexColor(c.hex);
-      // Count annotations matching this color
-      const matchingCount = allAnnots.filter((a) => {
-        const info = getAnnotationColorInfo(a, this.colorScheme);
-        return normalizeHexColor(info.hex) === hex;
-      }).length;
+    if (this.colorScheme?.colors && this.colorScheme.colors.length > 0) {
+      for (const c of this.colorScheme.colors) {
+        const hex = normalizeHexColor(c.hex);
+        colorMap.set(hex, {
+          hex,
+          name: c.name,
+          tag: c.tag,
+          rgb: c.rgb,
+          count: 0,
+        });
+      }
+    } else {
+      for (const p of PDF_COLOR_PRESETS) {
+        const hex = normalizeHexColor(p.hex);
+        colorMap.set(hex, {
+          hex,
+          name: p.name,
+          tag: "",
+          rgb: p.rgb,
+          count: 0,
+        });
+      }
+    }
 
-      // Always show if it has annotations or if it's in active scheme
-      const isSelected = this.filterColorHex === hex;
+    for (const a of allAnnots) {
+      const info = getAnnotationColorInfo(a, this.colorScheme);
+      const hex = normalizeHexColor(info.hex);
+      let entry = colorMap.get(hex);
+      if (!entry) {
+        entry = {
+          hex,
+          name: info.name,
+          tag: info.tag,
+          rgb: info.rgb,
+          count: 0,
+        };
+        colorMap.set(hex, entry);
+      }
+      entry.count++;
+    }
+
+    for (const c of colorMap.values()) {
+      const isSelected = this.filterColorHex === c.hex;
       const pill = container.createSpan({
         cls: `pdf-annot-color-pill ${isSelected ? "is-active" : ""}`,
         attr: {
           title: c.tag
-            ? `${c.name} (${c.tag}): ${matchingCount} annotations`
-            : `${c.name}: ${matchingCount} annotations`,
+            ? `${c.name} (${c.tag}): ${c.count} annotations`
+            : `${c.name}: ${c.count} annotations`,
         },
       });
 
@@ -472,16 +545,16 @@ export class PdfSidebar {
       // Label: Prefer semantic tag if available, otherwise color name
       const labelText = c.tag || c.name;
       pill.createSpan({ cls: "pdf-annot-color-pill-text", text: labelText });
-      pill.createSpan({ cls: "pdf-annot-color-pill-count", text: `${matchingCount}` });
+      pill.createSpan({ cls: "pdf-annot-color-pill-count", text: `${c.count}` });
 
       pill.onclick = () => {
-        if (this.filterColorHex === hex) {
+        if (this.filterColorHex === c.hex) {
           // Toggle off -> all
           this.filterColorHex = "all";
           container.querySelectorAll(".pdf-annot-color-pill").forEach((p) => p.removeClass("is-active"));
           allPill.addClass("is-active");
         } else {
-          this.filterColorHex = hex;
+          this.filterColorHex = c.hex;
           container.querySelectorAll(".pdf-annot-color-pill").forEach((p) => p.removeClass("is-active"));
           pill.addClass("is-active");
         }
@@ -521,7 +594,7 @@ export class PdfSidebar {
     if (filtered.length === 0) {
       const emptyWrap = container.createDiv({ cls: "pdf-annot-empty-wrap" });
       const emptyIcon = emptyWrap.createSpan({ cls: "pdf-annot-empty-icon" });
-      setIcon(emptyIcon, "search-x");
+      safeSetIcon(emptyIcon, "search-x", "search");
       emptyWrap.createDiv({
         cls: "pdf-annot-empty-title",
         text: rawAnnots.length === 0 ? "No annotations in this document" : "No matching annotations found",
@@ -533,6 +606,19 @@ export class PdfSidebar {
             ? "Highlight or underline text, or click tools in the top bar to add annotations."
             : "Try adjusting your search query, color filter, or annotation type filters.",
       });
+      if (rawAnnots.length > 0) {
+        const resetBtn = emptyWrap.createEl("button", {
+          cls: "pdf-annot-reset-filters-btn",
+          text: "Reset All Filters",
+        });
+        resetBtn.onclick = () => {
+          this.searchQuery = "";
+          this.filterType = "all";
+          this.filterColorHex = "all";
+          this.filterTag = "all";
+          this.renderActiveTab();
+        };
+      }
       return;
     }
 
@@ -549,7 +635,11 @@ export class PdfSidebar {
         this.colorScheme
       );
       for (const annot of sorted) {
-        this.renderSingleAnnotationCard(container, annot);
+        try {
+          this.renderSingleAnnotationCard(container, annot);
+        } catch (err) {
+          console.error("Failed to render annotation card:", annot, err);
+        }
       }
     }
   }
@@ -572,7 +662,7 @@ export class PdfSidebar {
 
       const headerLeft = headerEl.createDiv({ cls: "pdf-annot-group-header-left" });
       const chevron = headerLeft.createSpan({ cls: "pdf-annot-group-chevron" });
-      setIcon(chevron, isCollapsed ? "chevron-right" : "chevron-down");
+      safeSetIcon(chevron, isCollapsed ? "chevron-right" : "chevron-down");
 
       // Color Circle Swatch
       const colorDot = headerLeft.createSpan({ cls: "pdf-annot-group-color-dot" });
@@ -607,7 +697,11 @@ export class PdfSidebar {
       if (!isCollapsed) {
         const itemsWrap = groupEl.createDiv({ cls: "pdf-annot-group-items" });
         for (const annot of group.annotations) {
-          this.renderSingleAnnotationCard(itemsWrap, annot);
+          try {
+            this.renderSingleAnnotationCard(itemsWrap, annot);
+          } catch (err) {
+            console.error("Failed to render annotation card in group:", annot, err);
+          }
         }
       }
     }
@@ -629,10 +723,10 @@ export class PdfSidebar {
 
       const headerLeft = headerEl.createDiv({ cls: "pdf-annot-group-header-left" });
       const chevron = headerLeft.createSpan({ cls: "pdf-annot-group-chevron" });
-      setIcon(chevron, isCollapsed ? "chevron-right" : "chevron-down");
+      safeSetIcon(chevron, isCollapsed ? "chevron-right" : "chevron-down");
 
       const typeIcon = headerLeft.createSpan({ cls: "pdf-annot-group-type-icon" });
-      setIcon(typeIcon, group.icon);
+      safeSetIcon(typeIcon, group.icon, "bookmark");
 
       headerLeft.createSpan({ cls: "pdf-annot-group-title", text: group.label });
 
@@ -653,7 +747,11 @@ export class PdfSidebar {
       if (!isCollapsed) {
         const itemsWrap = groupEl.createDiv({ cls: "pdf-annot-group-items" });
         for (const annot of group.annotations) {
-          this.renderSingleAnnotationCard(itemsWrap, annot);
+          try {
+            this.renderSingleAnnotationCard(itemsWrap, annot);
+          } catch (err) {
+            console.error("Failed to render annotation card in type group:", annot, err);
+          }
         }
       }
     }
@@ -696,7 +794,7 @@ export class PdfSidebar {
     // Annotation Type Icon
     const typeIconEl = headerLeft.createSpan({ cls: "pdf-annot-card-type-icon" });
     const iconName = this.getTypeIconName(annot.type);
-    setIcon(typeIconEl, iconName);
+    safeSetIcon(typeIconEl, iconName, "bookmark");
     typeIconEl.setAttribute("title", formatTypeLabel(annot.type));
 
     // Semantic Tag Badge (e.g. "New Info" in green, "Important Points" in red)
@@ -751,7 +849,7 @@ export class PdfSidebar {
       cls: "pdf-annot-icon-btn",
       attr: { title: "Edit comment or link Obsidian note" },
     });
-    setIcon(editBtn, "pencil");
+    safeSetIcon(editBtn, "pencil", "edit");
     editBtn.onclick = (e) => {
       e.stopPropagation();
       this.delegate?.onEditAnnotation(annot);
@@ -762,7 +860,7 @@ export class PdfSidebar {
       cls: "pdf-annot-icon-btn",
       attr: { title: "Copy deep citation link" },
     });
-    setIcon(linkBtn, "link");
+    safeSetIcon(linkBtn, "link");
     linkBtn.onclick = async (e) => {
       e.stopPropagation();
       const link = CitationBuilder.buildDeepLink({
@@ -779,7 +877,7 @@ export class PdfSidebar {
       cls: "pdf-annot-icon-btn mod-danger",
       attr: { title: "Delete annotation" },
     });
-    setIcon(delBtn, "trash");
+    safeSetIcon(delBtn, "trash");
     delBtn.onclick = (e) => {
       e.stopPropagation();
       this.delegate?.onDeleteAnnotation(annot.id);
@@ -818,7 +916,16 @@ export class PdfSidebar {
       }
     }
 
-    // 3. Card Attached User Comment / Note
+    // 3. Card Body: Shape / Area Representation (for Square, Circle, Line)
+    if (annot.type === "square" || annot.type === "circle" || annot.type === "line") {
+      const shapePreview = card.createDiv({ cls: "pdf-annot-card-shape-preview" });
+      const shapeIcon = shapePreview.createSpan({ cls: "pdf-annot-card-shape-icon" });
+      safeSetIcon(shapeIcon, annot.type === "square" ? "square" : annot.type === "circle" ? "circle" : "minus");
+      const shapeLabel = annot.type === "square" ? "Rectangle Area" : annot.type === "circle" ? "Circle Area" : "Line";
+      shapePreview.createSpan({ cls: "pdf-annot-card-shape-label", text: shapeLabel });
+    }
+
+    // 4. Card Attached User Comment / Note
     const isQuoteType = annot.type === "highlight" || annot.type === "underline";
     const hlSnippet = isQuoteType ? (annot as any).highlightedText : undefined;
     const hasDistinctComment = annot.contents && (!isQuoteType || annot.contents !== hlSnippet);
@@ -826,7 +933,7 @@ export class PdfSidebar {
     if (hasDistinctComment && annot.contents?.trim()) {
       const commentBox = card.createDiv({ cls: "pdf-annot-card-comment" });
       const commentIcon = commentBox.createSpan({ cls: "pdf-annot-card-comment-icon" });
-      setIcon(commentIcon, "message-square");
+      safeSetIcon(commentIcon, "message-square", "message-circle");
       commentBox.createSpan({ cls: "pdf-annot-card-comment-text", text: annot.contents.trim() });
     } else if (annot.type === "text" && !annot.contents) {
       card.createDiv({
@@ -848,14 +955,14 @@ export class PdfSidebar {
       });
     }
 
-    // 4. Linked Obsidian Note Badge
+    // 5. Linked Obsidian Note Badge
     if (annot.linkedNote) {
       const linkedBadge = card.createDiv({
         cls: "pdf-annot-card-linked-note",
         attr: { title: `Open linked note: ${annot.linkedNote}` },
       });
       const noteIcon = linkedBadge.createSpan({ cls: "pdf-annot-link-icon" });
-      setIcon(noteIcon, "file-text");
+      safeSetIcon(noteIcon, "file-text");
       linkedBadge.createSpan({ cls: "pdf-annot-link-name", text: annot.linkedNote });
 
       linkedBadge.onclick = (e) => {
@@ -957,7 +1064,7 @@ export class PdfSidebar {
       if (!outline || !Array.isArray(outline) || outline.length === 0) {
         const emptyWrap = wrap.createDiv({ cls: "pdf-annot-empty-wrap" });
         const iconSpan = emptyWrap.createSpan({ cls: "pdf-annot-empty-icon" });
-        setIcon(iconSpan, "list-tree");
+        safeSetIcon(iconSpan, "list-tree", "list");
         emptyWrap.createDiv({ cls: "pdf-annot-empty-title", text: "No Table of Contents" });
         emptyWrap.createDiv({
           cls: "pdf-annot-empty-desc",
@@ -984,7 +1091,7 @@ export class PdfSidebar {
       // Expand/Collapse Caret
       const caret = itemRow.createSpan({ cls: "pdf-outline-caret" });
       if (hasChildren) {
-        setIcon(caret, "chevron-down");
+        safeSetIcon(caret, "chevron-down");
       } else {
         caret.addClass("is-leaf");
       }
@@ -1004,7 +1111,7 @@ export class PdfSidebar {
           e.stopPropagation();
           isCollapsed = !isCollapsed;
           caret.empty();
-          setIcon(caret, isCollapsed ? "chevron-right" : "chevron-down");
+          safeSetIcon(caret, isCollapsed ? "chevron-right" : "chevron-down");
           childrenWrap?.toggleClass("is-hidden", isCollapsed);
         };
       }
@@ -1078,7 +1185,7 @@ export class PdfSidebar {
         cls: "pdf-thumbnail-menu-btn",
         attr: { title: "Page actions" },
       });
-      setIcon(actionsBtn, "more-vertical");
+      safeSetIcon(actionsBtn, "more-vertical");
       actionsBtn.onclick = (e) => {
         e.stopPropagation();
         this.showPageActionsMenu(actionsBtn, i);

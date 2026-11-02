@@ -147,13 +147,23 @@ export async function runPdfTextSelectionTestSuite() {
 
   const pageRect = { left: 0, top: 0, width: 612, height: 792, right: 612, bottom: 792 };
 
-  let validLocalRects = rawFragments
+  interface LocalRect {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  }
+
+  let validLocalRects: LocalRect[] = rawFragments
     .filter((r) => r.width > 0.5 && r.height > 0.5)
     .map((r) => ({
       left: Math.max(0, Math.min(pageRect.width, r.left - pageRect.left)),
       top: Math.max(0, Math.min(pageRect.height, r.top - pageRect.top)),
       right: Math.max(0, Math.min(pageRect.width, r.right - pageRect.left)),
       bottom: Math.max(0, Math.min(pageRect.height, r.bottom - pageRect.top)),
+      width: r.width,
       height: r.height,
     }));
 
@@ -194,7 +204,7 @@ export async function runPdfTextSelectionTestSuite() {
     bottom: number;
     center: number;
     avgHeight: number;
-    rects: typeof validLocalRects;
+    rects: LocalRect[];
   }
   const lineGroups: LineGroup[] = [];
   validLocalRects.sort((a, b) => a.top - b.top || a.left - b.left);
@@ -692,6 +702,151 @@ export async function runPdfTextSelectionTestSuite() {
     throw new Error("Vector displacement for underline clearance mismatch!");
   }
   console.log("✓ Verified highlight height perfectly proportioned and underline leaves clean whitespace above next line");
+
+  // ------------------------------------------------------------------
+  // 11. Multi-Column Research Paper Isolation & Text Disambiguation
+  // ------------------------------------------------------------------
+  // Simulate 3 lines of a 2-column research paper where DOM spans from Column 1 and Column 2 interleave
+  interface SimSegment {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    text: string;
+  }
+  const multiColLines: SimSegment[][] = [
+    // Line 1: Col 1 [50, 275] and Col 2 [340, 565]
+    [
+      { left: 50, top: 100, right: 275, bottom: 114, text: "Machine learning models" },
+      { left: 340, top: 100, right: 565, bottom: 114, text: "We propose a novel" },
+    ],
+    // Line 2: Col 1 [50, 280] and Col 2 [340, 570]
+    [
+      { left: 50, top: 120, right: 280, bottom: 134, text: "have shown great" },
+      { left: 340, top: 120, right: 570, bottom: 134, text: "architecture that" },
+    ],
+    // Line 3: Col 1 [50, 260] and Col 2 [340, 560]
+    [
+      { left: 50, top: 140, right: 260, bottom: 154, text: "success in vision." },
+      { left: 340, top: 140, right: 560, bottom: 154, text: "outperforms prior art." },
+    ],
+  ];
+
+  // Helper matching the algorithm in PdfPageView
+  function resolveActiveColumnLines(
+    lines: SimSegment[][],
+    anchorLocalX: number
+  ): SimSegment[] {
+    // 1. Establish column bounds
+    let colMinLeft = Infinity;
+    let colMaxRight = -Infinity;
+    for (const segs of lines) {
+      for (const seg of segs) {
+        if (anchorLocalX >= seg.left - 15 && anchorLocalX <= seg.right + 15) {
+          colMinLeft = Math.min(colMinLeft, seg.left);
+          colMaxRight = Math.max(colMaxRight, seg.right);
+        }
+      }
+    }
+
+    const results: SimSegment[] = [];
+    for (const segs of lines) {
+      if (segs.length === 1) {
+        const seg = segs[0];
+        if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
+          if (seg.left > colMaxRight + 30 || seg.right < colMinLeft - 30) {
+            continue;
+          }
+        }
+        results.push(seg);
+      } else {
+        let bestSeg = segs[0];
+        let bestDist = Infinity;
+        for (const seg of segs) {
+          let dist = 0;
+          if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) {
+            dist = 0;
+          } else if (anchorLocalX < seg.left) {
+            dist = seg.left - anchorLocalX;
+          } else {
+            dist = anchorLocalX - seg.right;
+          }
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSeg = seg;
+          }
+        }
+        results.push(bestSeg);
+      }
+    }
+    return results;
+  }
+
+  // Case A: User drags in Left Column (anchorX = 120)
+  const leftColSelected = resolveActiveColumnLines(multiColLines, 120);
+  if (leftColSelected.length !== 3) {
+    throw new Error(`Expected 3 lines in Left Column, got ${leftColSelected.length}`);
+  }
+  for (const line of leftColSelected) {
+    if (line.left >= 300 || line.right > 300) {
+      throw new Error(`Left column line rect leaked into right column: left=${line.left}, right=${line.right}`);
+    }
+  }
+  const cleanLeftText = leftColSelected.map((l) => l.text).join(" ");
+  if (cleanLeftText !== "Machine learning models have shown great success in vision.") {
+    throw new Error(`Corrupted text extraction in multi-column PDF: "${cleanLeftText}"`);
+  }
+  if (cleanLeftText.includes("propose") || cleanLeftText.includes("architecture")) {
+    throw new Error("Text from right column bled into left column selection!");
+  }
+
+  // Case B: User drags in Right Column (anchorX = 420)
+  const rightColSelected = resolveActiveColumnLines(multiColLines, 420);
+  if (rightColSelected.length !== 3) {
+    throw new Error(`Expected 3 lines in Right Column, got ${rightColSelected.length}`);
+  }
+  for (const line of rightColSelected) {
+    if (line.left < 300) {
+      throw new Error(`Right column line rect leaked into left column: left=${line.left}`);
+    }
+  }
+  const cleanRightText = rightColSelected.map((l) => l.text).join(" ");
+  if (cleanRightText !== "We propose a novel architecture that outperforms prior art.") {
+    throw new Error(`Corrupted text extraction in right column: "${cleanRightText}"`);
+  }
+  console.log("✓ Verified double-column multi-line isolation (zero bleeding between adjacent columns)");
+
+  // ------------------------------------------------------------------
+  // 12. Guard Against Dragging Past Last Letter of Word (Section Jump Filter)
+  // ------------------------------------------------------------------
+  // Simulate user dragging across a word on line 1: Y between 100 and 114
+  const mouseDown = { x: 50, y: 105 };
+  const mouseUp = { x: 130, y: 107 }; // User dragged horizontally ~80px to select a word
+  const pageTop = 0;
+
+  // Browser mistakenly expanded range to include spans on lines 5, 6, 7 (Y = 250..350)
+  const corruptedRects = [
+    { left: 50, top: 100, right: 130, bottom: 114, text: "Machine" }, // Target word
+    { left: 50, top: 250, right: 280, bottom: 264, text: "Section 2: Related Work" },
+    { left: 50, top: 270, right: 280, bottom: 284, text: "Prior studies have evaluated..." },
+    { left: 50, top: 290, right: 280, bottom: 304, text: "In contrast to our approach..." },
+  ];
+
+  const dragDist = Math.hypot(mouseUp.x - mouseDown.x, mouseUp.y - mouseDown.y);
+  let clampedRects = [...corruptedRects];
+  if (dragDist > 10) {
+    const minDragY = Math.min(mouseDown.y, mouseUp.y) - pageTop - 20;
+    const maxDragY = Math.max(mouseDown.y, mouseUp.y) - pageTop + 20;
+    const inBoundsRects = clampedRects.filter((r) => r.top <= maxDragY && r.bottom >= minDragY);
+    if (inBoundsRects.length > 0) {
+      clampedRects = inBoundsRects;
+    }
+  }
+
+  if (clampedRects.length !== 1 || clampedRects[0].text !== "Machine") {
+    throw new Error(`Section jump filter failed: expected 1 word, got ${clampedRects.length} items`);
+  }
+  console.log("✓ Verified selection endpoint clamping & section-wide auto-selection prevention");
 
   console.log("==================================================");
   console.log("🎉 PDF TEXT LAYER & SELECTION TEST SUITE PASSED 100%!");

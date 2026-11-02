@@ -96,10 +96,11 @@ export class PdfAnnotationParser {
     const subtypeItem = this.lookupItem(dict, "Subtype", context);
     if (!(subtypeItem instanceof PDFName)) return null;
 
-    const subtype = subtypeItem.asString().replace(/^\//, "");
+    const rawSubtype = subtypeItem.asString().replace(/^\//, "");
+    const subtype = rawSubtype.toLowerCase();
 
     // Skip non-markup system annotations
-    if (subtype === "Popup" || subtype === "Link" || subtype === "Widget") {
+    if (subtype === "popup" || subtype === "link" || subtype === "widget") {
       return null;
     }
 
@@ -122,10 +123,15 @@ export class PdfAnnotationParser {
     const author = this.extractString(dict, "T", context) || "Author";
     const linkedNote = this.extractString(dict, "ObsidianNote", context);
 
+    const mStr = this.extractString(dict, "M", context);
+    const crStr = this.extractString(dict, "CreationDate", context);
+    const modifiedAt = mStr ? this.parsePdfDate(mStr) : undefined;
+    const createdAt = crStr ? this.parsePdfDate(crStr) : (modifiedAt || undefined);
+
     switch (subtype) {
-      case "Text":
-      case "Caret":
-      case "Stamp": {
+      case "text":
+      case "caret":
+      case "stamp": {
         const iconName = (this.extractName(dict, "Name", context) as any) || "Comment";
         const note: PdfNoteAnnotation = {
           id,
@@ -137,13 +143,15 @@ export class PdfAnnotationParser {
           author,
           iconName,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return note;
       }
 
-      case "Highlight":
-      case "StrikeOut":
-      case "Squiggly": {
+      case "highlight":
+      case "strikeout":
+      case "squiggly": {
         const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
         const highlight: PdfHighlightAnnotation = {
           id,
@@ -159,11 +167,13 @@ export class PdfAnnotationParser {
           ],
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return highlight;
       }
 
-      case "Underline": {
+      case "underline": {
         const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
         const underline: PdfUnderlineAnnotation = {
           id,
@@ -179,12 +189,14 @@ export class PdfAnnotationParser {
           ],
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return underline;
       }
 
-      case "Ink":
-      case "PolyLine": {
+      case "ink":
+      case "polyline": {
         const paths = this.extractInkList(dict, context);
         const strokeWidth = this.extractBorderWidth(dict, context) || 2;
         const ink: PdfInkAnnotation = {
@@ -198,11 +210,13 @@ export class PdfAnnotationParser {
           strokeWidth,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return ink;
       }
 
-      case "FreeText": {
+      case "freetext": {
         const da = this.extractString(dict, "DA", context) || "";
         const sizeMatch = da.match(/(\d+(?:\.\d+)?)\s+Tf/) || da.match(/Tf\s+(\d+(?:\.\d+)?)/);
         const fontSize = sizeMatch ? parseFloat(sizeMatch[1]) : 12;
@@ -250,19 +264,21 @@ export class PdfAnnotationParser {
           borderStyle,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return freeText;
       }
 
-      case "Square":
-      case "Circle":
-      case "Line":
-      case "Polygon": {
+      case "square":
+      case "circle":
+      case "line":
+      case "polygon": {
         const strokeWidth = this.extractBorderWidth(dict, context) || 2;
         const fillColor = this.extractColorByKey(dict, "IC", context);
-        const shapeType = (subtype === "Circle" ? "circle" : subtype === "Line" ? "line" : "square") as "square" | "circle" | "line";
+        const shapeType = (subtype === "circle" ? "circle" : subtype === "line" ? "line" : "square") as "square" | "circle" | "line";
         let linePoints: [number, number, number, number] | undefined;
-        if (subtype === "Line") {
+        if (subtype === "line") {
           const lArr = this.extractNumberArray(dict, "L", context);
           if (lArr.length >= 4) {
             linePoints = [lArr[0], lArr[1], lArr[2], lArr[3]];
@@ -281,6 +297,8 @@ export class PdfAnnotationParser {
           contents,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return shape;
       }
@@ -316,6 +334,29 @@ export class PdfAnnotationParser {
     return undefined;
   }
 
+  private static parsePdfDate(raw: string): Date | undefined {
+    if (!raw) return undefined;
+    const clean = raw.replace(/^D:/, "").trim();
+    const directDate = new Date(clean);
+    if (!isNaN(directDate.getTime())) {
+      return directDate;
+    }
+    const match = clean.match(/^(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = match[2] ? parseInt(match[2], 10) - 1 : 0;
+      const day = match[3] ? parseInt(match[3], 10) : 1;
+      const hour = match[4] ? parseInt(match[4], 10) : 0;
+      const min = match[5] ? parseInt(match[5], 10) : 0;
+      const sec = match[6] ? parseInt(match[6], 10) : 0;
+      const d = new Date(Date.UTC(year, month, day, hour, min, sec));
+      if (!isNaN(d.getTime())) {
+        return d;
+      }
+    }
+    return undefined;
+  }
+
   private static extractRect(dict: PDFDict, context?: PDFContext): PdfRect | null {
     const rectArr = this.lookupItem(dict, "Rect", context);
     if (!(rectArr instanceof PDFArray) || rectArr.size() < 4) return null;
@@ -328,7 +369,11 @@ export class PdfAnnotationParser {
       }
       nums.push(item instanceof PDFNumber ? item.asNumber() : 0);
     }
-    return [nums[0], nums[1], nums[2], nums[3]];
+    const minX = Math.min(nums[0], nums[2]);
+    const maxX = Math.max(nums[0], nums[2]);
+    const minY = Math.min(nums[1], nums[3]);
+    const maxY = Math.max(nums[1], nums[3]);
+    return [minX, minY, maxX, maxY];
   }
 
   private static extractColor(dict: PDFDict, context?: PDFContext): PdfRgbColor | undefined {

@@ -10,7 +10,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "check": "tsc --noEmit",
-    "test": "node -e \"require('esbuild').buildSync({ entryPoints: ['scripts/test-all.ts'], outfile: 'scripts/test-all.cjs', bundle: true, format: 'cjs', platform: 'node', external: ['obsidian', 'electron'] }); try { require('./scripts/test-all.cjs'); } finally { try { require('fs').unlinkSync('scripts/test-all.cjs'); } catch(e){} }\""
+    "test": "node -e \"require('esbuild').buildSync({ entryPoints: ['scripts/test-all.ts'], outfile: 'scripts/test-all.cjs', bundle: true, format: 'cjs', platform: 'node', external: ['obsidian', 'electron'] }); const M = require('module'); const orig = M._load; M._load = (r, p, m) => r === 'obsidian' ? { setIcon: () => {}, Notice: class { constructor(msg){} } } : orig(r, p, m); try { require('./scripts/test-all.cjs'); } finally { try { require('fs').unlinkSync('scripts/test-all.cjs'); } catch(e){} }\""
   },
   "dependencies": {
     "jszip": "^3.10.1",

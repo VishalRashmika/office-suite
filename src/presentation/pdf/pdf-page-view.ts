@@ -24,6 +24,14 @@ import {
 } from "../../domain/pdf";
 import { PdfActiveTool } from "./pdf-toolbar";
 
+export interface SelectionLineRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  text?: string;
+}
+
 export interface PdfPageViewDelegate {
   onAddAnnotation(annotation: PdfAnnotation): void;
   onUpdateAnnotation(annotation: PdfAnnotation): void;
@@ -33,7 +41,7 @@ export interface PdfPageViewDelegate {
     selectedText: string,
     screenRect: DOMRect,
     pageIndex: number,
-    lines?: { left: number; top: number; right: number; bottom: number }[]
+    lines?: SelectionLineRect[]
   ): void;
   getPageView?(pageIndex: number): PdfPageView | undefined;
   isPinching?(): boolean;
@@ -59,7 +67,10 @@ export class PdfPageView {
   private svgOverlayEl: SVGSVGElement;
   private htmlOverlayEl: HTMLElement;
   private onKeyDownListener: ((e: KeyboardEvent) => void) | null = null;
+  private onMouseDownListener: ((e: MouseEvent) => void) | null = null;
   private onMouseUpListener: ((e: MouseEvent) => void) | null = null;
+  private lastMouseDownPos: { x: number; y: number } | null = null;
+  private lastMouseUpPos: { x: number; y: number } | null = null;
   private delegate: PdfPageViewDelegate | null = null;
 
   private pdfjsLib: any = null;
@@ -73,7 +84,7 @@ export class PdfPageView {
   private currentRenderTask: any = null;
   private pendingRenderParams: { pdfjsPage: any; scale: number; pdfjsLib?: any } | null = null;
   private annotations: PdfAnnotation[] = [];
-  private cachedSelectionLines: { left: number; top: number; right: number; bottom: number }[] = [];
+  private cachedSelectionLines: SelectionLineRect[] = [];
   private colorScheme?: PdfColorSchemeProfile;
 
   // Selection & Drag State
@@ -1983,7 +1994,14 @@ export class PdfPageView {
   }
 
   private setupTextSelection(): void {
+    const handleMouseDown = (e: MouseEvent) => {
+      this.lastMouseDownPos = { x: e.clientX, y: e.clientY };
+    };
+    this.onMouseDownListener = handleMouseDown;
+    this.containerEl.addEventListener("mousedown", handleMouseDown);
+
     const handleMouseUp = (e: MouseEvent) => {
+      this.lastMouseUpPos = { x: e.clientX, y: e.clientY };
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
         // Collapsed click without dragging in hand mode: check if an existing highlight was clicked
@@ -2025,6 +2043,23 @@ export class PdfPageView {
         return;
       }
 
+      // Guard against browser snapping to endOfContent or container when selecting up to the last letter of a word
+      if (
+        range.endContainer === this.textLayerEl ||
+        range.endContainer === this.containerEl ||
+        (range.endContainer as HTMLElement).classList?.contains("endOfContent") ||
+        (range.endContainer as HTMLElement).classList?.contains("pdf-text-layer")
+      ) {
+        if (typeof (document as any).caretRangeFromPoint === "function") {
+          const caret = (document as any).caretRangeFromPoint(e.clientX - 2, e.clientY);
+          if (caret && this.textLayerEl.contains(caret.startContainer)) {
+            try {
+              range.setEnd(caret.startContainer, caret.startOffset);
+            } catch (_) {}
+          }
+        }
+      }
+
       const text = sel.toString().trim();
       if (!text) return;
 
@@ -2032,22 +2067,25 @@ export class PdfPageView {
       if (lines.length === 0) return;
       this.cachedSelectionLines = lines;
 
+      // Reconstruct clean text from kept line rects so discarded columns or section snaps never contaminate text
+      const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || text;
+
       // In Highlight tool mode: instantly create highlight!
       if (this.currentTool === "highlight") {
-        this.createHighlightFromSelection(text, this.currentColor, lines);
+        this.createHighlightFromSelection(cleanText, this.currentColor, lines);
         return;
       }
 
       // In Underline tool mode: instantly create underline!
       if (this.currentTool === "underline") {
-        this.createUnderlineFromSelection(text, this.currentColor, lines);
+        this.createUnderlineFromSelection(cleanText, this.currentColor, lines);
         return;
       }
 
       // In Hand tool mode: open sleek Zotero selection bar!
       if (this.currentTool === "hand") {
         const rect = range.getBoundingClientRect();
-        this.delegate?.onTextSelected?.(text, rect, this.pageIndex, lines);
+        this.delegate?.onTextSelected?.(cleanText, rect, this.pageIndex, lines);
       }
     };
 
@@ -2116,8 +2154,10 @@ export class PdfPageView {
    * Extracts precise, granular line rectangles from the user's DOM text selection.
    * Traverses leaf Text nodes inside textLayerEl to extract exact character bounding boxes,
    * completely eliminating parent containers, markedContent blocks, or entire-block merging artifacts.
+   * In multi-column layouts (e.g. 2-column research papers), isolates the selection to the active column
+   * and discards adjacent column text and rogue sections.
    */
-  private getMergedLineRectsFromSelection(): { left: number; top: number; right: number; bottom: number }[] {
+  private getMergedLineRectsFromSelection(): SelectionLineRect[] {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return [];
 
@@ -2125,7 +2165,15 @@ export class PdfPageView {
     const pageRect = this.containerEl.getBoundingClientRect();
     if (pageRect.width <= 0 || pageRect.height <= 0) return [];
 
-    const rawRects: { left: number; top: number; right: number; bottom: number; width: number; height: number }[] = [];
+    const rawRects: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+      width: number;
+      height: number;
+      text?: string;
+    }[] = [];
 
     // Approach 1 (Primary): Traverse leaf Text nodes inside textLayerEl that intersect range.
     // By querying only text nodes with clamped sub-ranges, we get the EXACT character bounding boxes
@@ -2163,6 +2211,7 @@ export class PdfPageView {
           } catch (_) {}
 
           if (!subRange.collapsed) {
+            const subText = subRange.toString();
             const rects = Array.from(subRange.getClientRects());
             for (const r of rects) {
               if (r.width > 0.5 && r.height > 0.5) {
@@ -2173,6 +2222,7 @@ export class PdfPageView {
                   bottom: r.bottom,
                   width: r.width,
                   height: r.height,
+                  text: subText,
                 });
               }
             }
@@ -2217,9 +2267,27 @@ export class PdfPageView {
         bottom: Math.max(0, Math.min(pageRect.height, r.bottom - pageRect.top)),
         width: r.width,
         height: r.height,
+        text: r.text,
       }));
 
     if (localRects.length === 0) return [];
+
+    // 1b. Guard against section-wide jumps when dragging past the last letter:
+    // If the user manually dragged, restrict rects to vertical extent of mouse drag (+ generous tolerance)
+    if (this.lastMouseDownPos && this.lastMouseUpPos) {
+      const dragDist = Math.hypot(
+        this.lastMouseUpPos.x - this.lastMouseDownPos.x,
+        this.lastMouseUpPos.y - this.lastMouseDownPos.y
+      );
+      if (dragDist > 10) {
+        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 20;
+        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 20;
+        const inBoundsRects = localRects.filter((r) => r.top <= maxDragY && r.bottom >= minDragY);
+        if (inBoundsRects.length > 0) {
+          localRects = inBoundsRects;
+        }
+      }
+    }
 
     // 2. Safe container rect filtering:
     // Only filter out a rect if it is a TRUE multi-line or block container that encompasses other vertically-separated rects.
@@ -2325,32 +2393,129 @@ export class PdfPageView {
       }
     }
 
-    // 4. For each line group, merge horizontally contiguous/adjacent fragments (e.g. words on the same line)
-    const resultLines: { left: number; top: number; right: number; bottom: number }[] = [];
+    // 4. Determine anchorLocalX (horizontal position where selection originated)
+    let anchorLocalX: number | null = null;
+    if (this.lastMouseDownPos) {
+      anchorLocalX = Math.max(0, Math.min(pageRect.width, this.lastMouseDownPos.x - pageRect.left));
+    } else {
+      try {
+        const startRange = document.createRange();
+        startRange.setStart(range.startContainer, range.startOffset);
+        startRange.collapse(true);
+        const startRects = startRange.getClientRects();
+        if (startRects.length > 0) {
+          anchorLocalX = Math.max(0, Math.min(pageRect.width, startRects[0].left - pageRect.left));
+        }
+      } catch (_) {}
+      if (anchorLocalX === null && localRects.length > 0) {
+        anchorLocalX = localRects[0].left;
+      }
+    }
+
+    interface HorizontalSegment {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+      text: string;
+    }
+
+    // For each line group, build merged horizontal segments
+    const lineGroupSegments: HorizontalSegment[][] = [];
+
     for (const group of lineGroups) {
       group.rects.sort((a, b) => a.left - b.left);
 
-      let currentSegment: { left: number; top: number; right: number; bottom: number } | null = null;
+      const segments: HorizontalSegment[] = [];
+      let currentSeg: HorizontalSegment | null = null;
       const lineH = group.avgHeight;
       // Allow merging across normal inter-word spaces (up to 1.5x line height), but keep multi-columns separate
       const maxWordGap = Math.max(16, lineH * 1.5);
 
       for (const r of group.rects) {
-        if (!currentSegment) {
-          currentSegment = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
-        } else if (r.left <= currentSegment.right + maxWordGap) {
+        if (!currentSeg) {
+          currentSeg = {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+            text: r.text || "",
+          };
+        } else if (r.left <= currentSeg.right + maxWordGap) {
           // Merge horizontally on the same line
-          currentSegment.right = Math.max(currentSegment.right, r.right);
-          currentSegment.top = Math.min(currentSegment.top, r.top);
-          currentSegment.bottom = Math.max(currentSegment.bottom, r.bottom);
+          currentSeg.right = Math.max(currentSeg.right, r.right);
+          currentSeg.top = Math.min(currentSeg.top, r.top);
+          currentSeg.bottom = Math.max(currentSeg.bottom, r.bottom);
+          if (r.text) {
+            currentSeg.text = currentSeg.text ? `${currentSeg.text} ${r.text}` : r.text;
+          }
         } else {
           // Different horizontal column or distant gap on the same line
-          resultLines.push(currentSegment);
-          currentSegment = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+          segments.push(currentSeg);
+          currentSeg = {
+            left: r.left,
+            top: r.top,
+            right: r.right,
+            bottom: r.bottom,
+            text: r.text || "",
+          };
         }
       }
-      if (currentSegment) {
-        resultLines.push(currentSegment);
+      if (currentSeg) {
+        segments.push(currentSeg);
+      }
+      if (segments.length > 0) {
+        lineGroupSegments.push(segments);
+      }
+    }
+
+    // 5. Multi-column isolation: Compute active column bounds
+    let colMinLeft = Infinity;
+    let colMaxRight = -Infinity;
+    for (const segs of lineGroupSegments) {
+      for (const seg of segs) {
+        if (anchorLocalX !== null && anchorLocalX >= seg.left - 15 && anchorLocalX <= seg.right + 15) {
+          colMinLeft = Math.min(colMinLeft, seg.left);
+          colMaxRight = Math.max(colMaxRight, seg.right);
+        }
+      }
+    }
+
+    const resultLines: SelectionLineRect[] = [];
+
+    for (const segments of lineGroupSegments) {
+      if (segments.length === 1) {
+        const seg = segments[0];
+        // If we established a clear column bound and this single segment is completely outside in another column, discard it
+        if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
+          const isFarRight = seg.left > colMaxRight + 30;
+          const isFarLeft = seg.right < colMinLeft - 30;
+          if (isFarRight || isFarLeft) {
+            continue;
+          }
+        }
+        resultLines.push(seg);
+      } else {
+        // Multi-segment line: pick the segment that belongs to the active column
+        let bestSeg = segments[0];
+        let bestDist = Infinity;
+        for (const seg of segments) {
+          let dist = 0;
+          if (anchorLocalX !== null) {
+            if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) {
+              dist = 0;
+            } else if (anchorLocalX < seg.left) {
+              dist = seg.left - anchorLocalX;
+            } else {
+              dist = anchorLocalX - seg.right;
+            }
+          }
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestSeg = seg;
+          }
+        }
+        resultLines.push(bestSeg);
       }
     }
 
@@ -2362,7 +2527,7 @@ export class PdfPageView {
   createHighlightFromSelection(
     selectedText: string,
     color: PdfRgbColor,
-    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+    explicitLines?: SelectionLineRect[]
   ): void {
     if (!this.coordinateTransformer) return;
     const lines =
@@ -2373,6 +2538,8 @@ export class PdfPageView {
         : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
     this.cachedSelectionLines = [];
+
+    const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || selectedText;
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2412,8 +2579,8 @@ export class PdfPageView {
       rect: [minX, minY, maxX, maxY],
       quadPoints,
       color,
-      contents: selectedText,
-      highlightedText: selectedText,
+      contents: cleanText,
+      highlightedText: cleanText,
       author: "User",
       createdAt: new Date(),
     };
@@ -2426,7 +2593,7 @@ export class PdfPageView {
   createUnderlineFromSelection(
     selectedText: string,
     color: PdfRgbColor,
-    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+    explicitLines?: SelectionLineRect[]
   ): void {
     if (!this.coordinateTransformer) return;
     const lines =
@@ -2437,6 +2604,8 @@ export class PdfPageView {
         : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
     this.cachedSelectionLines = [];
+
+    const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || selectedText;
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2467,8 +2636,8 @@ export class PdfPageView {
       rect: [minX, minY - 2, maxX, maxY],
       quadPoints,
       color,
-      contents: selectedText,
-      highlightedText: selectedText,
+      contents: cleanText,
+      highlightedText: cleanText,
       author: "User",
       createdAt: new Date(),
     };
@@ -2485,7 +2654,7 @@ export class PdfPageView {
   addAnnotatedNoteFromSelection(
     selectedText: string,
     color: PdfRgbColor,
-    explicitLines?: { left: number; top: number; right: number; bottom: number }[]
+    explicitLines?: SelectionLineRect[]
   ): void {
     if (!this.coordinateTransformer) return;
     const lines =
@@ -2496,6 +2665,8 @@ export class PdfPageView {
         : this.getMergedLineRectsFromSelection();
     if (lines.length === 0) return;
     this.cachedSelectionLines = [];
+
+    const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || selectedText;
 
     const quadPoints: number[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2593,6 +2764,10 @@ export class PdfPageView {
     if (this.onMouseUpListener) {
       window.removeEventListener("mouseup", this.onMouseUpListener);
       this.onMouseUpListener = null;
+    }
+    if (this.onMouseDownListener) {
+      this.containerEl.removeEventListener("mousedown", this.onMouseDownListener);
+      this.onMouseDownListener = null;
     }
     this.containerEl.removeEventListener("pointerdown", this.onPointerDown);
     window.removeEventListener("pointermove", this.onPointerMove);

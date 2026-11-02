@@ -169,9 +169,6 @@ export class PdfView
 
     statusEl.remove();
 
-    // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
-    await this.enrichAnnotationsFromPdfJs();
-
     // Initialize active color scheme for this PDF
     this.initColorSchemeForFile(file.path);
 
@@ -191,7 +188,19 @@ export class PdfView
     });
     this.retractTabEl.createSpan({ text: "📑" });
     this.retractTabEl.createSpan({ cls: "pdf-sidebar-retract-label", text: "Annotations" });
-    this.retractTabEl.onclick = () => this.onToggleSidebar();
+    this.retractTabEl.onclick = () => {
+      if (!this.sidebar.getIsVisible()) {
+        this.sidebar.showAnnotationsTab();
+        this.toolbar.setSidebarActive(true);
+        this.retractTabEl?.addClass("is-hidden");
+        const currentZoom = this.toolbar.getZoomSelection();
+        if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+          void this.onZoomChanged(currentZoom);
+        }
+      } else {
+        this.onToggleSidebar();
+      }
+    };
 
     // Sidebar (collapsed by default so PDF opens cleanly centered)
     this.sidebar.build(
@@ -211,6 +220,9 @@ export class PdfView
         this.retractTabEl?.removeClass("is-hidden");
       }
     };
+
+    // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
+    await this.enrichAnnotationsFromPdfJs();
 
     // Note Popover
     this.notePopover.setColorScheme(this.activeColorScheme);
@@ -1487,7 +1499,7 @@ export class PdfView
         const page = await this.pdfjsDoc.getPage(i + 1);
         const [textContent, rawAnnots] = await Promise.all([
           page.getTextContent().catch(() => null),
-          page.getAnnotations({ intent: "display" }).catch(() => []),
+          page.getAnnotations({ intent: "any" }).catch(() => []),
         ]);
 
         // 1. Discover any annotations from PDF.js not in adapter
@@ -1513,18 +1525,37 @@ export class PdfView
 
           const existingAnnots = this.pdfDoc.getPageAnnotations(i);
           const pRect = pAnnot.rect as number[] | undefined;
-          const alreadyExists = existingAnnots.some((a) => {
+          const normPRect: PdfRect | undefined =
+            pRect && Array.isArray(pRect) && pRect.length >= 4
+              ? [
+                  Math.min(pRect[0], pRect[2]),
+                  Math.min(pRect[1], pRect[3]),
+                  Math.max(pRect[0], pRect[2]),
+                  Math.max(pRect[1], pRect[3]),
+                ]
+              : undefined;
+
+          const existing = existingAnnots.find((a) => {
             if (a.id === pAnnot.id) return true;
-            if (pRect && Array.isArray(pRect) && pRect.length >= 4) {
-              const dx = Math.abs(a.rect[0] - pRect[0]);
-              const dy = Math.abs(a.rect[1] - pRect[1]);
+            if (normPRect) {
+              const dx = Math.abs(a.rect[0] - normPRect[0]);
+              const dy = Math.abs(a.rect[1] - normPRect[1]);
               return dx < 3 && dy < 3;
             }
             return false;
           });
 
-          if (!alreadyExists && pRect && Array.isArray(pRect) && pRect.length >= 4) {
-            const parsed = this.convertPdfJsAnnotation(pAnnot, i, pRect);
+          if (existing) {
+            const pContents = pAnnot.contentsObj?.str || pAnnot.contents || "";
+            if (pContents && (!existing.contents || !existing.contents.trim())) {
+              existing.contents = pContents;
+              if (existing.type === "highlight" || existing.type === "underline") {
+                (existing as any).highlightedText = pContents;
+              }
+              hasChanges = true;
+            }
+          } else if (normPRect) {
+            const parsed = this.convertPdfJsAnnotation(pAnnot, i, normPRect);
             if (parsed) {
               this.pdfDoc.registerExistingAnnotation(parsed);
               hasChanges = true;
@@ -1556,8 +1587,9 @@ export class PdfView
       }
     }
 
+    // Always update sidebar with the complete enriched annotation list
+    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
     if (hasChanges) {
-      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
       for (const [idx, pv] of this.pageViews.entries()) {
         pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
       }
@@ -1568,6 +1600,21 @@ export class PdfView
     const [minX, minY, maxX, maxY] = rect;
     const matchingItems: { str: string; x: number; y: number }[] = [];
     const tolerance = 2;
+
+    // Build sub-line bounding boxes from quadPoints if available
+    const quadBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
+    if (quadPoints && Array.isArray(quadPoints) && quadPoints.length >= 8) {
+      for (let q = 0; q + 7 < quadPoints.length; q += 8) {
+        const xs = [quadPoints[q], quadPoints[q + 2], quadPoints[q + 4], quadPoints[q + 6]];
+        const ys = [quadPoints[q + 1], quadPoints[q + 3], quadPoints[q + 5], quadPoints[q + 7]];
+        quadBoxes.push({
+          minX: Math.min(...xs),
+          maxX: Math.max(...xs),
+          minY: Math.min(...ys),
+          maxY: Math.max(...ys),
+        });
+      }
+    }
 
     for (const item of textContent.items) {
       if (!("str" in item) || !item.str.trim()) continue;
@@ -1582,13 +1629,24 @@ export class PdfView
       const itemBottom = ty;
       const itemTop = ty + height;
 
-      // Check overlap with highlight rect
-      const overlaps = !(
-        itemRight < minX - tolerance ||
-        itemLeft > maxX + tolerance ||
-        itemTop < minY - tolerance ||
-        itemBottom > maxY + tolerance
-      );
+      let overlaps = false;
+      if (quadBoxes.length > 0) {
+        overlaps = quadBoxes.some((qb) => {
+          return !(
+            itemRight < qb.minX - tolerance ||
+            itemLeft > qb.maxX + tolerance ||
+            itemTop < qb.minY - tolerance ||
+            itemBottom > qb.maxY + tolerance
+          );
+        });
+      } else {
+        overlaps = !(
+          itemRight < minX - tolerance ||
+          itemLeft > maxX + tolerance ||
+          itemTop < minY - tolerance ||
+          itemBottom > maxY + tolerance
+        );
+      }
 
       if (overlaps) {
         matchingItems.push({ str: item.str, x: tx, y: ty });
@@ -1626,7 +1684,12 @@ export class PdfView
         case 15: subtype = "ink"; break;
       }
     }
-    const pdfRect: PdfRect = [rect[0], rect[1], rect[2], rect[3]];
+    const pdfRect: PdfRect = [
+      Math.min(rect[0], rect[2]),
+      Math.min(rect[1], rect[3]),
+      Math.max(rect[0], rect[2]),
+      Math.max(rect[1], rect[3]),
+    ];
 
     let color: PdfRgbColor = [0.99, 0.88, 0.28];
     if (pAnnot.color && Array.isArray(pAnnot.color) && pAnnot.color.length >= 3) {
