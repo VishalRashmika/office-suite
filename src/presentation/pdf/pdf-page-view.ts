@@ -2003,20 +2003,12 @@ export class PdfPageView {
   private setupTextSelection(): void {
     const handleMouseDown = (e: MouseEvent) => {
       this.lastMouseDownPos = { x: e.clientX, y: e.clientY };
-      const endOfContent = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
-      if (endOfContent) {
-        endOfContent.classList.add("active");
-      }
     };
     this.onMouseDownListener = handleMouseDown;
     this.containerEl.addEventListener("mousedown", handleMouseDown);
 
     const handleMouseUp = (e: MouseEvent) => {
       this.lastMouseUpPos = { x: e.clientX, y: e.clientY };
-      const endOfContent = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
-      if (endOfContent) {
-        endOfContent.classList.remove("active");
-      }
 
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
@@ -2057,6 +2049,28 @@ export class PdfPageView {
 
       if (!intersectsThisPage) {
         return;
+      }
+
+      // Guard against browser snapping to container or whitespace when dragging up to the last word
+      if (
+        range.endContainer === this.textLayerEl ||
+        range.endContainer === this.containerEl ||
+        (range.endContainer as HTMLElement)?.classList?.contains("endOfContent") ||
+        (range.endContainer as HTMLElement)?.classList?.contains("pdf-text-layer")
+      ) {
+        if (typeof (document as any).caretRangeFromPoint === "function") {
+          const caret = (document as any).caretRangeFromPoint(e.clientX - 2, e.clientY);
+          if (caret && this.textLayerEl.contains(caret.startContainer)) {
+            try {
+              if (caret.startContainer.nodeType === Node.TEXT_NODE) {
+                const maxLen = caret.startContainer.textContent?.length || 0;
+                range.setEnd(caret.startContainer, Math.min(maxLen, Math.max(caret.startOffset, maxLen)));
+              } else {
+                range.setEnd(caret.startContainer, caret.startOffset);
+              }
+            } catch (_) {}
+          }
+        }
       }
 
       const text = sel.toString().trim();
@@ -2209,13 +2223,19 @@ export class PdfPageView {
           if (range.startContainer === textNode) {
             startOffset = Math.max(0, Math.min(endOffset, range.startOffset));
           } else if (range.startContainer === textNode.parentNode) {
-            if (range.startOffset > 0) startOffset = endOffset;
+            const childIdx = Array.from(textNode.parentNode?.childNodes || []).indexOf(textNode);
+            if (range.startOffset > childIdx) {
+              startOffset = endOffset;
+            }
           }
 
           if (range.endContainer === textNode) {
             endOffset = Math.max(startOffset, Math.min(textNode.textContent.length, range.endOffset));
           } else if (range.endContainer === textNode.parentNode) {
-            if (range.endOffset === 0) endOffset = startOffset;
+            const childIdx = Array.from(textNode.parentNode?.childNodes || []).indexOf(textNode);
+            if (range.endOffset <= childIdx) {
+              endOffset = startOffset;
+            }
           }
 
           if (startOffset >= endOffset) continue;
@@ -2287,15 +2307,14 @@ export class PdfPageView {
     if (localRects.length === 0) return [];
 
     // 1b. Guard against section-wide jumps when dragging past the last letter:
-    // If the user manually dragged, restrict rects to vertical extent of mouse drag (+ generous tolerance)
     if (this.lastMouseDownPos && this.lastMouseUpPos) {
       const dragDist = Math.hypot(
         this.lastMouseUpPos.x - this.lastMouseDownPos.x,
         this.lastMouseUpPos.y - this.lastMouseDownPos.y
       );
       if (dragDist > 10) {
-        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 25;
-        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 25;
+        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 35;
+        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 35;
         const inBoundsRects = localRects.filter((r) => r.top <= maxDragY && r.bottom >= minDragY);
         if (inBoundsRects.length > 0) {
           localRects = inBoundsRects;
@@ -2321,7 +2340,6 @@ export class PdfPageView {
           const maxEnclosedBottom = Math.max(...enclosed.map((e) => e.bottom));
           const minEnclosedHeight = Math.min(...enclosed.map((e) => e.height));
           const verticalSpread = maxEnclosedBottom - minEnclosedTop;
-          // Must span multiple vertically separated lines to be considered an enclosing multi-line container
           if (verticalSpread > minEnclosedHeight * 1.5 && r.height > minEnclosedHeight * 1.8) {
             return false;
           }
@@ -2330,9 +2348,7 @@ export class PdfPageView {
       });
     }
 
-    // 3. Cluster rects into distinct lines using vertical center alignment and anti-collision checks.
-    // Rects on the same line share approximately the same vertical baseline and vertical band.
-    // Distinct text lines (vertically separated lines of text) MUST NOT merge into one block!
+    // 3. Cluster rects into distinct lines using vertical center alignment and anti-stacking checks.
     interface LineGroup {
       top: number;
       bottom: number;
@@ -2351,45 +2367,42 @@ export class PdfPageView {
 
       let matchedGroup: LineGroup | null = null;
       for (const group of lineGroups) {
-        // Anti-collision check:
-        // In the same line of text, distinct words DO NOT sit on top of each other horizontally!
-        // Overlapping horizontally by > 40% indicates vertical stacking (different lines in paragraph)
-        const hasHorizontalConflict = group.rects.some((existing) => {
-          if (existing.width > 8 && r.width > 8) {
-            const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
-            const minW = Math.min(existing.width, r.width);
-            return hOverlap > minW * 0.4;
-          }
-          return false;
-        });
-
-        if (hasHorizontalConflict) {
-          continue; // Cannot be on the same line if words horizontally collide!
-        }
-
         const centerDiff = Math.abs(rCenter - group.center);
         const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
         const refHeight = Math.min(rHeight, group.avgHeight);
 
-        // A smaller fragment (like a comma, period, subscript, apostrophe, hyphen)
-        // is vertically contained within the line's bounds or has vertical overlap
-        const isVerticallyContained =
-          r.top >= group.top - 4 &&
-          r.bottom <= group.bottom + 4 &&
-          vOverlap > 0;
+        // Check if r belongs to this line:
+        // 1. Substantial vertical overlap (at least 30% of refHeight)
+        const hasStrongOverlap = vOverlap >= refHeight * 0.3;
 
-        // Characters and words on the same line share the line's vertical band:
-        // At least 35% vertical overlap with the reference height
-        const hasSubstantialOverlap = vOverlap >= refHeight * 0.35;
-
-        // Centers aligned within reasonable tolerance
+        // 2. Centers aligned within reasonable tolerance
         const isCenterAligned =
-          centerDiff <= Math.max(refHeight * 0.65, 6) &&
-          vOverlap >= refHeight * 0.25;
+          centerDiff <= Math.max(refHeight * 0.45, 6) &&
+          vOverlap >= refHeight * 0.2;
 
-        if (hasSubstantialOverlap || isVerticallyContained || isCenterAligned) {
-          matchedGroup = group;
-          break;
+        // 3. Punctuation, accents, subscript/superscript
+        const isPunctuationOrAccent =
+          rHeight <= 8 &&
+          r.top >= group.top - 6 &&
+          r.bottom <= group.bottom + 8;
+
+        if (hasStrongOverlap || isCenterAligned || isPunctuationOrAccent) {
+          // Verify that this is not a vertically stacked distinct line in a paragraph
+          const isStackedLine = group.rects.some((existing) => {
+            if (existing.width > 10 && r.width > 10) {
+              const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
+              const minW = Math.min(existing.width, r.width);
+              if (hOverlap > minW * 0.5) {
+                return centerDiff > refHeight * 0.35;
+              }
+            }
+            return false;
+          });
+
+          if (!isStackedLine) {
+            matchedGroup = group;
+            break;
+          }
         }
       }
 
@@ -2431,52 +2444,65 @@ export class PdfPageView {
       }
     }
 
-    interface HorizontalSegment {
-      left: number;
-      top: number;
-      right: number;
-      bottom: number;
-      text: string;
-    }
-
-    // For each line group, build merged horizontal segments
-    const lineGroupSegments: HorizontalSegment[][] = [];
+    // 5. For each line group, normalize all rects to uniform line top/bottom and merge contiguous segments
+    const lineGroupSegments: SelectionLineRect[][] = [];
 
     for (const group of lineGroups) {
+      // Find uniform line top and bottom across all rects on this line
+      const lineTop = Math.min(...group.rects.map((r) => r.top));
+      const lineBottom = Math.max(...group.rects.map((r) => r.bottom));
+      const lineH = Math.max(10, lineBottom - lineTop);
+
+      // Normalize every rect on this line so glyphs with descenders or differing heights NEVER drop down
+      for (const r of group.rects) {
+        r.top = lineTop;
+        r.bottom = lineBottom;
+        r.height = lineH;
+      }
+
       group.rects.sort((a, b) => a.left - b.left);
 
-      const segments: HorizontalSegment[] = [];
-      let currentSeg: HorizontalSegment | null = null;
-      const lineH = group.avgHeight;
-      // Normal inter-word spaces in justified or formatted text can be up to 25px.
-      // Column gutters are >= 32px.
-      const maxWordGap = Math.max(24, lineH * 1.6);
+      const segments: SelectionLineRect[] = [];
+      let currentSeg: SelectionLineRect | null = null;
+      // Normal inter-word spaces in justified or formatted text can be up to 35px.
+      // Column gutters are >= 36px.
+      const maxWordGap = Math.max(36, lineH * 1.8);
 
       for (const r of group.rects) {
         if (!currentSeg) {
           currentSeg = {
             left: r.left,
-            top: r.top,
+            top: lineTop,
             right: r.right,
-            bottom: r.bottom,
+            bottom: lineBottom,
             text: r.text || "",
           };
         } else if (r.left <= currentSeg.right + maxWordGap) {
           // Merge horizontally on the same line
           currentSeg.right = Math.max(currentSeg.right, r.right);
-          currentSeg.top = Math.min(currentSeg.top, r.top);
-          currentSeg.bottom = Math.max(currentSeg.bottom, r.bottom);
           if (r.text) {
-            currentSeg.text = currentSeg.text ? `${currentSeg.text} ${r.text}` : r.text;
+            if (!currentSeg.text) {
+              currentSeg.text = r.text;
+            } else {
+              const isPunctuation = /^[,\.!?;:\)\]\}]/.test(r.text);
+              const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
+              const afterHyphen = /[-—/]$/.test(currentSeg.text);
+
+              if (isPunctuation || afterOpeningQuote || afterHyphen) {
+                currentSeg.text = `${currentSeg.text}${r.text}`;
+              } else {
+                currentSeg.text = `${currentSeg.text} ${r.text}`;
+              }
+            }
           }
         } else {
           // Different horizontal column or distant gap on the same line
           segments.push(currentSeg);
           currentSeg = {
             left: r.left,
-            top: r.top,
+            top: lineTop,
             right: r.right,
-            bottom: r.bottom,
+            bottom: lineBottom,
             text: r.text || "",
           };
         }
@@ -2489,55 +2515,33 @@ export class PdfPageView {
       }
     }
 
-    // 5. Multi-column isolation:
+    // 6. Multi-column isolation:
     // Only isolate columns if there is an actual multi-column layout where multiple lines contain parallel
     // column segments separated by a gutter.
     const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
-    const hasMultiColumnLayout = multiSegmentLines.length >= 2;
+    const hasMultiColumn = multiSegmentLines.length >= 2;
 
     const resultLines: SelectionLineRect[] = [];
 
-    if (hasMultiColumnLayout && anchorLocalX !== null) {
-      let colMinLeft = Infinity;
-      let colMaxRight = -Infinity;
-      for (const segs of lineGroupSegments) {
-        for (const seg of segs) {
-          if (anchorLocalX >= seg.left - 20 && anchorLocalX <= seg.right + 20) {
-            colMinLeft = Math.min(colMinLeft, seg.left);
-            colMaxRight = Math.max(colMaxRight, seg.right);
-          }
-        }
-      }
+    if (hasMultiColumn && anchorLocalX !== null) {
+      // Find gutter boundaries between columns
+      const gutterLeft = Math.max(...multiSegmentLines.map((segs) => segs[0].right));
+      const gutterRight = Math.min(...multiSegmentLines.map((segs) => segs[1].left));
+      const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
 
       for (const segments of lineGroupSegments) {
-        if (segments.length === 1) {
-          const seg = segments[0];
-          if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
-            const isFarRight = seg.left > colMaxRight + 30;
-            const isFarLeft = seg.right < colMinLeft - 30;
-            if (isFarRight || isFarLeft) {
-              continue;
+        for (const seg of segments) {
+          if (isAnchorInLeftCol) {
+            // Keep segments in left column; discard segments in right column
+            if (seg.left <= gutterLeft + 15) {
+              resultLines.push(seg);
+            }
+          } else {
+            // Keep segments in right column; discard segments in left column
+            if (seg.right >= gutterRight - 15) {
+              resultLines.push(seg);
             }
           }
-          resultLines.push(seg);
-        } else {
-          let bestSeg = segments[0];
-          let bestDist = Infinity;
-          for (const seg of segments) {
-            let dist = 0;
-            if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) {
-              dist = 0;
-            } else if (anchorLocalX < seg.left) {
-              dist = seg.left - anchorLocalX;
-            } else {
-              dist = anchorLocalX - seg.right;
-            }
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestSeg = seg;
-            }
-          }
-          resultLines.push(bestSeg);
         }
       }
     } else {

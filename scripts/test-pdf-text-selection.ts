@@ -737,46 +737,33 @@ export async function runPdfTextSelectionTestSuite() {
     lines: SimSegment[][],
     anchorLocalX: number
   ): SimSegment[] {
-    // 1. Establish column bounds
-    let colMinLeft = Infinity;
-    let colMaxRight = -Infinity;
-    for (const segs of lines) {
-      for (const seg of segs) {
-        if (anchorLocalX >= seg.left - 15 && anchorLocalX <= seg.right + 15) {
-          colMinLeft = Math.min(colMinLeft, seg.left);
-          colMaxRight = Math.max(colMaxRight, seg.right);
+    const multiSegmentLines = lines.filter((segs) => segs.length > 1);
+    const hasMultiColumn = multiSegmentLines.length >= 2;
+    const results: SimSegment[] = [];
+
+    if (hasMultiColumn) {
+      const gutterLeft = Math.max(...multiSegmentLines.map((segs) => segs[0].right));
+      const gutterRight = Math.min(...multiSegmentLines.map((segs) => segs[1].left));
+      const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
+
+      for (const segs of lines) {
+        for (const seg of segs) {
+          if (isAnchorInLeftCol) {
+            if (seg.left <= gutterLeft + 15) {
+              results.push(seg);
+            }
+          } else {
+            if (seg.right >= gutterRight - 15) {
+              results.push(seg);
+            }
+          }
         }
       }
-    }
-
-    const results: SimSegment[] = [];
-    for (const segs of lines) {
-      if (segs.length === 1) {
-        const seg = segs[0];
-        if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
-          if (seg.left > colMaxRight + 30 || seg.right < colMinLeft - 30) {
-            continue;
-          }
-        }
-        results.push(seg);
-      } else {
-        let bestSeg = segs[0];
-        let bestDist = Infinity;
+    } else {
+      for (const segs of lines) {
         for (const seg of segs) {
-          let dist = 0;
-          if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) {
-            dist = 0;
-          } else if (anchorLocalX < seg.left) {
-            dist = seg.left - anchorLocalX;
-          } else {
-            dist = anchorLocalX - seg.right;
-          }
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestSeg = seg;
-          }
+          results.push(seg);
         }
-        results.push(bestSeg);
       }
     }
     return results;
@@ -883,33 +870,35 @@ export async function runPdfTextSelectionTestSuite() {
       let matchedGroup: LineGroup | null = null;
 
       for (const group of groups) {
-        const hasHorizontalConflict = group.rects.some((existing) => {
-          if (existing.width > 8 && r.width > 8) {
-            const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
-            const minW = Math.min(existing.width, r.width);
-            return hOverlap > minW * 0.4;
-          }
-          return false;
-        });
-        if (hasHorizontalConflict) continue;
-
         const centerDiff = Math.abs(rCenter - group.center);
         const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
         const refHeight = Math.min(rHeight, group.avgHeight);
 
-        const isVerticallyContained =
-          r.top >= group.top - 4 &&
-          r.bottom <= group.bottom + 4 &&
-          vOverlap > 0;
-
-        const hasSubstantialOverlap = vOverlap >= refHeight * 0.35;
+        const hasStrongOverlap = vOverlap >= refHeight * 0.3;
         const isCenterAligned =
-          centerDiff <= Math.max(refHeight * 0.65, 6) &&
-          vOverlap >= refHeight * 0.25;
+          centerDiff <= Math.max(refHeight * 0.45, 6) &&
+          vOverlap >= refHeight * 0.2;
+        const isPunctuationOrAccent =
+          rHeight <= 8 &&
+          r.top >= group.top - 6 &&
+          r.bottom <= group.bottom + 8;
 
-        if (hasSubstantialOverlap || isVerticallyContained || isCenterAligned) {
-          matchedGroup = group;
-          break;
+        if (hasStrongOverlap || isCenterAligned || isPunctuationOrAccent) {
+          const isStackedLine = group.rects.some((existing) => {
+            if (existing.width > 10 && r.width > 10) {
+              const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
+              const minW = Math.min(existing.width, r.width);
+              if (hOverlap > minW * 0.5) {
+                return centerDiff > refHeight * 0.35;
+              }
+            }
+            return false;
+          });
+
+          if (!isStackedLine) {
+            matchedGroup = group;
+            break;
+          }
         }
       }
 
@@ -934,23 +923,44 @@ export async function runPdfTextSelectionTestSuite() {
 
     const lineGroupSegments: { left: number; top: number; right: number; bottom: number; text: string }[][] = [];
     for (const group of groups) {
+      const lineTop = Math.min(...group.rects.map((r) => r.top));
+      const lineBottom = Math.max(...group.rects.map((r) => r.bottom));
+      const lineH = Math.max(10, lineBottom - lineTop);
+
+      for (const r of group.rects) {
+        r.top = lineTop;
+        r.bottom = lineBottom;
+        r.height = lineH;
+      }
+
       group.rects.sort((a, b) => a.left - b.left);
       const segments: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
       let currentSeg: { left: number; top: number; right: number; bottom: number; text: string } | null = null;
-      const lineH = group.avgHeight;
-      const maxWordGap = Math.max(24, lineH * 1.6);
+      const maxWordGap = Math.max(36, lineH * 1.8);
 
       for (const r of group.rects) {
         if (!currentSeg) {
-          currentSeg = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, text: r.text || "" };
+          currentSeg = { left: r.left, top: lineTop, right: r.right, bottom: lineBottom, text: r.text || "" };
         } else if (r.left <= currentSeg.right + maxWordGap) {
           currentSeg.right = Math.max(currentSeg.right, r.right);
-          currentSeg.top = Math.min(currentSeg.top, r.top);
-          currentSeg.bottom = Math.max(currentSeg.bottom, r.bottom);
-          if (r.text) currentSeg.text = currentSeg.text ? `${currentSeg.text} ${r.text}` : r.text;
+          if (r.text) {
+            if (!currentSeg.text) {
+              currentSeg.text = r.text;
+            } else {
+              const isPunctuation = /^[,\.!?;:\)\]\}]/.test(r.text);
+              const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
+              const afterHyphen = /[-—/]$/.test(currentSeg.text);
+
+              if (isPunctuation || afterOpeningQuote || afterHyphen) {
+                currentSeg.text = `${currentSeg.text}${r.text}`;
+              } else {
+                currentSeg.text = `${currentSeg.text} ${r.text}`;
+              }
+            }
+          }
         } else {
           segments.push(currentSeg);
-          currentSeg = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, text: r.text || "" };
+          currentSeg = { left: r.left, top: lineTop, right: r.right, bottom: lineBottom, text: r.text || "" };
         }
       }
       if (currentSeg) segments.push(currentSeg);
@@ -958,43 +968,25 @@ export async function runPdfTextSelectionTestSuite() {
     }
 
     const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
-    const hasMultiColumnLayout = multiSegmentLines.length >= 2;
+    const hasMultiColumn = multiSegmentLines.length >= 2;
     const resultLines: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
 
-    if (hasMultiColumnLayout && anchorLocalX !== null) {
-      let colMinLeft = Infinity;
-      let colMaxRight = -Infinity;
-      for (const segs of lineGroupSegments) {
-        for (const seg of segs) {
-          if (anchorLocalX >= seg.left - 20 && anchorLocalX <= seg.right + 20) {
-            colMinLeft = Math.min(colMinLeft, seg.left);
-            colMaxRight = Math.max(colMaxRight, seg.right);
-          }
-        }
-      }
+    if (hasMultiColumn && anchorLocalX !== null) {
+      const gutterLeft = Math.max(...multiSegmentLines.map((segs) => segs[0].right));
+      const gutterRight = Math.min(...multiSegmentLines.map((segs) => segs[1].left));
+      const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
+
       for (const segments of lineGroupSegments) {
-        if (segments.length === 1) {
-          const seg = segments[0];
-          if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
-            const isFarRight = seg.left > colMaxRight + 30;
-            const isFarLeft = seg.right < colMinLeft - 30;
-            if (isFarRight || isFarLeft) continue;
-          }
-          resultLines.push(seg);
-        } else {
-          let bestSeg = segments[0];
-          let bestDist = Infinity;
-          for (const seg of segments) {
-            let dist = 0;
-            if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) dist = 0;
-            else if (anchorLocalX < seg.left) dist = seg.left - anchorLocalX;
-            else dist = anchorLocalX - seg.right;
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestSeg = seg;
+        for (const seg of segments) {
+          if (isAnchorInLeftCol) {
+            if (seg.left <= gutterLeft + 15) {
+              resultLines.push(seg);
+            }
+          } else {
+            if (seg.right >= gutterRight - 15) {
+              resultLines.push(seg);
             }
           }
-          resultLines.push(bestSeg);
         }
       }
     } else {
@@ -1063,6 +1055,67 @@ export async function runPdfTextSelectionTestSuite() {
     throw new Error(`Column 1 text mismatch: "${col1Text}"`);
   }
   console.log("✓ Verified multi-column selection with short final line: 100% active column retention without bleeding");
+
+  // ------------------------------------------------------------------
+  // 16. Middle Drop-Down Elimination & Last Word Retention Verification
+  // ------------------------------------------------------------------
+  // Test Case A: Complex line with mixed baselines, middle punctuation, quotes, descenders, and last word
+  const complexLineFragments = [
+    { left: 50, top: 200, right: 80, bottom: 216, width: 30, height: 16, text: "For" },
+    { left: 85, top: 204, right: 150, bottom: 220, width: 65, height: 16, text: "example," }, // comma at baseline, 'p' descender
+    { left: 155, top: 204, right: 220, bottom: 220, width: 65, height: 16, text: "applying" }, // 'p', 'y', 'g' descenders (bottom: 220)
+    { left: 225, top: 198, right: 337, bottom: 218, width: 112, height: 20, text: "'hyper-parameters'" }, // quote and hyphenated word
+    { left: 342, top: 204, right: 360, bottom: 216, width: 18, height: 12, text: "to" },
+    { left: 365, top: 204, right: 420, bottom: 216, width: 55, height: 12, text: "achieve" },
+    { left: 425, top: 204, right: 485, bottom: 220, width: 60, height: 16, text: "quality." }, // 'q', 'y' descenders and period (last word!)
+  ];
+
+  const processedComplexLine = simulateProcessSelection(complexLineFragments, 50);
+
+  if (processedComplexLine.length !== 1) {
+    throw new Error(`Expected exactly 1 uniform line rectangle, got ${processedComplexLine.length} lines!`);
+  }
+
+  // Verify that the line rectangle has uniform top and bottom bounds
+  const line = processedComplexLine[0];
+  if (line.top !== 198 || line.bottom !== 220) {
+    throw new Error(`Line top/bottom not normalized: top=${line.top}, bottom=${line.bottom}`);
+  }
+  if (line.left !== 50 || line.right !== 485) {
+    throw new Error(`Line horizontal bounds mismatch: left=${line.left}, right=${line.right}`);
+  }
+  if (!line.text.includes("quality.")) {
+    throw new Error(`Last word was dropped: "${line.text}"`);
+  }
+  if (!line.text.includes("example, applying 'hyper-parameters'")) {
+    throw new Error(`Middle text was corrupted: "${line.text}"`);
+  }
+
+  // Test Case B: Selecting from middle of line 1 to the very last word of line 2 with wide justified spaces
+  const justifiedParagraph = [
+    // Line 1: user selected from middle: "developed algorithms with"
+    { left: 180, top: 300, right: 260, bottom: 316, width: 80, height: 16, text: "developed" },
+    { left: 290, top: 304, right: 380, bottom: 320, width: 90, height: 16, text: "algorithms" }, // 30px justified space
+    { left: 410, top: 300, right: 450, bottom: 316, width: 40, height: 16, text: "with" },       // 30px space
+    // Line 2: "high accuracy."
+    { left: 50, top: 328, right: 85, bottom: 344, width: 35, height: 16, text: "high" },
+    { left: 115, top: 328, right: 200, bottom: 344, width: 85, height: 16, text: "accuracy." }, // last word!
+  ];
+
+  const processedJustified = simulateProcessSelection(justifiedParagraph, 180);
+  if (processedJustified.length !== 2) {
+    throw new Error(`Expected 2 lines in justified paragraph, got ${processedJustified.length}`);
+  }
+  if (!processedJustified[1].text.includes("accuracy.")) {
+    throw new Error(`Last word was dropped from line 2: "${processedJustified[1].text}"`);
+  }
+  if (processedJustified[0].left !== 180 || processedJustified[0].right !== 450) {
+    throw new Error(`Line 1 bounds invalid: [${processedJustified[0].left}, ${processedJustified[0].right}]`);
+  }
+  if (processedJustified[1].left !== 50 || processedJustified[1].right !== 200) {
+    throw new Error(`Line 2 bounds invalid: [${processedJustified[1].left}, ${processedJustified[1].right}]`);
+  }
+  console.log("✓ Verified 0 middle dropped-down words & 100% last word selection guarantee");
 
   console.log("==================================================");
   console.log("🎉 PDF TEXT LAYER & SELECTION TEST SUITE PASSED 100%!");
