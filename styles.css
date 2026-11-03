@@ -2501,8 +2501,8 @@
   line-height: 1;
   opacity: 1;
   z-index: 2;
-  user-select: none !important;
-  -webkit-user-select: none !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
   pointer-events: auto;
   box-sizing: border-box;
   -webkit-text-size-adjust: none;
@@ -2542,6 +2542,11 @@
   user-select: none !important;
   -webkit-user-select: none !important;
   pointer-events: none !important;
+}
+
+.pdf-text-layer .endOfContent.active,
+.textLayer .endOfContent.active {
+  top: 0;
 }
 
 .pdf-text-layer ::selection,

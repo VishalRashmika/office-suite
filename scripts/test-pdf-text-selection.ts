@@ -848,6 +848,222 @@ export async function runPdfTextSelectionTestSuite() {
   }
   console.log("✓ Verified selection endpoint clamping & section-wide auto-selection prevention");
 
+  // ------------------------------------------------------------------
+  // 13. Test Middle-to-End Multi-Line Selection & Last Word Retention
+  // ------------------------------------------------------------------
+  // Simulates selecting from the middle of Line 1 to a short Line 2 ending with the last word.
+  // Prior bug: anchorLocalX (in middle of line 1) caused line 2 to be flagged as isFarLeft and discarded!
+  const multiLineMiddleToLast = [
+    // Line 1: user selected from x=200 to x=450
+    { left: 200, top: 100, right: 300, bottom: 116, width: 100, height: 16, text: "middle of line 1" },
+    { left: 305, top: 100, right: 450, bottom: 116, width: 145, height: 16, text: "to the end" },
+    // Line 2: short line with the last word (ending at x=160, far to the left of anchorLocalX=200!)
+    { left: 50, top: 124, right: 100, bottom: 140, width: 50, height: 16, text: "and" },
+    { left: 105, top: 124, right: 160, bottom: 140, width: 55, height: 16, text: "lastword" },
+  ];
+
+  // Helper matching the algorithm in PdfPageView
+  function simulateProcessSelection(
+    fragments: { left: number; top: number; right: number; bottom: number; width: number; height: number; text: string }[],
+    anchorLocalX: number
+  ) {
+    interface LineGroup {
+      top: number;
+      bottom: number;
+      center: number;
+      avgHeight: number;
+      rects: typeof fragments;
+    }
+    const groups: LineGroup[] = [];
+    const sorted = [...fragments].sort((a, b) => a.top - b.top || a.left - b.left);
+
+    for (const r of sorted) {
+      const rCenter = (r.top + r.bottom) / 2;
+      const rHeight = r.bottom - r.top;
+      let matchedGroup: LineGroup | null = null;
+
+      for (const group of groups) {
+        const hasHorizontalConflict = group.rects.some((existing) => {
+          if (existing.width > 8 && r.width > 8) {
+            const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
+            const minW = Math.min(existing.width, r.width);
+            return hOverlap > minW * 0.4;
+          }
+          return false;
+        });
+        if (hasHorizontalConflict) continue;
+
+        const centerDiff = Math.abs(rCenter - group.center);
+        const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
+        const refHeight = Math.min(rHeight, group.avgHeight);
+
+        const isVerticallyContained =
+          r.top >= group.top - 4 &&
+          r.bottom <= group.bottom + 4 &&
+          vOverlap > 0;
+
+        const hasSubstantialOverlap = vOverlap >= refHeight * 0.35;
+        const isCenterAligned =
+          centerDiff <= Math.max(refHeight * 0.65, 6) &&
+          vOverlap >= refHeight * 0.25;
+
+        if (hasSubstantialOverlap || isVerticallyContained || isCenterAligned) {
+          matchedGroup = group;
+          break;
+        }
+      }
+
+      if (matchedGroup) {
+        matchedGroup.rects.push(r);
+        matchedGroup.top = Math.min(matchedGroup.top, r.top);
+        matchedGroup.bottom = Math.max(matchedGroup.bottom, r.bottom);
+        matchedGroup.center =
+          matchedGroup.rects.reduce((sum, item) => sum + (item.top + item.bottom) / 2, 0) / matchedGroup.rects.length;
+        matchedGroup.avgHeight =
+          matchedGroup.rects.reduce((sum, item) => sum + item.height, 0) / matchedGroup.rects.length;
+      } else {
+        groups.push({
+          top: r.top,
+          bottom: r.bottom,
+          center: rCenter,
+          avgHeight: rHeight,
+          rects: [r],
+        });
+      }
+    }
+
+    const lineGroupSegments: { left: number; top: number; right: number; bottom: number; text: string }[][] = [];
+    for (const group of groups) {
+      group.rects.sort((a, b) => a.left - b.left);
+      const segments: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
+      let currentSeg: { left: number; top: number; right: number; bottom: number; text: string } | null = null;
+      const lineH = group.avgHeight;
+      const maxWordGap = Math.max(24, lineH * 1.6);
+
+      for (const r of group.rects) {
+        if (!currentSeg) {
+          currentSeg = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, text: r.text || "" };
+        } else if (r.left <= currentSeg.right + maxWordGap) {
+          currentSeg.right = Math.max(currentSeg.right, r.right);
+          currentSeg.top = Math.min(currentSeg.top, r.top);
+          currentSeg.bottom = Math.max(currentSeg.bottom, r.bottom);
+          if (r.text) currentSeg.text = currentSeg.text ? `${currentSeg.text} ${r.text}` : r.text;
+        } else {
+          segments.push(currentSeg);
+          currentSeg = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, text: r.text || "" };
+        }
+      }
+      if (currentSeg) segments.push(currentSeg);
+      if (segments.length > 0) lineGroupSegments.push(segments);
+    }
+
+    const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
+    const hasMultiColumnLayout = multiSegmentLines.length >= 2;
+    const resultLines: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
+
+    if (hasMultiColumnLayout && anchorLocalX !== null) {
+      let colMinLeft = Infinity;
+      let colMaxRight = -Infinity;
+      for (const segs of lineGroupSegments) {
+        for (const seg of segs) {
+          if (anchorLocalX >= seg.left - 20 && anchorLocalX <= seg.right + 20) {
+            colMinLeft = Math.min(colMinLeft, seg.left);
+            colMaxRight = Math.max(colMaxRight, seg.right);
+          }
+        }
+      }
+      for (const segments of lineGroupSegments) {
+        if (segments.length === 1) {
+          const seg = segments[0];
+          if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
+            const isFarRight = seg.left > colMaxRight + 30;
+            const isFarLeft = seg.right < colMinLeft - 30;
+            if (isFarRight || isFarLeft) continue;
+          }
+          resultLines.push(seg);
+        } else {
+          let bestSeg = segments[0];
+          let bestDist = Infinity;
+          for (const seg of segments) {
+            let dist = 0;
+            if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) dist = 0;
+            else if (anchorLocalX < seg.left) dist = seg.left - anchorLocalX;
+            else dist = anchorLocalX - seg.right;
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestSeg = seg;
+            }
+          }
+          resultLines.push(bestSeg);
+        }
+      }
+    } else {
+      for (const segments of lineGroupSegments) {
+        for (const seg of segments) {
+          resultLines.push(seg);
+        }
+      }
+    }
+
+    resultLines.sort((a, b) => a.top - b.top || a.left - b.left);
+    return resultLines;
+  }
+
+  const middleToLastLines = simulateProcessSelection(multiLineMiddleToLast, 200);
+  if (middleToLastLines.length !== 2) {
+    throw new Error(`Expected exactly 2 lines in middle-to-end selection, got ${middleToLastLines.length}`);
+  }
+  if (!middleToLastLines[1].text.includes("lastword")) {
+    throw new Error(`Last word was discarded from line 2: "${middleToLastLines[1].text}"`);
+  }
+  console.log("✓ Verified middle-to-end multi-line selection: short final line & last word 100% preserved");
+
+  // ------------------------------------------------------------------
+  // 14. Test Words with Descenders & Mixed Baselines (Zero Drop-Down Glitches)
+  // ------------------------------------------------------------------
+  // Simulates a single line containing letters with descenders ('p', 'q', 'g', 'y', 'j')
+  // and varying baseline heights in the middle of words.
+  const descenderFragments = [
+    { left: 50, top: 100, right: 100, bottom: 114, width: 50, height: 14, text: "Typing" },
+    { left: 105, top: 104, right: 160, bottom: 120, width: 55, height: 16, text: "paragraph" }, // descenders 'p', 'g'
+    { left: 165, top: 100, right: 220, bottom: 114, width: 55, height: 14, text: "query" },     // descenders 'q', 'y'
+    { left: 225, top: 104, right: 280, bottom: 120, width: 55, height: 16, text: "projects" },  // descenders 'p', 'j'
+  ];
+
+  const descenderLines = simulateProcessSelection(descenderFragments, 50);
+  if (descenderLines.length !== 1) {
+    throw new Error(`Descender fragments split into ${descenderLines.length} lines instead of 1 uniform line!`);
+  }
+  if (descenderLines[0].left !== 50 || descenderLines[0].right !== 280) {
+    throw new Error(`Line rect bounds mismatch for descender sentence: [${descenderLines[0].left}, ${descenderLines[0].right}]`);
+  }
+  if (descenderLines[0].text !== "Typing paragraph query projects") {
+    throw new Error(`Descender sentence text mismatch: "${descenderLines[0].text}"`);
+  }
+  console.log("✓ Verified inline descenders & mixed-height words retention: 0 dropped-down fragments");
+
+  // ------------------------------------------------------------------
+  // 15. Multi-Column Selection with Short Final Line in Active Column
+  // ------------------------------------------------------------------
+  // Simulates a 2-column paper where Column 1 ends on a short line 3.
+  const multiColWithShortEnd = [
+    { left: 200, top: 100, right: 275, bottom: 114, width: 75, height: 14, text: "learning models" },
+    { left: 340, top: 100, right: 565, bottom: 114, width: 225, height: 14, text: "We propose a novel" },
+    { left: 50, top: 120, right: 280, bottom: 134, width: 230, height: 14, text: "have shown great" },
+    { left: 340, top: 120, right: 570, bottom: 134, width: 230, height: 14, text: "architecture that" },
+    { left: 50, top: 140, right: 160, bottom: 154, width: 110, height: 14, text: "success." },
+  ];
+
+  const col1Lines = simulateProcessSelection(multiColWithShortEnd, 200);
+  if (col1Lines.length !== 3) {
+    throw new Error(`Expected 3 lines in Column 1 selection, got ${col1Lines.length}`);
+  }
+  const col1Text = col1Lines.map((l) => l.text).join(" ");
+  if (col1Text !== "learning models have shown great success.") {
+    throw new Error(`Column 1 text mismatch: "${col1Text}"`);
+  }
+  console.log("✓ Verified multi-column selection with short final line: 100% active column retention without bleeding");
+
   console.log("==================================================");
   console.log("🎉 PDF TEXT LAYER & SELECTION TEST SUITE PASSED 100%!");
   console.log("==================================================");

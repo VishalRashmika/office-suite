@@ -317,6 +317,13 @@ export class PdfPageView {
       if (!renderedSuccessfully) {
         this.renderManualTextLayer(textContent, viewport);
       }
+
+      // Ensure endOfContent anchor is present for robust selection boundaries
+      if (!this.textLayerEl.querySelector(".endOfContent")) {
+        const endOfContent = document.createElement("div");
+        endOfContent.className = "endOfContent";
+        this.textLayerEl.appendChild(endOfContent);
+      }
     } catch (err) {
       console.error(`Failed to render text layer for page ${this.pageNumber}:`, err);
     }
@@ -1996,12 +2003,21 @@ export class PdfPageView {
   private setupTextSelection(): void {
     const handleMouseDown = (e: MouseEvent) => {
       this.lastMouseDownPos = { x: e.clientX, y: e.clientY };
+      const endOfContent = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
+      if (endOfContent) {
+        endOfContent.classList.add("active");
+      }
     };
     this.onMouseDownListener = handleMouseDown;
     this.containerEl.addEventListener("mousedown", handleMouseDown);
 
     const handleMouseUp = (e: MouseEvent) => {
       this.lastMouseUpPos = { x: e.clientX, y: e.clientY };
+      const endOfContent = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
+      if (endOfContent) {
+        endOfContent.classList.remove("active");
+      }
+
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
         // Collapsed click without dragging in hand mode: check if an existing highlight was clicked
@@ -2041,23 +2057,6 @@ export class PdfPageView {
 
       if (!intersectsThisPage) {
         return;
-      }
-
-      // Guard against browser snapping to endOfContent or container when selecting up to the last letter of a word
-      if (
-        range.endContainer === this.textLayerEl ||
-        range.endContainer === this.containerEl ||
-        (range.endContainer as HTMLElement).classList?.contains("endOfContent") ||
-        (range.endContainer as HTMLElement).classList?.contains("pdf-text-layer")
-      ) {
-        if (typeof (document as any).caretRangeFromPoint === "function") {
-          const caret = (document as any).caretRangeFromPoint(e.clientX - 2, e.clientY);
-          if (caret && this.textLayerEl.contains(caret.startContainer)) {
-            try {
-              range.setEnd(caret.startContainer, caret.startOffset);
-            } catch (_) {}
-          }
-        }
       }
 
       const text = sel.toString().trim();
@@ -2154,8 +2153,10 @@ export class PdfPageView {
    * Extracts precise, granular line rectangles from the user's DOM text selection.
    * Traverses leaf Text nodes inside textLayerEl to extract exact character bounding boxes,
    * completely eliminating parent containers, markedContent blocks, or entire-block merging artifacts.
+   * Clusters words on the same line into uniform line rects so mixed-height glyphs (capitals, descenders,
+   * punctuation, subscripts) never drop down or split.
    * In multi-column layouts (e.g. 2-column research papers), isolates the selection to the active column
-   * and discards adjacent column text and rogue sections.
+   * and preserves all text within that column, including short final lines.
    */
   private getMergedLineRectsFromSelection(): SelectionLineRect[] {
     const sel = window.getSelection();
@@ -2176,7 +2177,7 @@ export class PdfPageView {
     }[] = [];
 
     // Approach 1 (Primary): Traverse leaf Text nodes inside textLayerEl that intersect range.
-    // By querying only text nodes with clamped sub-ranges, we get the EXACT character bounding boxes
+    // By querying only text nodes with character offset clamping, we get the exact character bounding boxes
     // of the selected text, completely eliminating enclosing container spans, markedContent, or whole-page blocks.
     try {
       if (this.textLayerEl && typeof document.createTreeWalker === "function") {
@@ -2190,25 +2191,38 @@ export class PdfPageView {
             if (typeof (range as any).intersectsNode === "function") {
               intersects = (range as any).intersectsNode(textNode);
             } else {
-              intersects = true;
+              const testRange = document.createRange();
+              testRange.selectNodeContents(textNode);
+              intersects =
+                testRange.compareBoundaryPoints(Range.END_TO_START, range) < 0 &&
+                testRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
             }
           } catch (_) {
             intersects = false;
           }
           if (!intersects) continue;
 
-          const subRange = document.createRange();
-          subRange.selectNodeContents(textNode);
+          // Determine start and end character offsets within this specific text node
+          let startOffset = 0;
+          let endOffset = textNode.textContent.length;
 
-          try {
-            // Clamp subRange to selection boundaries
-            if (subRange.compareBoundaryPoints(Range.START_TO_START, range) < 0) {
-              subRange.setStart(range.startContainer, range.startOffset);
-            }
-            if (subRange.compareBoundaryPoints(Range.END_TO_END, range) > 0) {
-              subRange.setEnd(range.endContainer, range.endOffset);
-            }
-          } catch (_) {}
+          if (range.startContainer === textNode) {
+            startOffset = Math.max(0, Math.min(endOffset, range.startOffset));
+          } else if (range.startContainer === textNode.parentNode) {
+            if (range.startOffset > 0) startOffset = endOffset;
+          }
+
+          if (range.endContainer === textNode) {
+            endOffset = Math.max(startOffset, Math.min(textNode.textContent.length, range.endOffset));
+          } else if (range.endContainer === textNode.parentNode) {
+            if (range.endOffset === 0) endOffset = startOffset;
+          }
+
+          if (startOffset >= endOffset) continue;
+
+          const subRange = document.createRange();
+          subRange.setStart(textNode, startOffset);
+          subRange.setEnd(textNode, endOffset);
 
           if (!subRange.collapsed) {
             const subText = subRange.toString();
@@ -2280,8 +2294,8 @@ export class PdfPageView {
         this.lastMouseUpPos.y - this.lastMouseDownPos.y
       );
       if (dragDist > 10) {
-        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 20;
-        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 20;
+        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 25;
+        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 25;
         const inBoundsRects = localRects.filter((r) => r.top <= maxDragY && r.bottom >= minDragY);
         if (inBoundsRects.length > 0) {
           localRects = inBoundsRects;
@@ -2317,8 +2331,8 @@ export class PdfPageView {
     }
 
     // 3. Cluster rects into distinct lines using vertical center alignment and anti-collision checks.
-    // Rects on the same line share approximately the same vertical baseline and center ((top + bottom) / 2).
-    // Distinct text lines MUST NOT merge into one block!
+    // Rects on the same line share approximately the same vertical baseline and vertical band.
+    // Distinct text lines (vertically separated lines of text) MUST NOT merge into one block!
     interface LineGroup {
       top: number;
       bottom: number;
@@ -2337,13 +2351,14 @@ export class PdfPageView {
 
       let matchedGroup: LineGroup | null = null;
       for (const group of lineGroups) {
-        // Check if there is massive horizontal overlap with existing words in the group.
+        // Anti-collision check:
         // In the same line of text, distinct words DO NOT sit on top of each other horizontally!
+        // Overlapping horizontally by > 40% indicates vertical stacking (different lines in paragraph)
         const hasHorizontalConflict = group.rects.some((existing) => {
           if (existing.width > 8 && r.width > 8) {
             const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
             const minW = Math.min(existing.width, r.width);
-            return hOverlap > minW * 0.4; // 40%+ horizontal overlap indicates a different line!
+            return hOverlap > minW * 0.4;
           }
           return false;
         });
@@ -2354,21 +2369,25 @@ export class PdfPageView {
 
         const centerDiff = Math.abs(rCenter - group.center);
         const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
-        const minHeight = Math.min(rHeight, group.avgHeight);
+        const refHeight = Math.min(rHeight, group.avgHeight);
 
-        // A smaller fragment (like a comma, period, subscript, apostrophe) is vertically
-        // contained within the line's bounds
+        // A smaller fragment (like a comma, period, subscript, apostrophe, hyphen)
+        // is vertically contained within the line's bounds or has vertical overlap
         const isVerticallyContained =
-          r.top >= group.top - 2 &&
-          r.bottom <= group.bottom + 2 &&
-          vOverlap >= minHeight * 0.75;
+          r.top >= group.top - 4 &&
+          r.bottom <= group.bottom + 4 &&
+          vOverlap > 0;
 
-        // Normal words on the same line have matching vertical centers and strong vertical overlap
+        // Characters and words on the same line share the line's vertical band:
+        // At least 35% vertical overlap with the reference height
+        const hasSubstantialOverlap = vOverlap >= refHeight * 0.35;
+
+        // Centers aligned within reasonable tolerance
         const isCenterAligned =
-          centerDiff <= minHeight * 0.45 &&
-          vOverlap >= minHeight * 0.45;
+          centerDiff <= Math.max(refHeight * 0.65, 6) &&
+          vOverlap >= refHeight * 0.25;
 
-        if (isCenterAligned || isVerticallyContained) {
+        if (hasSubstantialOverlap || isVerticallyContained || isCenterAligned) {
           matchedGroup = group;
           break;
         }
@@ -2429,8 +2448,9 @@ export class PdfPageView {
       const segments: HorizontalSegment[] = [];
       let currentSeg: HorizontalSegment | null = null;
       const lineH = group.avgHeight;
-      // Allow merging across normal inter-word spaces (up to 1.5x line height), but keep multi-columns separate
-      const maxWordGap = Math.max(16, lineH * 1.5);
+      // Normal inter-word spaces in justified or formatted text can be up to 25px.
+      // Column gutters are >= 32px.
+      const maxWordGap = Math.max(24, lineH * 1.6);
 
       for (const r of group.rects) {
         if (!currentSeg) {
@@ -2469,39 +2489,42 @@ export class PdfPageView {
       }
     }
 
-    // 5. Multi-column isolation: Compute active column bounds
-    let colMinLeft = Infinity;
-    let colMaxRight = -Infinity;
-    for (const segs of lineGroupSegments) {
-      for (const seg of segs) {
-        if (anchorLocalX !== null && anchorLocalX >= seg.left - 15 && anchorLocalX <= seg.right + 15) {
-          colMinLeft = Math.min(colMinLeft, seg.left);
-          colMaxRight = Math.max(colMaxRight, seg.right);
-        }
-      }
-    }
+    // 5. Multi-column isolation:
+    // Only isolate columns if there is an actual multi-column layout where multiple lines contain parallel
+    // column segments separated by a gutter.
+    const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
+    const hasMultiColumnLayout = multiSegmentLines.length >= 2;
 
     const resultLines: SelectionLineRect[] = [];
 
-    for (const segments of lineGroupSegments) {
-      if (segments.length === 1) {
-        const seg = segments[0];
-        // If we established a clear column bound and this single segment is completely outside in another column, discard it
-        if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
-          const isFarRight = seg.left > colMaxRight + 30;
-          const isFarLeft = seg.right < colMinLeft - 30;
-          if (isFarRight || isFarLeft) {
-            continue;
+    if (hasMultiColumnLayout && anchorLocalX !== null) {
+      let colMinLeft = Infinity;
+      let colMaxRight = -Infinity;
+      for (const segs of lineGroupSegments) {
+        for (const seg of segs) {
+          if (anchorLocalX >= seg.left - 20 && anchorLocalX <= seg.right + 20) {
+            colMinLeft = Math.min(colMinLeft, seg.left);
+            colMaxRight = Math.max(colMaxRight, seg.right);
           }
         }
-        resultLines.push(seg);
-      } else {
-        // Multi-segment line: pick the segment that belongs to the active column
-        let bestSeg = segments[0];
-        let bestDist = Infinity;
-        for (const seg of segments) {
-          let dist = 0;
-          if (anchorLocalX !== null) {
+      }
+
+      for (const segments of lineGroupSegments) {
+        if (segments.length === 1) {
+          const seg = segments[0];
+          if (colMinLeft !== Infinity && colMaxRight !== -Infinity) {
+            const isFarRight = seg.left > colMaxRight + 30;
+            const isFarLeft = seg.right < colMinLeft - 30;
+            if (isFarRight || isFarLeft) {
+              continue;
+            }
+          }
+          resultLines.push(seg);
+        } else {
+          let bestSeg = segments[0];
+          let bestDist = Infinity;
+          for (const seg of segments) {
+            let dist = 0;
             if (anchorLocalX >= seg.left && anchorLocalX <= seg.right) {
               dist = 0;
             } else if (anchorLocalX < seg.left) {
@@ -2509,13 +2532,20 @@ export class PdfPageView {
             } else {
               dist = anchorLocalX - seg.right;
             }
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestSeg = seg;
+            }
           }
-          if (dist < bestDist) {
-            bestDist = dist;
-            bestSeg = seg;
-          }
+          resultLines.push(bestSeg);
         }
-        resultLines.push(bestSeg);
+      }
+    } else {
+      // Single-column layout: keep all segments across all lines!
+      for (const segments of lineGroupSegments) {
+        for (const seg of segments) {
+          resultLines.push(seg);
+        }
       }
     }
 
