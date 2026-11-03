@@ -2,3 +2,5 @@ node_modules/
 *.log
 # agyq runtime state and transcripts
 .agyq/
+queue.md
+AGENTS.md
