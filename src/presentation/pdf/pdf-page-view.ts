@@ -150,18 +150,8 @@ export class PdfPageView {
     this.containerEl.dataset.activeTool = tool;
 
     // In draw and shape creation modes, SVG overlay captures all pointer events to draw
-    if (tool === "draw" || tool === "square" || tool === "circle" || tool === "line") {
-      this.svgOverlayEl.style.pointerEvents = "auto";
-      this.svgOverlayEl.classList.add("is-drawing");
-      this.textLayerEl.style.pointerEvents = "none";
-    } else {
-      // In hand, highlight, underline, note, freetext, eraser:
-      // SVG root has pointer-events: none (so textLayer can be selected),
-      // while child annotation elements handle their own pointer events
-      this.svgOverlayEl.style.pointerEvents = "none";
-      this.svgOverlayEl.classList.remove("is-drawing");
-      this.textLayerEl.style.pointerEvents = "auto";
-    }
+    const isDrawingTool = tool === "draw" || tool === "square" || tool === "circle" || tool === "line";
+    this.svgOverlayEl.classList.toggle("is-drawing", isDrawingTool);
   }
 
   setAnnotations(annotations: PdfAnnotation[]): void {
@@ -270,7 +260,6 @@ export class PdfPageView {
     this.textLayerEl.style.setProperty("--scale-factor", `${viewport.scale}`);
     this.textLayerEl.style.width = `${Math.floor(viewport.width)}px`;
     this.textLayerEl.style.height = `${Math.floor(viewport.height)}px`;
-    this.textLayerEl.style.pointerEvents = "auto";
 
     const pdfjsLib = pdfjsLibInstance || this.pdfjsLib || (window as any).pdfjsLib;
 
@@ -497,7 +486,6 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-highlight-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "none";
 
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
@@ -516,8 +504,6 @@ export class PdfPageView {
         poly.setAttribute("stroke-linejoin", "round");
         poly.setAttribute("stroke-linecap", "round");
         poly.setAttribute("stroke-opacity", "0.38");
-        poly.style.mixBlendMode = "multiply";
-        poly.style.pointerEvents = "none";
         g.appendChild(poly);
       }
     } else {
@@ -531,8 +517,6 @@ export class PdfPageView {
       rect.setAttribute("ry", "2");
       rect.setAttribute("fill", colorHex);
       rect.setAttribute("fill-opacity", "0.38");
-      rect.style.mixBlendMode = "multiply";
-      rect.style.pointerEvents = "none";
       g.appendChild(rect);
     }
 
@@ -571,7 +555,6 @@ export class PdfPageView {
           polyOutline.setAttribute("stroke", "var(--interactive-accent)");
           polyOutline.setAttribute("stroke-width", "1.5");
           polyOutline.setAttribute("stroke-dasharray", "3 3");
-          polyOutline.style.pointerEvents = "none";
           g.appendChild(polyOutline);
         }
       } else {
@@ -589,7 +572,6 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-underline-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "none";
 
     if (annot.quadPoints && annot.quadPoints.length >= 8) {
       for (let i = 0; i < annot.quadPoints.length; i += 8) {
@@ -622,7 +604,6 @@ export class PdfPageView {
         line.setAttribute("stroke", colorHex);
         line.setAttribute("stroke-width", `${strokeWidth.toFixed(2)}`);
         line.setAttribute("stroke-linecap", "round");
-        line.style.pointerEvents = "none";
         g.appendChild(line);
       }
     } else {
@@ -640,7 +621,6 @@ export class PdfPageView {
       line.setAttribute("stroke", colorHex);
       line.setAttribute("stroke-width", `${strokeWidth.toFixed(2)}`);
       line.setAttribute("stroke-linecap", "round");
-      line.style.pointerEvents = "none";
       g.appendChild(line);
     }
 
@@ -694,7 +674,6 @@ export class PdfPageView {
           selLine.setAttribute("stroke", "var(--interactive-accent)");
           selLine.setAttribute("stroke-width", "1.5");
           selLine.setAttribute("stroke-dasharray", "3 3");
-          selLine.style.pointerEvents = "none";
           g.appendChild(selLine);
         }
       } else {
@@ -756,8 +735,6 @@ export class PdfPageView {
     g.setAttribute("class", `pdf-annot-pin-group ${isSelected ? "is-selected" : ""}`);
     g.setAttribute("transform", `translate(${screenRect.left}, ${screenRect.top})`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "auto";
-    g.style.cursor = "grab";
 
     // Pin circle background
     const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
@@ -800,8 +777,6 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-ink-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "auto";
-    g.style.cursor = "move";
 
     for (const stroke of annot.paths) {
       if (stroke.length < 2) continue;
@@ -1199,7 +1174,7 @@ export class PdfPageView {
 
         e.preventDefault();
         box.dataset.isTransforming = "true";
-        document.body.style.cursor = "grabbing";
+        document.body.addClass("is-grabbing");
 
         const startX = e.clientX;
         const startY = e.clientY;
@@ -1228,7 +1203,7 @@ export class PdfPageView {
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
           delete box.dataset.isTransforming;
-          document.body.style.cursor = "";
+          document.body.removeClass("is-grabbing");
 
           if (!hasMoved) {
             return;
@@ -1394,8 +1369,6 @@ export class PdfPageView {
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
     g.setAttribute("class", `pdf-annot-shape-group ${isSelected ? "is-selected" : ""}`);
     g.dataset.annotId = annot.id;
-    g.style.pointerEvents = "auto";
-    g.style.cursor = "move";
 
     let shapeEl: SVGElement;
     if (annot.type === "circle") {
@@ -1584,8 +1557,6 @@ export class PdfPageView {
       this.liveFreeTextEl = this.htmlOverlayEl.createDiv({ cls: "pdf-annot-freetext-preview" });
       this.liveFreeTextEl.style.left = `${sx}px`;
       this.liveFreeTextEl.style.top = `${sy}px`;
-      this.liveFreeTextEl.style.width = "0px";
-      this.liveFreeTextEl.style.height = "0px";
     } else if (this.currentTool === "hand") {
       // Deselect
       if (this.selectedAnnotId) {
@@ -1621,7 +1592,7 @@ export class PdfPageView {
 
       if (!this.dragState.hasMoved && Math.hypot(dx, dy) > 3) {
         this.dragState.hasMoved = true;
-        document.body.style.cursor = "grabbing";
+        document.body.addClass("is-grabbing");
       }
 
       if (this.dragState.hasMoved) {
@@ -1686,7 +1657,7 @@ export class PdfPageView {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    document.body.style.cursor = "";
+    document.body.removeClass("is-grabbing");
     if (this.delegate?.isPinching?.()) {
       this.cancelActiveInteractions();
       return;
@@ -2484,7 +2455,7 @@ export class PdfPageView {
             if (!currentSeg.text) {
               currentSeg.text = r.text;
             } else {
-              const isPunctuation = /^[,\.!?;:\)\]\}]/.test(r.text);
+              const isPunctuation = /^[,.!?;:)[\]}]/.test(r.text);
               const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
               const afterHyphen = /[-—/]$/.test(currentSeg.text);
 
@@ -2740,7 +2711,7 @@ export class PdfPageView {
       quadPoints,
       color,
       contents: "",
-      highlightedText: selectedText,
+      highlightedText: cleanText,
       author: "User",
       createdAt: new Date(),
     };

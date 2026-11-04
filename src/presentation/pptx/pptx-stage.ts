@@ -1,9 +1,7 @@
 import {
   PptxPresentation,
-  PptxSlide,
   PptxRenderer,
   TransitionType,
-  PptxTransition,
 } from "../../domain/pptx";
 import { PptxViewMode } from "./pptx-toolbar";
 
@@ -357,7 +355,7 @@ export class PptxStage {
         oldSlideEl.remove();
       }
       newSlideEl.classList.remove(animInClass);
-      newSlideEl.style.animationDuration = "";
+      newSlideEl.style.removeProperty("animation-duration");
       this.currentSlideEl = newSlideEl;
       this.isTransitioning = false;
       this.attachElementInteractions(newSlideEl, toIndex);
@@ -387,7 +385,6 @@ export class PptxStage {
     }
 
     transHost.style.transform = `scale(${scale})`;
-    transHost.style.transformOrigin = "center center";
   }
 
   // -------------------------------------------------------------
@@ -472,12 +469,8 @@ export class PptxStage {
 
       previewBox.style.width = `${targetW}px`;
       previewBox.style.height = `${targetH}px`;
-      previewBox.style.position = "relative";
-      previewBox.style.overflow = "hidden";
 
       slidePreview.style.transform = `scale(${scale})`;
-      slidePreview.style.transformOrigin = "top left";
-      slidePreview.style.pointerEvents = "none";
       previewBox.appendChild(slidePreview);
 
       // Title footer

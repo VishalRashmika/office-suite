@@ -48,8 +48,6 @@ export class PptxRenderer {
         slideEl.style.backgroundColor = slide.background;
         isDarkBg = this.isDarkColor(slide.background);
       }
-    } else {
-      slideEl.style.backgroundColor = "#ffffff";
     }
 
     // Default text color based on background luminance
@@ -189,27 +187,24 @@ export class PptxRenderer {
     const geom = (el.shapeType || "rect").toLowerCase();
     switch (geom) {
       case "roundrect":
-        container.style.borderRadius = "8px";
+        container.classList.add("mod-shape-roundrect");
         break;
       case "ellipse":
-        container.style.borderRadius = "50%";
+        container.classList.add("mod-shape-ellipse");
         break;
       case "triangle":
-        container.style.clipPath = "polygon(50% 0%, 0% 100%, 100% 100%)";
+        container.classList.add("mod-shape-triangle");
         break;
       case "diamond":
-        container.style.clipPath = "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)";
+        container.classList.add("mod-shape-diamond");
         break;
       case "rightarrow":
       case "arrow":
-        container.style.clipPath = "polygon(0% 25%, 65% 25%, 65% 0%, 100% 50%, 65% 100%, 65% 75%, 0% 75%)";
+        container.classList.add("mod-shape-arrow");
         break;
       case "line":
+        container.classList.add("mod-shape-line");
         container.style.borderBottom = `${Math.max(1, el.border?.width || 1)}px ${el.border?.style || "solid"} ${el.border?.color || "#000000"}`;
-        container.style.borderTop = "none";
-        container.style.borderLeft = "none";
-        container.style.borderRight = "none";
-        container.style.backgroundColor = "transparent";
         break;
       default:
         break;
@@ -237,7 +232,9 @@ export class PptxRenderer {
           return lum < 0.45;
         }
       }
-    } catch (e) {}
+    } catch {
+      // ignore color parse errors
+    }
     return false;
   }
 
@@ -248,8 +245,6 @@ export class PptxRenderer {
     const pEl = document.createElement("div");
     pEl.className = "office-pptx-p";
     pEl.style.textAlign = p.align || "left";
-    pEl.style.margin = "0";
-    pEl.style.padding = "0";
 
     if (p.spaceBefore) {
       pEl.style.marginTop = `${p.spaceBefore}px`;
@@ -266,13 +261,10 @@ export class PptxRenderer {
 
     // Bullet styling
     if (p.bullet && p.bullet.type !== "none") {
-      pEl.style.display = "flex";
-      pEl.style.alignItems = "baseline";
+      pEl.classList.add("mod-bullet");
 
       const bulletSpan = document.createElement("span");
       bulletSpan.className = "office-pptx-bullet";
-      bulletSpan.style.marginRight = "6px";
-      bulletSpan.style.flexShrink = "0";
 
       if (p.bullet.type === "char") {
         bulletSpan.textContent = p.bullet.char || "•";
@@ -344,18 +336,16 @@ export class PptxRenderer {
       span.style.color = run.color;
     }
     if (run.bold) {
-      span.style.fontWeight = "bold";
+      span.classList.add("mod-bold");
     }
     if (run.italic) {
-      span.style.fontStyle = "italic";
+      span.classList.add("mod-italic");
     }
     if (run.underline) {
-      span.style.textDecoration = "underline";
+      span.classList.add("mod-underline");
     }
     if (run.strikethrough) {
-      span.style.textDecoration = span.style.textDecoration
-        ? `${span.style.textDecoration} line-through`
-        : "line-through";
+      span.classList.add("mod-strikethrough");
     }
 
     return span;

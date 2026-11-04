@@ -1,7 +1,6 @@
 import { setIcon } from "obsidian";
 import {
   PptxPresentation,
-  PptxSlide,
   PptxRenderer,
   TransitionType,
 } from "../../domain/pptx";
@@ -54,18 +53,16 @@ export class PptxSlideshow {
 
     // Blank screen layer
     this.blankScreenEl = this.overlayEl.createDiv({ cls: "office-pptx-blank-layer" });
-    this.blankScreenEl.style.display = "none";
 
     // Laser pointer dot
     this.laserDotEl = this.overlayEl.createDiv({ cls: "office-pptx-laser-dot" });
-    this.laserDotEl.style.display = "none";
 
     // Presenter HUD
     this.buildHud();
 
     // Start presentation timer
     this.startTime = Date.now();
-    this.timerInterval = setInterval(() => this.updateTimer(), 1000);
+    this.timerInterval = window.setInterval(() => this.updateTimer(), 1000);
 
     // Initial slide render
     this.renderCurrentSlide();
@@ -78,7 +75,7 @@ export class PptxSlideshow {
       if (this.overlayEl.requestFullscreen) {
         void this.overlayEl.requestFullscreen();
       }
-    } catch (e) {
+    } catch {
       // Fullscreen API may be blocked or restricted, overlay still functions perfectly
     }
   }
@@ -104,7 +101,9 @@ export class PptxSlideshow {
     if (document.fullscreenElement) {
       try {
         void document.exitFullscreen();
-      } catch (e) {}
+      } catch {
+        // ignore
+      }
     }
 
     if (this.overlayEl) {
@@ -346,7 +345,7 @@ export class PptxSlideshow {
         oldSlide.remove();
       }
       newSlide.classList.remove(animInClass);
-      newSlide.style.animationDuration = "";
+      newSlide.style.removeProperty("animation-duration");
       this.isTransitioning = false;
     }, duration + 50);
   }
@@ -365,7 +364,6 @@ export class PptxSlideshow {
     const slides = this.stageEl.querySelectorAll(".office-pptx-slide") as NodeListOf<HTMLElement>;
     slides.forEach((s) => {
       s.style.transform = `scale(${scale})`;
-      s.style.transformOrigin = "center center";
     });
   }
 
@@ -391,7 +389,8 @@ export class PptxSlideshow {
     this.isBlackScreen = !this.isBlackScreen;
     this.isWhiteScreen = false;
     if (this.blankScreenEl) {
-      this.blankScreenEl.style.backgroundColor = "#000000";
+      this.blankScreenEl.classList.add("mod-black");
+      this.blankScreenEl.classList.remove("mod-white");
       this.blankScreenEl.style.display = this.isBlackScreen ? "block" : "none";
     }
   }
@@ -400,7 +399,8 @@ export class PptxSlideshow {
     this.isWhiteScreen = !this.isWhiteScreen;
     this.isBlackScreen = false;
     if (this.blankScreenEl) {
-      this.blankScreenEl.style.backgroundColor = "#ffffff";
+      this.blankScreenEl.classList.add("mod-white");
+      this.blankScreenEl.classList.remove("mod-black");
       this.blankScreenEl.style.display = this.isWhiteScreen ? "block" : "none";
     }
   }

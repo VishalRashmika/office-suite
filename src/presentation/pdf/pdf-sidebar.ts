@@ -23,11 +23,13 @@ import { setIcon, Notice } from "obsidian";
 function safeSetIcon(el: HTMLElement, name: string, fallback?: string): void {
   try {
     setIcon(el, name);
-  } catch (_) {
+  } catch {
     if (fallback) {
       try {
         setIcon(el, fallback);
-      } catch (__) {}
+      } catch {
+        // ignore
+      }
     }
   }
 }
@@ -38,7 +40,6 @@ import {
   CitationBuilder,
   PdfColorSchemeProfile,
   PDF_COLOR_PRESETS,
-  rgbToHex,
   hexToRgb,
   normalizeHexColor,
   sortAnnotations,
@@ -144,9 +145,6 @@ export class PdfSidebar {
     this.containerEl = parentEl.createDiv({
       cls: `pdf-sidebar-container${initialVisible ? "" : " is-hidden"}`,
     });
-    if (!initialVisible) {
-      this.containerEl.style.display = "none";
-    }
 
     // 1. Resizer drag handle
     const resizer = this.containerEl.createDiv({ cls: "pdf-sidebar-resizer" });
@@ -227,12 +225,10 @@ export class PdfSidebar {
     if (!this.containerEl) return false;
     this.isVisible = !this.isVisible;
     if (this.isVisible) {
-      this.containerEl.style.display = "";
       this.containerEl.removeClass("is-hidden");
       this.renderActiveTab();
     } else {
       this.containerEl.addClass("is-hidden");
-      this.containerEl.style.display = "none";
     }
     this.onVisibilityChange?.(this.isVisible);
     return this.isVisible;
@@ -241,7 +237,6 @@ export class PdfSidebar {
   show(): void {
     this.isVisible = true;
     if (this.containerEl) {
-      this.containerEl.style.display = "";
       this.containerEl.removeClass("is-hidden");
       this.renderActiveTab();
     }
@@ -262,7 +257,6 @@ export class PdfSidebar {
     this.isVisible = false;
     if (this.containerEl) {
       this.containerEl.addClass("is-hidden");
-      this.containerEl.style.display = "none";
     }
     this.onVisibilityChange?.(false);
   }
@@ -679,7 +673,7 @@ export class PdfSidebar {
       }
 
       // Count badge
-      const countBadge = headerEl.createSpan({
+      headerEl.createSpan({
         cls: "pdf-annot-group-count",
         text: `${group.annotations.length}`,
       });
@@ -903,9 +897,7 @@ export class PdfSidebar {
           text: hlText.trim(),
         });
         if (annot.type === "underline") {
-          quoteTextEl.style.textDecoration = "underline";
           quoteTextEl.style.textDecorationColor = hex;
-          quoteTextEl.style.textUnderlineOffset = "3px";
         }
         quoteBox.createSpan({ cls: "pdf-annot-quote-mark", text: "”" });
       } else {
@@ -1075,7 +1067,7 @@ export class PdfSidebar {
 
       const listContainer = wrap.createDiv({ cls: "pdf-outline-list" });
       this.renderOutlineItems(listContainer, outline, 0);
-    } catch (err) {
+    } catch {
       wrap.createDiv({ cls: "pdf-annot-empty-state", text: "Could not load outline for this PDF." });
     }
   }
@@ -1098,8 +1090,8 @@ export class PdfSidebar {
 
       // Title Link
       const titleSpan = itemRow.createSpan({ cls: "pdf-outline-title", text: item.title || "Untitled" });
-      if (item.bold) titleSpan.style.fontWeight = "bold";
-      if (item.italic) titleSpan.style.fontStyle = "italic";
+      if (item.bold) titleSpan.addClass("mod-bold");
+      if (item.italic) titleSpan.addClass("mod-italic");
 
       let childrenWrap: HTMLElement | null = null;
 
