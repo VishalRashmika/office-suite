@@ -8,22 +8,34 @@ import { FileView, TFile, WorkspaceLeaf, Notice, loadPdfJs } from "obsidian";
 import {
   PdfAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfNoteAnnotation,
   PdfFreeTextAnnotation,
   PdfInkAnnotation,
   PdfShapeAnnotation,
   PdfRect,
-  PdfActiveTool,
   PdfRgbColor,
+  PDF_COLOR_PRESETS,
+  rgbToHex,
+  hexToRgb,
   CitationService,
   CitationMetadata,
+  PdfColorSchemeProfile,
+  ZOTERO_DEFAULT_PROFILE,
+  cloneProfile,
+  ensureValidProfile,
+  findTagForColor,
+  normalizeHexColor,
 } from "../../domain/pdf";
 import { PdfDocumentAdapter } from "../../infrastructure/pdf";
-import { PdfToolbar, PdfToolbarDelegate } from "./pdf-toolbar";
+import { PdfToolbar, PdfToolbarDelegate, PdfActiveTool } from "./pdf-toolbar";
 import { PdfSidebar, PdfSidebarDelegate } from "./pdf-sidebar";
 import { PdfPageView, PdfPageViewDelegate } from "./pdf-page-view";
 import { PdfNotePopover } from "./pdf-note-popover";
 import { PdfCiteModal } from "./pdf-cite-modal";
+import { PdfColorSchemeModal } from "./pdf-color-scheme-modal";
+import { TextPromptModal } from "../common/text-prompt-modal";
+import type OfficeSuitePlugin from "../../main";
 
 export const VIEW_TYPE_PDF = "pdf-editor-view";
 
@@ -33,8 +45,14 @@ export class PdfView
 {
   allowNoFile = false;
   pdfDoc: PdfDocumentAdapter | null = null;
+  readerTheme: "light" | "sepia" | "dark" = "light";
   paperTheme: "light" | "dark" = "light";
 
+  private plugin?: OfficeSuitePlugin;
+  private activeColorScheme: PdfColorSchemeProfile = ZOTERO_DEFAULT_PROFILE;
+  private unregisterColorSchemeListener?: () => void;
+
+  private pdfjsLib: any = null;
   private pdfjsDoc: any = null;
   private toolbar = new PdfToolbar();
   private sidebar = new PdfSidebar();
@@ -44,7 +62,9 @@ export class PdfView
   private toolbarEl: HTMLElement | null = null;
   private mainContainerEl: HTMLElement | null = null;
   private pagesScrollEl: HTMLElement | null = null;
+  private pagesContainerEl: HTMLElement | null = null;
   private selectionBarEl: HTMLElement | null = null;
+  private selectionColorsWrap: HTMLElement | null = null;
 
   private pageViews: Map<number, PdfPageView> = new Map();
   private activeTool: PdfActiveTool = "hand";
@@ -56,12 +76,46 @@ export class PdfView
   private undoStack: Array<string> = [];
   private redoStack: Array<string> = [];
   private retractTabEl: HTMLElement | null = null;
+  private isSaving = false;
+  private hasPendingSave = false;
   private isInternalSaving = false;
   private lastInternalSaveTime = 0;
 
-  constructor(leaf: WorkspaceLeaf) {
+  // Zoom & Pinch Gestures State
+  private isGesturePinching = false;
+  private currentRenderId = 0;
+
+  // Trackpad & Wheel zoom state
+  private isWheelZooming = false;
+  private wheelZoomDebounceTimer: number | null = null;
+  private startWheelZoomScale = 1.0;
+  private cumulativeWheelScale = 1.0;
+  private wheelFocalX = 0;
+  private wheelFocalY = 0;
+
+  // Touchscreen 2-finger pinch state
+  private isTouchPinching = false;
+  private touchStartDist = 0;
+  private touchStartScale = 1.0;
+  private touchStartMidX = 0;
+  private touchStartMidY = 0;
+  private touchCurrentMidX = 0;
+  private touchCurrentMidY = 0;
+  private touchCurrentRatio = 1.0;
+  private touchCooldownTimer: number | null = null;
+
+  constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
+    this.plugin = plugin;
     this.notePopover = new PdfNotePopover(this.app);
+  }
+
+  getPlugin(): OfficeSuitePlugin | undefined {
+    if (this.plugin) return this.plugin;
+    return (
+      (this.app as any).plugins?.getPlugin?.("office-suite") ||
+      (this.app as any).plugins?.plugins?.["office-suite"]
+    );
   }
 
   getViewType(): string {
@@ -101,6 +155,7 @@ export class PdfView
 
     try {
       const pdfjsLib = await this.getPdfJsLibrary();
+      this.pdfjsLib = pdfjsLib;
       this.pdfjsDoc = await pdfjsLib.getDocument({
         data: new Uint8Array(bytes.slice(0)),
         cMapUrl: "https://unpkg.com/pdfjs-dist@3.11.174/cmaps/",
@@ -114,12 +169,13 @@ export class PdfView
 
     statusEl.remove();
 
-    // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
-    await this.enrichAnnotationsFromPdfJs();
+    // Initialize active color scheme for this PDF
+    this.initColorSchemeForFile(file.path);
 
     // 1. Build Toolbar
     this.toolbarEl = this.contentEl.createDiv({ cls: "pdf-editor-toolbar-wrap" });
     this.toolbar.build(this.toolbarEl, this);
+    this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
     this.toolbar.setPageData(1, this.pdfDoc.getPageCount());
 
     // 2. Main split view (Sidebar + Scroll Area)
@@ -127,20 +183,34 @@ export class PdfView
 
     // Retractable Edge Tab for expanding/retracting sidebar when retracted
     this.retractTabEl = this.mainContainerEl.createDiv({
-      cls: "pdf-sidebar-retract-tab is-hidden",
+      cls: "pdf-sidebar-retract-tab",
       attr: { title: "Expand Annotations & Pages Panel" },
     });
     this.retractTabEl.createSpan({ text: "📑" });
     this.retractTabEl.createSpan({ cls: "pdf-sidebar-retract-label", text: "Annotations" });
-    this.retractTabEl.onclick = () => this.onToggleSidebar();
+    this.retractTabEl.onclick = () => {
+      if (!this.sidebar.getIsVisible()) {
+        this.sidebar.showAnnotationsTab();
+        this.toolbar.setSidebarActive(true);
+        this.retractTabEl?.addClass("is-hidden");
+        const currentZoom = this.toolbar.getZoomSelection();
+        if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+          void this.onZoomChanged(currentZoom);
+        }
+      } else {
+        this.onToggleSidebar();
+      }
+    };
 
-    // Sidebar
+    // Sidebar (collapsed by default so PDF opens cleanly centered)
     this.sidebar.build(
       this.mainContainerEl,
       this.pdfDoc,
       this.pdfjsDoc,
       file.name,
-      this
+      this,
+      this.activeColorScheme,
+      false
     );
     this.sidebar.onVisibilityChange = (visible) => {
       this.toolbar.setSidebarActive(visible);
@@ -151,10 +221,44 @@ export class PdfView
       }
     };
 
+    // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
+    await this.enrichAnnotationsFromPdfJs();
+
+    // Note Popover
+    this.notePopover.setColorScheme(this.activeColorScheme);
+
+    // Register color scheme listener from plugin
+    this.unregisterColorSchemeListener?.();
+    this.unregisterColorSchemeListener = this.getPlugin()?.onColorSchemeChanged(() => {
+      const plugin = this.getPlugin();
+      if (this.file && plugin) {
+        const fileScheme = plugin.settings.pdfFileSchemes[this.file.path];
+        if (fileScheme) {
+          this.applyColorScheme(fileScheme, false);
+        } else {
+          this.toolbar.setColorScheme(this.activeColorScheme, plugin.settings.pdfProfiles);
+        }
+      }
+    });
+
     // Scrollable Pages Area
     this.pagesScrollEl = this.mainContainerEl.createDiv({ cls: "pdf-pages-scroll-area" });
     this.pagesScrollEl.addEventListener("scroll", this.onScroll);
     this.notePopover.setScrollContainer(this.pagesScrollEl);
+
+    // Inner Pages Container for hardware-accelerated transforms and flex alignment
+    this.pagesContainerEl = this.pagesScrollEl.createDiv({ cls: "pdf-pages-container" });
+
+    // 2-Finger Zoom Gestures (Trackpad Pinch, Ctrl/Cmd + Wheel, Touchscreen Pinch, WebKit Gestures)
+    this.pagesScrollEl.addEventListener("wheel", this.onWheel, { passive: false });
+    this.pagesScrollEl.addEventListener("touchstart", this.onTouchStart, { passive: false });
+    window.addEventListener("touchmove", this.onTouchMove, { passive: false });
+    window.addEventListener("touchend", this.onTouchEnd);
+    window.addEventListener("touchcancel", this.onTouchCancel);
+
+    this.pagesScrollEl.addEventListener("gesturestart", this.onGestureStart as any, { passive: false });
+    this.pagesScrollEl.addEventListener("gesturechange", this.onGestureChange as any, { passive: false });
+    this.pagesScrollEl.addEventListener("gestureend", this.onGestureEnd as any, { passive: false });
 
     // Contextual Text Selection Action Bar
     this.buildTextSelectionBar();
@@ -180,7 +284,16 @@ export class PdfView
     );
 
     window.addEventListener("blur", this.onWindowBlur);
+    this.contentEl.addEventListener("keydown", this.onKeyDown);
   }
+
+  private onKeyDown = (e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      e.stopPropagation();
+      void this.requestSave();
+    }
+  };
 
   private onWindowBlur = () => {
     if (this.pdfDoc?.dirty) void this.saveNow();
@@ -188,8 +301,21 @@ export class PdfView
 
   async onUnloadFile(file: TFile): Promise<void> {
     window.removeEventListener("blur", this.onWindowBlur);
+    this.contentEl.removeEventListener("keydown", this.onKeyDown);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    if (this.wheelZoomDebounceTimer) window.clearTimeout(this.wheelZoomDebounceTimer);
+    if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
     if (this.pdfDoc?.dirty) await this.saveNow();
+
+    this.pagesScrollEl?.removeEventListener("wheel", this.onWheel);
+    this.pagesScrollEl?.removeEventListener("touchstart", this.onTouchStart);
+    window.removeEventListener("touchmove", this.onTouchMove);
+    window.removeEventListener("touchend", this.onTouchEnd);
+    window.removeEventListener("touchcancel", this.onTouchCancel);
+
+    this.pagesScrollEl?.removeEventListener("gesturestart", this.onGestureStart as any);
+    this.pagesScrollEl?.removeEventListener("gesturechange", this.onGestureChange as any);
+    this.pagesScrollEl?.removeEventListener("gestureend", this.onGestureEnd as any);
 
     this.notePopover.hide();
     this.toolbar.dispose();
@@ -204,27 +330,53 @@ export class PdfView
       this.pdfjsDoc = null;
     }
     this.pdfDoc = null;
+    this.pagesContainerEl = null;
   }
 
   // ==================== Page Rendering & Layout ====================
 
-  private async renderAllPages(): Promise<void> {
-    if (!this.pagesScrollEl || !this.pdfDoc || !this.pdfjsDoc) return;
-    this.pagesScrollEl.empty();
-    this.pageViews.clear();
-
+  private async renderAllPages(preserveViews = false): Promise<void> {
+    if (!this.pagesScrollEl || !this.pagesContainerEl || !this.pdfDoc || !this.pdfjsDoc) return;
+    const renderId = ++this.currentRenderId;
     const pageCount = this.pdfDoc.getPageCount();
 
+    if (preserveViews && this.pageViews.size === pageCount) {
+      for (let i = 0; i < pageCount; i++) {
+        if (this.currentRenderId !== renderId) return;
+        const pageView = this.pageViews.get(i);
+        if (pageView) {
+          try {
+            const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
+            if (this.currentRenderId !== renderId) return;
+            await pageView.render(pdfjsPage, this.zoomScale, this.pdfjsLib);
+          } catch (err) {
+            console.error(`Error re-rendering page ${i + 1}:`, err);
+          }
+        }
+      }
+      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+      return;
+    }
+
+    this.pagesContainerEl.empty();
+    for (const pv of this.pageViews.values()) {
+      pv.dispose();
+    }
+    this.pageViews.clear();
+
     for (let i = 0; i < pageCount; i++) {
-      const pageView = new PdfPageView(i, this.pagesScrollEl);
+      if (this.currentRenderId !== renderId) return;
+      const pageView = new PdfPageView(i, this.pagesContainerEl);
       pageView.setDelegate(this);
+      pageView.setColorScheme(this.activeColorScheme);
       pageView.setTool(this.activeTool, this.activeColor, this.strokeWidth);
       pageView.setAnnotations(this.pdfDoc.getPageAnnotations(i));
       this.pageViews.set(i, pageView);
 
       try {
         const pdfjsPage = await this.pdfjsDoc.getPage(i + 1);
-        await pageView.render(pdfjsPage, this.zoomScale);
+        if (this.currentRenderId !== renderId) return;
+        await pageView.render(pdfjsPage, this.zoomScale, this.pdfjsLib);
       } catch (err) {
         console.error(`Error rendering page ${i + 1}:`, err);
       }
@@ -251,6 +403,7 @@ export class PdfView
     if (closestPage !== this.currentPage) {
       this.currentPage = closestPage;
       this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+      this.sidebar.setCurrentPage(closestPage - 1);
     }
   };
 
@@ -269,7 +422,7 @@ export class PdfView
     const annotMatch = subpath.match(/annot=([a-zA-Z0-9_\-]+)/);
     if (annotMatch) {
       const annotId = annotMatch[1];
-      setTimeout(() => this.pulseAnnotation(annotId), 300);
+      window.setTimeout(() => this.pulseAnnotation(annotId), 300);
     }
   }
 
@@ -294,27 +447,58 @@ export class PdfView
     const bar = document.createElement("div");
     bar.className = "pdf-selection-action-bar is-hidden";
 
+    // Prevent button clicks and touches from taking focus or canceling selection
+    bar.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+    });
+
+    // Quick Color Swatches from active Scheme
+    this.selectionColorsWrap = bar.createDiv({ cls: "pdf-selection-colors" });
+    this.renderSelectionBarColors();
+
     // Action 1: Highlight Button
     const hlBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Highlight" });
     hlBtn.onclick = () => {
       if (this.selectedTextInfo) {
         const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-        pv?.createHighlightFromSelection(this.selectedTextInfo.text, this.activeColor);
+        pv?.createHighlightFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
       }
       this.hideSelectionBar();
     };
 
-    // Action 2: Add Sticky Note attached to selection
+    // Action 2: Underline Button
+    const ulBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Underline" });
+    ulBtn.onclick = () => {
+      if (this.selectedTextInfo) {
+        const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+        pv?.createUnderlineFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
+      }
+      this.hideSelectionBar();
+    };
+
+    // Action 3: Add Sticky Note attached to selection
     const noteBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Add Note" });
     noteBtn.onclick = () => {
       if (this.selectedTextInfo) {
         const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
-        pv?.addAnnotatedNoteFromSelection(this.selectedTextInfo.text, this.activeColor);
+        pv?.addAnnotatedNoteFromSelection(
+          this.selectedTextInfo.text,
+          this.activeColor,
+          this.selectedTextInfo.lines
+        );
       }
       this.hideSelectionBar();
     };
 
-    // Action 3: Cite Button
+    // Action 4: Cite Button
     const citeBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Cite" });
     citeBtn.onclick = () => {
       if (this.selectedTextInfo) {
@@ -323,7 +507,7 @@ export class PdfView
       this.hideSelectionBar();
     };
 
-    // Action 4: Copy Deep Link
+    // Action 5: Copy Deep Link
     const linkBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Copy Link" });
     linkBtn.onclick = async () => {
       if (this.selectedTextInfo) {
@@ -337,18 +521,54 @@ export class PdfView
       this.hideSelectionBar();
     };
 
+    // Action 6: Copy Text
+    const copyTextBtn = bar.createEl("button", { cls: "pdf-selection-action-btn", text: "Copy" });
+    copyTextBtn.onclick = async () => {
+      if (this.selectedTextInfo) {
+        await navigator.clipboard.writeText(this.selectedTextInfo.text);
+        new Notice("Copied text to clipboard!");
+      }
+      this.hideSelectionBar();
+    };
+
     document.body.appendChild(bar);
     this.selectionBarEl = bar;
+
+    // Dismiss bar when clicking outside
+    window.addEventListener("pointerdown", (e) => {
+      if (this.selectionBarEl && !this.selectionBarEl.classList.contains("is-hidden")) {
+        if (!this.selectionBarEl.contains(e.target as Node)) {
+          this.hideSelectionBar();
+        }
+      }
+    });
   }
 
-  private selectedTextInfo: { text: string; pageIndex: number } | null = null;
+  private selectedTextInfo: {
+    text: string;
+    pageIndex: number;
+    lines?: { left: number; top: number; right: number; bottom: number }[];
+  } | null = null;
 
-  onTextSelected(selectedText: string, screenRect: DOMRect, pageIndex: number): void {
+  onTextSelected(
+    selectedText: string,
+    screenRect: DOMRect,
+    pageIndex: number,
+    lines?: { left: number; top: number; right: number; bottom: number }[]
+  ): void {
     if (!this.selectionBarEl) return;
-    this.selectedTextInfo = { text: selectedText, pageIndex };
+    this.selectedTextInfo = { text: selectedText, pageIndex, lines };
 
-    this.selectionBarEl.style.left = `${screenRect.left + screenRect.width / 2 - 120}px`;
-    this.selectionBarEl.style.top = `${screenRect.top - 46}px`;
+    const barW = 440;
+    let left = screenRect.left + screenRect.width / 2 - barW / 2;
+    let top = screenRect.top - 48;
+
+    if (left < 16) left = 16;
+    if (left + barW > window.innerWidth - 16) left = window.innerWidth - barW - 16;
+    if (top < 16) top = screenRect.bottom + 8;
+
+    this.selectionBarEl.style.left = `${Math.round(left)}px`;
+    this.selectionBarEl.style.top = `${Math.round(top)}px`;
     this.selectionBarEl.removeClass("is-hidden");
   }
 
@@ -380,22 +600,324 @@ export class PdfView
     }
   }
 
-  async onZoomChanged(scale: number | "fit-width" | "fit-page"): Promise<void> {
-    if (typeof scale === "number") {
-      this.zoomScale = scale;
-    } else if (scale === "fit-width" && this.pagesScrollEl) {
-      const containerWidth = this.pagesScrollEl.clientWidth - 60;
-      const firstPageWidth = this.pdfDoc?.getPageInfo(0).width || 612;
-      this.zoomScale = Math.max(0.4, Math.min(2.5, containerWidth / firstPageWidth));
-    } else if (scale === "fit-page" && this.pagesScrollEl) {
-      const containerHeight = this.pagesScrollEl.clientHeight - 60;
-      const firstPageHeight = this.pdfDoc?.getPageInfo(0).height || 792;
-      this.zoomScale = Math.max(0.4, Math.min(2.5, containerHeight / firstPageHeight));
+  isPinching(): boolean {
+    return this.isGesturePinching;
+  }
+
+  cancelActiveInteractions(): void {
+    for (const pv of this.pageViews.values()) {
+      pv.cancelActiveInteractions();
+    }
+  }
+
+  public async applyZoomWithFocalPoint(
+    newScale: number,
+    focalScreenX: number,
+    focalScreenY: number
+  ): Promise<void> {
+    if (!this.pagesScrollEl || !this.pdfDoc) return;
+
+    const clampedScale = Math.max(0.25, Math.min(5.0, Math.round(newScale * 100) / 100));
+    const oldScale = this.zoomScale;
+
+    const scrollEl = this.pagesScrollEl;
+    const scrollRect = scrollEl.getBoundingClientRect();
+    const focalX = focalScreenX - scrollRect.left;
+    const focalY = focalScreenY - scrollRect.top;
+
+    let anchorPage: PdfPageView | null = null;
+    let normPageX = 0;
+    let normPageY = 0;
+
+    for (const pv of this.pageViews.values()) {
+      const rect = pv.element.getBoundingClientRect();
+      if (
+        focalScreenX >= rect.left &&
+        focalScreenX <= rect.right &&
+        focalScreenY >= rect.top &&
+        focalScreenY <= rect.bottom
+      ) {
+        anchorPage = pv;
+        normPageX = (focalScreenX - rect.left) / oldScale;
+        normPageY = (focalScreenY - rect.top) / oldScale;
+        break;
+      }
     }
 
+    if (!anchorPage) {
+      const targetIndex = Math.max(0, Math.min(this.currentPage - 1, this.pageViews.size - 1));
+      anchorPage = this.pageViews.get(targetIndex) || this.pageViews.get(0) || null;
+      if (anchorPage) {
+        const rect = anchorPage.element.getBoundingClientRect();
+        const clampedX = Math.max(rect.left, Math.min(rect.right, focalScreenX));
+        const clampedY = Math.max(rect.top, Math.min(rect.bottom, focalScreenY));
+        normPageX = (clampedX - rect.left) / oldScale;
+        normPageY = (clampedY - rect.top) / oldScale;
+      }
+    }
+
+    this.zoomScale = clampedScale;
     this.toolbar.setZoom(this.zoomScale);
-    await this.renderAllPages();
+
+    await this.renderAllPages(true);
+
+    if (anchorPage && anchorPage.element.isConnected) {
+      let pageLeft = anchorPage.element.offsetLeft;
+      let pageTop = anchorPage.element.offsetTop;
+
+      if (this.pagesContainerEl && anchorPage.element.offsetParent === this.pagesContainerEl) {
+        pageLeft += this.pagesContainerEl.offsetLeft;
+        pageTop += this.pagesContainerEl.offsetTop;
+      }
+
+      const targetScrollX = pageLeft + normPageX * clampedScale - focalX;
+      const targetScrollY = pageTop + normPageY * clampedScale - focalY;
+
+      scrollEl.scrollLeft = Math.max(0, targetScrollX);
+      scrollEl.scrollTop = Math.max(0, targetScrollY);
+    }
   }
+
+  onResize(): void {
+    super.onResize();
+    const currentZoom = this.toolbar.getZoomSelection();
+    if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+      void this.onZoomChanged(currentZoom);
+    }
+  }
+
+  async onZoomChanged(scale: number | "fit-width" | "fit-page"): Promise<void> {
+    let targetScale = this.zoomScale;
+    if (typeof scale === "number") {
+      targetScale = scale;
+    } else if (scale === "fit-width" && this.pagesScrollEl) {
+      const containerWidth = this.pagesScrollEl.clientWidth - 48;
+      const firstPageWidth = this.pdfDoc?.getPageInfo(0).width || 612;
+      targetScale = Math.max(0.25, Math.min(5.0, containerWidth / firstPageWidth));
+    } else if (scale === "fit-page" && this.pagesScrollEl) {
+      const containerHeight = this.pagesScrollEl.clientHeight - 48;
+      const firstPageHeight = this.pdfDoc?.getPageInfo(0).height || 792;
+      targetScale = Math.max(0.25, Math.min(5.0, containerHeight / firstPageHeight));
+    }
+
+    if (this.pagesScrollEl) {
+      const rect = this.pagesScrollEl.getBoundingClientRect();
+      const focalX = rect.left + this.pagesScrollEl.clientWidth / 2;
+      const focalY = rect.top + this.pagesScrollEl.clientHeight / 2;
+      await this.applyZoomWithFocalPoint(targetScale, focalX, focalY);
+    } else {
+      this.zoomScale = targetScale;
+      this.toolbar.setZoom(this.zoomScale);
+      await this.renderAllPages(true);
+    }
+  }
+
+  // ==================== 2-Finger Zoom & Pinch Handlers ====================
+
+  private onWheel = (e: WheelEvent): void => {
+    if (!e.ctrlKey && !e.metaKey) {
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    this.hideSelectionBar();
+    this.notePopover.hide();
+
+    let delta = e.deltaY;
+    if (e.deltaMode === 1) {
+      delta *= 16;
+    } else if (e.deltaMode === 2) {
+      delta *= 100;
+    }
+
+    const clampedDelta = Math.max(-100, Math.min(100, delta));
+    const zoomFactor = Math.exp(-clampedDelta * 0.003);
+
+    this.handleWheelZoom(zoomFactor, e.clientX, e.clientY);
+  };
+
+  private handleWheelZoom(zoomFactor: number, focalX: number, focalY: number): void {
+    if (!this.pagesContainerEl || !this.pagesScrollEl) return;
+
+    if (!this.isWheelZooming) {
+      this.isWheelZooming = true;
+      this.isGesturePinching = true;
+      this.cancelActiveInteractions();
+      this.hideSelectionBar();
+      this.notePopover.hide();
+
+      this.startWheelZoomScale = this.zoomScale;
+      this.cumulativeWheelScale = 1.0;
+      this.wheelFocalX = focalX;
+      this.wheelFocalY = focalY;
+
+      const rect = this.pagesContainerEl.getBoundingClientRect();
+      const originX = focalX - rect.left;
+      const originY = focalY - rect.top;
+      this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+    }
+
+    this.cumulativeWheelScale *= zoomFactor;
+    const tentativeScale = Math.max(
+      0.25,
+      Math.min(5.0, this.startWheelZoomScale * this.cumulativeWheelScale)
+    );
+    const effectiveRatio = tentativeScale / this.startWheelZoomScale;
+
+    this.pagesContainerEl.style.transform = `scale(${effectiveRatio})`;
+
+    if (this.wheelZoomDebounceTimer) {
+      window.clearTimeout(this.wheelZoomDebounceTimer);
+    }
+
+    this.wheelZoomDebounceTimer = window.setTimeout(async () => {
+      this.isWheelZooming = false;
+      this.isGesturePinching = false;
+
+      if (this.pagesContainerEl) {
+        this.pagesContainerEl.style.transform = "none";
+        this.pagesContainerEl.style.transformOrigin = "";
+      }
+
+      const finalScale = Math.round(this.startWheelZoomScale * this.cumulativeWheelScale * 100) / 100;
+      await this.applyZoomWithFocalPoint(finalScale, this.wheelFocalX, this.wheelFocalY);
+    }, 130);
+  }
+
+  private onTouchStart = (e: TouchEvent): void => {
+    if (e.touches.length === 2) {
+      this.isTouchPinching = true;
+      this.isGesturePinching = true;
+      if (this.touchCooldownTimer) {
+        window.clearTimeout(this.touchCooldownTimer);
+        this.touchCooldownTimer = null;
+      }
+
+      this.cancelActiveInteractions();
+      this.hideSelectionBar();
+      this.notePopover.hide();
+
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      this.touchStartDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+      this.touchStartMidX = (t1.clientX + t2.clientX) / 2;
+      this.touchStartMidY = (t1.clientY + t2.clientY) / 2;
+      this.touchCurrentMidX = this.touchStartMidX;
+      this.touchCurrentMidY = this.touchStartMidY;
+      this.touchStartScale = this.zoomScale;
+      this.touchCurrentRatio = 1.0;
+
+      if (this.pagesContainerEl) {
+        const rect = this.pagesContainerEl.getBoundingClientRect();
+        const originX = this.touchStartMidX - rect.left;
+        const originY = this.touchStartMidY - rect.top;
+        this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+      }
+    } else if (e.touches.length > 2) {
+      this.isGesturePinching = true;
+      this.cancelActiveInteractions();
+    }
+  };
+
+  private onTouchMove = (e: TouchEvent): void => {
+    if (!this.isTouchPinching || e.touches.length !== 2) return;
+
+    e.preventDefault();
+
+    const t1 = e.touches[0];
+    const t2 = e.touches[1];
+    const currentDist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+    if (this.touchStartDist <= 0) return;
+
+    this.touchCurrentMidX = (t1.clientX + t2.clientX) / 2;
+    this.touchCurrentMidY = (t1.clientY + t2.clientY) / 2;
+
+    const rawRatio = currentDist / this.touchStartDist;
+    const tentativeScale = Math.max(0.25, Math.min(5.0, this.touchStartScale * rawRatio));
+    this.touchCurrentRatio = tentativeScale / this.touchStartScale;
+
+    const panX = this.touchCurrentMidX - this.touchStartMidX;
+    const panY = this.touchCurrentMidY - this.touchStartMidY;
+
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${this.touchCurrentRatio})`;
+    }
+  };
+
+  private onTouchEnd = async (e: TouchEvent): Promise<void> => {
+    if (!this.isTouchPinching) return;
+
+    if (e.touches.length < 2) {
+      this.isTouchPinching = false;
+
+      if (this.pagesContainerEl) {
+        this.pagesContainerEl.style.transform = "none";
+        this.pagesContainerEl.style.transformOrigin = "";
+      }
+
+      const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
+      await this.applyZoomWithFocalPoint(finalScale, this.touchCurrentMidX, this.touchCurrentMidY);
+
+      if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
+      this.touchCooldownTimer = window.setTimeout(() => {
+        this.isGesturePinching = false;
+        this.touchCooldownTimer = null;
+      }, 150);
+    }
+  };
+
+  private onTouchCancel = (e: TouchEvent): void => {
+    void this.onTouchEnd(e);
+  };
+
+  private onGestureStart = (e: any): void => {
+    e.preventDefault();
+    this.isGesturePinching = true;
+    this.cancelActiveInteractions();
+    this.hideSelectionBar();
+    this.notePopover.hide();
+
+    this.touchStartScale = this.zoomScale;
+    this.touchCurrentRatio = 1.0;
+    this.touchStartMidX = e.clientX ?? ((this.pagesScrollEl?.clientWidth ?? 0) / 2);
+    this.touchStartMidY = e.clientY ?? ((this.pagesScrollEl?.clientHeight ?? 0) / 2);
+
+    if (this.pagesContainerEl) {
+      const rect = this.pagesContainerEl.getBoundingClientRect();
+      const originX = this.touchStartMidX - rect.left;
+      const originY = this.touchStartMidY - rect.top;
+      this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+    }
+  };
+
+  private onGestureChange = (e: any): void => {
+    e.preventDefault();
+    const scale = e.scale ?? 1.0;
+    const tentativeScale = Math.max(0.25, Math.min(5.0, this.touchStartScale * scale));
+    this.touchCurrentRatio = tentativeScale / this.touchStartScale;
+
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = `scale(${this.touchCurrentRatio})`;
+    }
+  };
+
+  private onGestureEnd = async (e: any): Promise<void> => {
+    e.preventDefault();
+    if (this.pagesContainerEl) {
+      this.pagesContainerEl.style.transform = "none";
+      this.pagesContainerEl.style.transformOrigin = "";
+    }
+    const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
+    await this.applyZoomWithFocalPoint(finalScale, this.touchStartMidX, this.touchStartMidY);
+
+    if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
+    this.touchCooldownTimer = window.setTimeout(() => {
+      this.isGesturePinching = false;
+      this.touchCooldownTimer = null;
+    }, 150);
+  };
 
   onPageChanged(pageNumber: number): void {
     this.scrollToPage(pageNumber - 1);
@@ -450,6 +972,11 @@ export class PdfView
     } else {
       this.retractTabEl?.removeClass("is-hidden");
     }
+
+    const currentZoom = this.toolbar.getZoomSelection();
+    if (currentZoom === "fit-width" || currentZoom === "fit-page") {
+      void this.onZoomChanged(currentZoom);
+    }
   }
 
   onCite(): void {
@@ -474,7 +1001,8 @@ export class PdfView
       this.file.name,
       this.pdfDoc.getTitle(),
       annots,
-      this.pdfDoc.getPageCount()
+      this.pdfDoc.getPageCount(),
+      this.activeColorScheme
     );
 
     const parentPath = this.file.parent?.path && this.file.parent.path !== "/" ? this.file.parent.path : "";
@@ -507,17 +1035,215 @@ export class PdfView
     new Notice("Redo action");
   }
 
+  onThemeChanged(theme: "light" | "sepia" | "dark"): void {
+    this.readerTheme = theme;
+    this.paperTheme = theme === "dark" ? "dark" : "light";
+    this.contentEl.removeClass("pdf-theme-light");
+    this.contentEl.removeClass("pdf-theme-sepia");
+    this.contentEl.removeClass("pdf-theme-dark");
+    this.contentEl.addClass(`pdf-theme-${theme}`);
+  }
+
   onToggleTheme(): void {
-    this.paperTheme = this.paperTheme === "light" ? "dark" : "light";
-    if (this.paperTheme === "dark") {
-      this.contentEl.addClass("pdf-theme-dark");
-    } else {
-      this.contentEl.removeClass("pdf-theme-dark");
-    }
+    const next = this.readerTheme === "light" ? "sepia" : this.readerTheme === "sepia" ? "dark" : "light";
+    this.onThemeChanged(next);
   }
 
   async onSave(): Promise<void> {
     await this.saveNow();
+  }
+
+  // ==================== Color Scheme & Tag Delegate Methods ====================
+
+  initColorSchemeForFile(filePath: string): void {
+    // 1. Embedded scheme in PDF catalog
+    const embeddedScheme = this.pdfDoc?.getColorScheme();
+    if (embeddedScheme) {
+      this.activeColorScheme = embeddedScheme;
+      return;
+    }
+
+    // 2. File-specific scheme in plugin settings
+    const plugin = this.getPlugin();
+    if (plugin && plugin.settings.pdfFileSchemes[filePath]) {
+      this.activeColorScheme = plugin.settings.pdfFileSchemes[filePath];
+      return;
+    }
+
+    // 3. Default template profile from plugin settings
+    if (plugin) {
+      const defaultProfile =
+        plugin.settings.pdfProfiles.find((p) => p.id === plugin.settings.pdfDefaultProfileId) ||
+        plugin.settings.pdfProfiles[0];
+      if (defaultProfile) {
+        this.activeColorScheme = cloneProfile(defaultProfile);
+        return;
+      }
+    }
+
+    // 4. Fallback to built-in Zotero Default
+    this.activeColorScheme = cloneProfile(ZOTERO_DEFAULT_PROFILE);
+  }
+
+  private renderSelectionBarColors(): void {
+    if (!this.selectionColorsWrap) return;
+    this.selectionColorsWrap.empty();
+
+    const colors =
+      this.activeColorScheme.colors && this.activeColorScheme.colors.length > 0
+        ? this.activeColorScheme.colors
+        : PDF_COLOR_PRESETS.map((p) => ({
+            id: p.name.toLowerCase(),
+            hex: p.hex,
+            name: p.name,
+            tag: "",
+            rgb: p.rgb,
+          }));
+
+    for (const item of colors) {
+      const dot = this.selectionColorsWrap.createSpan({ cls: "pdf-selection-color-dot" });
+      dot.style.backgroundColor = item.hex;
+      const tagText = item.tag ? ` (${item.tag})` : "";
+      dot.title = `${item.name}${tagText}`;
+
+      if (rgbToHex(this.activeColor).toLowerCase() === normalizeHexColor(item.hex)) {
+        dot.addClass("is-active");
+      }
+
+      dot.onclick = (e) => {
+        e.stopPropagation();
+        this.activeColor = item.rgb || hexToRgb(item.hex);
+        this.selectionColorsWrap
+          ?.querySelectorAll(".pdf-selection-color-dot")
+          .forEach((d) => d.removeClass("is-active"));
+        dot.addClass("is-active");
+        this.toolbar.setActiveTool(this.activeTool);
+        if (this.selectedTextInfo) {
+          const pv = this.pageViews.get(this.selectedTextInfo.pageIndex);
+          pv?.createHighlightFromSelection(
+            this.selectedTextInfo.text,
+            this.activeColor,
+            this.selectedTextInfo.lines
+          );
+          this.hideSelectionBar();
+        }
+      };
+    }
+  }
+
+  onSelectProfile(profileId: string): void {
+    const plugin = this.getPlugin();
+    const profile = plugin?.settings.pdfProfiles.find((p) => p.id === profileId);
+    if (!profile) return;
+
+    this.applyColorScheme(cloneProfile(profile, undefined, profile.name), true);
+    new Notice(`Applied color scheme template "${profile.name}"`);
+  }
+
+  onOpenColorSchemeModal(): void {
+    const plugin = this.getPlugin();
+    const available = plugin ? plugin.settings.pdfProfiles : [this.activeColorScheme];
+
+    new PdfColorSchemeModal(this.app, {
+      fileName: this.file?.name || "document.pdf",
+      currentScheme: this.activeColorScheme,
+      availableProfiles: available,
+      onApply: (newScheme) => {
+        this.applyColorScheme(newScheme, true);
+      },
+      onSaveAsTemplate: async (newProfile) => {
+        if (plugin) {
+          plugin.settings.pdfProfiles.push(newProfile);
+          await plugin.saveSettings();
+          plugin.notifyColorSchemeChanged();
+        }
+        this.applyColorScheme(newProfile, true);
+      },
+    }).open();
+  }
+
+  async onSaveSchemeAsProfile(): Promise<void> {
+    new TextPromptModal(
+      this.app,
+      "Save as template profile",
+      this.activeColorScheme.name,
+      async (name) => {
+        if (!name || !name.trim()) return;
+
+        const plugin = this.getPlugin();
+        if (!plugin) return;
+
+        const newProfile = cloneProfile(this.activeColorScheme, undefined, name.trim());
+        plugin.settings.pdfProfiles.push(newProfile);
+        await plugin.saveSettings();
+        plugin.notifyColorSchemeChanged();
+        new Notice(`Saved template profile "${newProfile.name}"! Available in all PDFs.`);
+      }
+    ).open();
+  }
+
+  async onResetSchemeToDefault(): Promise<void> {
+    const plugin = this.getPlugin();
+    const defaultProfile =
+      plugin?.settings.pdfProfiles.find((p) => p.id === plugin?.settings.pdfDefaultProfileId) ||
+      ZOTERO_DEFAULT_PROFILE;
+
+    this.applyColorScheme(cloneProfile(defaultProfile), true);
+    new Notice(`Reset color scheme to "${defaultProfile.name}" default`);
+  }
+
+  applyColorScheme(scheme: PdfColorSchemeProfile, persist = true): void {
+    this.activeColorScheme = scheme;
+
+    // Ensure active tool color matches one in the scheme, else default to first
+    const activeHex = rgbToHex(this.activeColor).toLowerCase();
+    const hasColor = scheme.colors.some((c) => normalizeHexColor(c.hex) === activeHex);
+    if (!hasColor && scheme.colors[0]) {
+      this.activeColor = scheme.colors[0].rgb || hexToRgb(scheme.colors[0].hex);
+    }
+
+    // 1. Update Toolbar
+    this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
+
+    // 2. Update Sidebar
+    this.sidebar.setColorScheme(this.activeColorScheme);
+
+    // 3. Update Note Popover
+    this.notePopover.setColorScheme(this.activeColorScheme);
+
+    // 4. Update Selection Bar
+    this.renderSelectionBarColors();
+
+    // 5. Update all Page Views
+    for (const pv of this.pageViews.values()) {
+      pv.setColorScheme(this.activeColorScheme);
+      pv.setTool(this.activeTool, this.activeColor, this.strokeWidth);
+    }
+
+    // 6. Persist to PDF catalog and plugin settings
+    if (persist) {
+      if (this.pdfDoc) {
+        this.pdfDoc.setColorScheme(this.activeColorScheme);
+        this.scheduleSave();
+      }
+      if (this.file && this.getPlugin()) {
+        void this.getPlugin()?.setColorSchemeForFile(this.file.path, this.activeColorScheme);
+      }
+    }
+  }
+
+  async onClose(): Promise<void> {
+    this.unregisterColorSchemeListener?.();
+    if (this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    await this.requestSave();
+    this.toolbar.dispose();
+    this.sidebar.dispose();
+    this.notePopover.hide();
+    this.selectionBarEl?.remove();
+    this.pageViews.clear();
   }
 
   // ==================== PdfSidebarDelegate Implementation ====================
@@ -527,16 +1253,62 @@ export class PdfView
   }
 
   onSelectAnnotation(annotation: PdfAnnotation): void {
-    this.scrollToPage(annotation.pageIndex);
+    this.scrollToAnnotation(annotation);
     this.pulseAnnotation(annotation.id);
+    for (const [idx, pv] of this.pageViews.entries()) {
+      if (idx === annotation.pageIndex) {
+        pv.selectAnnotation(annotation.id);
+      } else {
+        pv.selectAnnotation(null);
+      }
+    }
+  }
+
+  getPageView(pageIndex: number): PdfPageView | undefined {
+    return this.pageViews.get(pageIndex);
+  }
+
+  scrollToAnnotation(annotation: PdfAnnotation): void {
+    const pv = this.pageViews.get(annotation.pageIndex);
+    if (pv && this.pagesScrollEl) {
+      const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      } else {
+        pv.element.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      this.currentPage = annotation.pageIndex + 1;
+      this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
+      this.sidebar.setCurrentPage(annotation.pageIndex);
+    }
+  }
+
+  onChangeAnnotationColor(id: string, color: PdfRgbColor): void {
+    if (!this.pdfDoc) return;
+    const annot = this.pdfDoc.getAllAnnotations().find((a) => a.id === id);
+    if (!annot) return;
+    annot.color = color;
+    if (annot.type === "square" || annot.type === "circle" || annot.type === "line") {
+      (annot as any).strokeColor = color;
+    }
+    this.pdfDoc.upsertAnnotation(annot);
+    this.syncAnnotationsToViews();
+    this.scheduleSave();
+    new Notice("Annotation color updated");
+  }
+
+  onOpenLinkedNote(vaultPath: string): void {
+    if (this.app?.workspace) {
+      this.app.workspace.openLinkText(vaultPath, "", false);
+    }
   }
 
   onEditAnnotation(annotation: PdfAnnotation): void {
-    this.scrollToPage(annotation.pageIndex);
+    this.scrollToAnnotation(annotation);
     const pv = this.pageViews.get(annotation.pageIndex);
     if (pv) {
       const el = pv.element.querySelector(`[data-annot-id="${annotation.id}"]`) as HTMLElement;
-      this.notePopover.show(el || pv.element, annotation, this);
+      this.notePopover.show(el || pv.element, annotation, this, this.activeColorScheme);
     }
   }
 
@@ -565,7 +1337,7 @@ export class PdfView
   }
 
   onClickAnnotation(annotation: PdfAnnotation, element: HTMLElement | SVGElement): void {
-    this.notePopover.show(element, annotation, this);
+    this.notePopover.show(element, annotation, this, this.activeColorScheme);
   }
 
   private syncAnnotationsToViews(): void {
@@ -579,16 +1351,28 @@ export class PdfView
   // ==================== Document Reloading after Page Operations ====================
 
   private async getPdfJsLibrary(): Promise<any> {
+    if (this.pdfjsLib) {
+      return this.pdfjsLib;
+    }
+    if ((window as any).pdfjsLib) {
+      this.pdfjsLib = (window as any).pdfjsLib;
+      return this.pdfjsLib;
+    }
     if (typeof loadPdfJs === "function") {
       try {
         const lib = await loadPdfJs();
-        if (lib) return lib;
+        if (lib) {
+          this.pdfjsLib = lib;
+          (window as any).pdfjsLib = lib;
+          return lib;
+        }
       } catch (e) {
         console.warn("loadPdfJs failed, falling back to window.pdfjsLib", e);
       }
     }
     if ((window as any).pdfjsLib) {
-      return (window as any).pdfjsLib;
+      this.pdfjsLib = (window as any).pdfjsLib;
+      return this.pdfjsLib;
     }
     throw new Error("PDF.js engine is not available in this Obsidian environment.");
   }
@@ -634,6 +1418,11 @@ export class PdfView
 
   private async saveNow(): Promise<void> {
     if (!this.pdfDoc || !this.file) return;
+    if (this.isSaving) {
+      this.hasPendingSave = true;
+      return;
+    }
+    this.isSaving = true;
     this.toolbar.updateSaveStatus(true, true);
     this.isInternalSaving = true;
     this.lastInternalSaveTime = Date.now();
@@ -649,9 +1438,14 @@ export class PdfView
       console.error("Failed to save PDF:", err);
       new Notice(`Failed to save PDF ${this.file.name}: ${(err as Error).message}`);
     } finally {
+      this.isSaving = false;
       window.setTimeout(() => {
         this.isInternalSaving = false;
       }, 2000);
+      if (this.hasPendingSave) {
+        this.hasPendingSave = false;
+        void this.saveNow();
+      }
     }
   }
 
@@ -705,7 +1499,7 @@ export class PdfView
         const page = await this.pdfjsDoc.getPage(i + 1);
         const [textContent, rawAnnots] = await Promise.all([
           page.getTextContent().catch(() => null),
-          page.getAnnotations({ intent: "display" }).catch(() => []),
+          page.getAnnotations({ intent: "any" }).catch(() => []),
         ]);
 
         // 1. Discover any annotations from PDF.js not in adapter
@@ -731,18 +1525,37 @@ export class PdfView
 
           const existingAnnots = this.pdfDoc.getPageAnnotations(i);
           const pRect = pAnnot.rect as number[] | undefined;
-          const alreadyExists = existingAnnots.some((a) => {
+          const normPRect: PdfRect | undefined =
+            pRect && Array.isArray(pRect) && pRect.length >= 4
+              ? [
+                  Math.min(pRect[0], pRect[2]),
+                  Math.min(pRect[1], pRect[3]),
+                  Math.max(pRect[0], pRect[2]),
+                  Math.max(pRect[1], pRect[3]),
+                ]
+              : undefined;
+
+          const existing = existingAnnots.find((a) => {
             if (a.id === pAnnot.id) return true;
-            if (pRect && Array.isArray(pRect) && pRect.length >= 4) {
-              const dx = Math.abs(a.rect[0] - pRect[0]);
-              const dy = Math.abs(a.rect[1] - pRect[1]);
+            if (normPRect) {
+              const dx = Math.abs(a.rect[0] - normPRect[0]);
+              const dy = Math.abs(a.rect[1] - normPRect[1]);
               return dx < 3 && dy < 3;
             }
             return false;
           });
 
-          if (!alreadyExists && pRect && Array.isArray(pRect) && pRect.length >= 4) {
-            const parsed = this.convertPdfJsAnnotation(pAnnot, i, pRect);
+          if (existing) {
+            const pContents = pAnnot.contentsObj?.str || pAnnot.contents || "";
+            if (pContents && (!existing.contents || !existing.contents.trim())) {
+              existing.contents = pContents;
+              if (existing.type === "highlight" || existing.type === "underline") {
+                (existing as any).highlightedText = pContents;
+              }
+              hasChanges = true;
+            }
+          } else if (normPRect) {
+            const parsed = this.convertPdfJsAnnotation(pAnnot, i, normPRect);
             if (parsed) {
               this.pdfDoc.registerExistingAnnotation(parsed);
               hasChanges = true;
@@ -754,8 +1567,8 @@ export class PdfView
         if (textContent && textContent.items && textContent.items.length > 0) {
           const pageAnnots = this.pdfDoc.getPageAnnotations(i);
           for (const annot of pageAnnots) {
-            if (annot.type === "highlight") {
-              const hl = annot as PdfHighlightAnnotation;
+            if (annot.type === "highlight" || annot.type === "underline") {
+              const hl = annot as (PdfHighlightAnnotation | PdfUnderlineAnnotation);
               if (!hl.highlightedText || hl.highlightedText.trim() === "") {
                 const extracted = this.extractTextUnderAnnotation(textContent, hl.rect, hl.quadPoints);
                 if (extracted && extracted.trim()) {
@@ -774,8 +1587,9 @@ export class PdfView
       }
     }
 
+    // Always update sidebar with the complete enriched annotation list
+    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
     if (hasChanges) {
-      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
       for (const [idx, pv] of this.pageViews.entries()) {
         pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
       }
@@ -786,6 +1600,21 @@ export class PdfView
     const [minX, minY, maxX, maxY] = rect;
     const matchingItems: { str: string; x: number; y: number }[] = [];
     const tolerance = 2;
+
+    // Build sub-line bounding boxes from quadPoints if available
+    const quadBoxes: { minX: number; minY: number; maxX: number; maxY: number }[] = [];
+    if (quadPoints && Array.isArray(quadPoints) && quadPoints.length >= 8) {
+      for (let q = 0; q + 7 < quadPoints.length; q += 8) {
+        const xs = [quadPoints[q], quadPoints[q + 2], quadPoints[q + 4], quadPoints[q + 6]];
+        const ys = [quadPoints[q + 1], quadPoints[q + 3], quadPoints[q + 5], quadPoints[q + 7]];
+        quadBoxes.push({
+          minX: Math.min(...xs),
+          maxX: Math.max(...xs),
+          minY: Math.min(...ys),
+          maxY: Math.max(...ys),
+        });
+      }
+    }
 
     for (const item of textContent.items) {
       if (!("str" in item) || !item.str.trim()) continue;
@@ -800,13 +1629,24 @@ export class PdfView
       const itemBottom = ty;
       const itemTop = ty + height;
 
-      // Check overlap with highlight rect
-      const overlaps = !(
-        itemRight < minX - tolerance ||
-        itemLeft > maxX + tolerance ||
-        itemTop < minY - tolerance ||
-        itemBottom > maxY + tolerance
-      );
+      let overlaps = false;
+      if (quadBoxes.length > 0) {
+        overlaps = quadBoxes.some((qb) => {
+          return !(
+            itemRight < qb.minX - tolerance ||
+            itemLeft > qb.maxX + tolerance ||
+            itemTop < qb.minY - tolerance ||
+            itemBottom > qb.maxY + tolerance
+          );
+        });
+      } else {
+        overlaps = !(
+          itemRight < minX - tolerance ||
+          itemLeft > maxX + tolerance ||
+          itemTop < minY - tolerance ||
+          itemBottom > maxY + tolerance
+        );
+      }
 
       if (overlaps) {
         matchingItems.push({ str: item.str, x: tx, y: ty });
@@ -844,7 +1684,12 @@ export class PdfView
         case 15: subtype = "ink"; break;
       }
     }
-    const pdfRect: PdfRect = [rect[0], rect[1], rect[2], rect[3]];
+    const pdfRect: PdfRect = [
+      Math.min(rect[0], rect[2]),
+      Math.min(rect[1], rect[3]),
+      Math.max(rect[0], rect[2]),
+      Math.max(rect[1], rect[3]),
+    ];
 
     let color: PdfRgbColor = [0.99, 0.88, 0.28];
     if (pAnnot.color && Array.isArray(pAnnot.color) && pAnnot.color.length >= 3) {
@@ -864,6 +1709,19 @@ export class PdfView
         pAnnot.quadPoints && Array.isArray(pAnnot.quadPoints) && pAnnot.quadPoints.length > 0
           ? pAnnot.quadPoints
           : [pdfRect[0], pdfRect[3], pdfRect[2], pdfRect[3], pdfRect[0], pdfRect[1], pdfRect[2], pdfRect[1]];
+      if (subtype === "underline") {
+        return {
+          id,
+          type: "underline",
+          pageIndex,
+          rect: pdfRect,
+          color,
+          contents,
+          highlightedText: contents,
+          quadPoints: quads,
+          author,
+        } as PdfUnderlineAnnotation;
+      }
       return {
         id,
         type: "highlight",

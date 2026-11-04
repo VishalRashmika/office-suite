@@ -1244,6 +1244,7 @@
   width: 300px;
   min-width: 240px;
   max-width: 550px;
+  height: 100%;
   border-right: 1px solid var(--background-modifier-border);
   background: var(--background-secondary);
   display: flex;
@@ -1252,12 +1253,19 @@
   transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
   z-index: 10;
   position: relative;
+  box-sizing: border-box;
 }
 
 .pdf-sidebar-container.is-hidden {
-  margin-left: -301px;
-  opacity: 0;
-  pointer-events: none;
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 .pdf-sidebar-resizer {
@@ -1325,27 +1333,49 @@
   justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
 }
 
 .pdf-sidebar-tabs {
   display: flex;
   gap: 4px;
+  align-items: center;
 }
 
 .pdf-sidebar-tab {
   background: transparent;
-  border: none;
+  border: 1px solid transparent;
   font-size: 12px;
   padding: 4px 8px;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-muted);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.pdf-sidebar-tab:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
 }
 
 .pdf-sidebar-tab.is-active {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+  background: var(--background-primary);
+  color: var(--interactive-accent);
+  border-color: var(--background-modifier-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.pdf-sidebar-tab svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-sidebar-tab-label {
+  font-size: 11px;
 }
 
 .pdf-sidebar-close-btn {
@@ -1354,19 +1384,891 @@
   cursor: pointer;
   padding: 4px;
   color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
 }
 
 .pdf-sidebar-close-btn:hover {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
 .pdf-sidebar-content {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 8px;
 }
 
-/* Thumbnails Grid */
+/* ==================== Zotero Annotations View ==================== */
+
+.pdf-annot-view-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Search Row */
+.pdf-annot-search-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.pdf-annot-search-icon {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.pdf-annot-search-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-search-input {
+  width: 100%;
+  height: 28px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  padding: 0 26px 0 26px;
+  font-size: 12px;
+  color: var(--text-normal);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pdf-annot-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.pdf-annot-search-clear {
+  position: absolute;
+  right: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 3px;
+}
+
+.pdf-annot-search-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-search-clear svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Sort & Group Controls Bar */
+.pdf-annot-sort-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 0;
+  gap: 6px;
+}
+
+.pdf-annot-sort-left {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+}
+
+.pdf-annot-sort-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.pdf-annot-sort-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-sort-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pdf-annot-sort-select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 3px 6px;
+  color: var(--text-normal);
+  cursor: pointer;
+  flex: 1;
+  max-width: 220px;
+}
+
+.pdf-annot-sort-select:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-dir-btn {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-dir-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-dir-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Color Palette Quick Filter Row (Zotero Palette Selector) */
+.pdf-annot-color-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 2px 0 6px 0;
+  scrollbar-width: thin;
+}
+
+.pdf-annot-color-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 2px 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdf-annot-color-pill:hover {
+  border-color: var(--text-muted);
+  color: var(--text-normal);
+}
+
+.pdf-annot-color-pill.is-active {
+  background: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: 0 1px 4px rgba(var(--interactive-accent-rgb), 0.25);
+}
+
+.pdf-annot-color-pill-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pdf-annot-color-pill-dot.mod-all {
+  background: linear-gradient(135deg, #ffd400 0%, #ff6666 33%, #5fb236 66%, #2ea8e5 100%);
+}
+
+.pdf-annot-color-pill-text {
+  font-weight: 500;
+}
+
+.pdf-annot-color-pill-count {
+  font-size: 10px;
+  opacity: 0.8;
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0 4px;
+  border-radius: 8px;
+}
+
+.pdf-annot-color-pill.is-active .pdf-annot-color-pill-count {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Type Filter Chips Row */
+.pdf-annot-type-filter-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pdf-annot-type-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.pdf-annot-type-chip:hover {
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-type-chip.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+/* Actions & Count Summary Row */
+.pdf-annot-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+  border-top: 1px solid var(--background-modifier-border);
+  margin-top: 2px;
+}
+
+.pdf-annot-count-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.pdf-annot-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--interactive-accent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-export-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-export-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Cards Container & Groupings */
+.pdf-annot-cards-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* Group Section Header (Sort by Color / Sort by Type) */
+.pdf-annot-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.pdf-annot-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pdf-annot-group-header:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pdf-annot-group-chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-chevron svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-group-color-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+}
+
+.pdf-annot-group-type-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-type-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-annot-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pdf-annot-group-color-name {
+  color: var(--text-normal);
+}
+
+.pdf-annot-group-sep {
+  color: var(--text-muted);
+}
+
+.pdf-annot-group-tag-name {
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.pdf-annot-group-count {
+  font-size: 10px;
+  background: var(--background-modifier-hover);
+  padding: 1px 6px;
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pdf-annot-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 6px;
+}
+
+/* ==================== 1:1 Zotero Annotation Card ==================== */
+
+.pdf-annot-card {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  /* Left accent color strip is dynamically assigned via inline style: borderLeft = 5px solid hex */
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.pdf-annot-card:hover {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+
+.pdf-annot-card.is-selected {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
+  background: var(--background-primary);
+}
+
+/* Card Header */
+.pdf-annot-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.pdf-annot-card-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pdf-annot-card-type-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-card-type-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pdf-annot-card-tag-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  line-height: 1.3;
+}
+
+.pdf-annot-card-page-badge {
+  font-size: 10px;
+  background: var(--background-modifier-hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-card-page-badge:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-card-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pdf-annot-card-date {
+  font-size: 10px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.pdf-annot-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* Card Action: Color Switcher Button */
+.pdf-annot-card-color-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease;
+}
+
+.pdf-annot-card-color-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-card-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  display: inline-block;
+}
+
+.pdf-annot-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-icon-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-annot-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdf-annot-icon-btn.mod-danger:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Card Body: Quoted Text Block (Highlights & Underlines) */
+.pdf-annot-card-quote {
+  font-size: 12px;
+  color: var(--text-normal);
+  line-height: 1.45;
+  padding: 5px 8px;
+  border-left: 2.5px solid var(--interactive-accent);
+  border-radius: 3px;
+  background: rgba(var(--mono-rgb-100), 0.04);
+}
+
+.pdf-annot-card-quote.mod-highlight {
+  /* Subtle background tint set via inline style */
+}
+
+.pdf-annot-card-quote.mod-underline {
+  background: rgba(var(--mono-rgb-100), 0.03);
+}
+
+.pdf-annot-quote-mark {
+  font-family: Georgia, serif;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.pdf-annot-quote-text {
+  font-style: normal;
+}
+
+.pdf-annot-quote-text.mod-underlined {
+  /* Underline decoration set via inline style */
+}
+
+.pdf-annot-card-quote.mod-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* Card Body: User Comment / Note */
+.pdf-annot-card-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 11px;
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+
+.pdf-annot-card-comment-icon {
+  color: var(--text-muted);
+  display: flex;
+  margin-top: 1px;
+}
+
+.pdf-annot-card-comment-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.pdf-annot-card-comment-text {
+  flex: 1;
+}
+
+.pdf-annot-card-comment.mod-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.pdf-annot-card-freetext-preview {
+  font-size: 11px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+/* Card Body: Linked Obsidian Note */
+.pdf-annot-card-linked-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb), 0.08);
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  width: fit-content;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-card-linked-note:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-link-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.pdf-annot-link-name {
+  font-weight: 500;
+}
+
+/* Empty State */
+.pdf-annot-empty-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 16px;
+  gap: 8px;
+}
+
+.pdf-annot-empty-icon {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.pdf-annot-empty-icon svg {
+  width: 32px;
+  height: 32px;
+}
+
+.pdf-annot-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.pdf-annot-empty-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  max-width: 240px;
+}
+
+.pdf-annot-reset-filters-btn {
+  margin-top: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--interactive-accent);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-reset-filters-btn:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-card-shape-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+.pdf-annot-card-shape-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.pdf-annot-card-shape-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Quick Color Picker Popup */
+.pdf-annot-color-popup {
+  position: fixed;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  max-width: 240px;
+}
+
+.pdf-annot-color-popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 2px 4px 4px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pdf-annot-color-popup-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.pdf-annot-color-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pdf-annot-color-popup-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-annot-color-popup-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+.pdf-annot-color-popup-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-normal);
+}
+
+.pdf-annot-color-popup-name {
+  font-weight: 500;
+}
+
+.pdf-annot-color-popup-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ==================== Outline (Table of Contents) Tab ==================== */
+
+.pdf-outline-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pdf-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pdf-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-normal);
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.pdf-outline-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-outline-item.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+.pdf-outline-caret {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  width: 14px;
+}
+
+.pdf-outline-caret.is-leaf {
+  width: 14px;
+}
+
+.pdf-outline-caret svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pdf-outline-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-outline-children {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* ==================== Thumbnails Grid Tab ==================== */
+
 .pdf-thumbnail-grid {
   display: flex;
   flex-direction: column;
@@ -1378,18 +2280,23 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  border: 1px solid var(--background-modifier-border);
+  border: 2px solid var(--background-modifier-border);
   border-radius: 6px;
   padding: 6px;
   background: var(--background-primary);
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: all 0.15s ease;
   width: 90%;
 }
 
 .pdf-thumbnail-card:hover {
   border-color: var(--interactive-accent);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.pdf-thumbnail-card.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
 }
 
 .pdf-thumbnail-canvas-wrap {
@@ -1429,10 +2336,12 @@
   color: var(--text-muted);
   display: flex;
   align-items: center;
+  border-radius: 3px;
 }
 
 .pdf-thumbnail-menu-btn:hover {
   color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 /* Action Popup for Page actions */
@@ -1469,227 +2378,6 @@
   background: rgba(239, 68, 68, 0.1);
 }
 
-/* Export to Obsidian Markdown Note */
-.pdf-export-all-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 7px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 6px;
-  cursor: pointer;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border: none;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: opacity 0.15s ease, transform 0.1s ease;
-  margin-bottom: 2px;
-}
-
-.pdf-export-all-btn:hover {
-  opacity: 0.92;
-  transform: translateY(-1px);
-}
-
-.pdf-export-all-btn:active {
-  transform: translateY(0);
-}
-
-.pdf-toolbar-btn.pdf-toolbar-export-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 10px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--interactive-accent);
-  border-color: rgba(var(--interactive-accent-rgb), 0.35);
-  background: rgba(var(--interactive-accent-rgb), 0.08);
-}
-
-.pdf-toolbar-btn.pdf-toolbar-export-btn:hover {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-}
-
-/* Annotations List Tab */
-.pdf-annot-list-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pdf-annot-search-wrap {
-  width: 100%;
-}
-
-.pdf-annot-search-input {
-  width: 100%;
-  height: 28px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  padding: 0 8px;
-  font-size: 12px;
-  color: var(--text-normal);
-}
-
-.pdf-annot-filter-row {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.pdf-annot-filter-pill {
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 12px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.pdf-annot-filter-pill:hover {
-  border-color: var(--interactive-accent);
-}
-
-.pdf-annot-filter-pill.is-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-}
-
-.pdf-annot-cards-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.pdf-annot-empty-state {
-  font-size: 12px;
-  color: var(--text-muted);
-  text-align: center;
-  padding: 24px 8px;
-}
-
-.pdf-annot-card {
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 8px;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.pdf-annot-card:hover {
-  border-color: var(--interactive-accent);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
-}
-
-.pdf-annot-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.pdf-annot-card-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.pdf-annot-card-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.pdf-annot-card-type {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-normal);
-}
-
-.pdf-annot-card-page-badge {
-  font-size: 10px;
-  background: var(--background-modifier-hover);
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: var(--text-muted);
-}
-
-.pdf-annot-card-actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.pdf-annot-icon-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 2px 4px;
-  color: var(--text-muted);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-}
-
-.pdf-annot-icon-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.pdf-annot-icon-btn.mod-danger:hover {
-  color: #ef4444;
-}
-
-.pdf-annot-card-quote {
-  font-size: 11px;
-  color: var(--text-normal);
-  font-style: italic;
-  line-height: 1.4;
-  background: rgba(var(--mono-rgb-100), 0.04);
-  padding: 4px 6px;
-  border-left: 2px solid var(--interactive-accent);
-  border-radius: 2px;
-}
-
-.pdf-annot-card-quote.mod-empty {
-  color: var(--text-faint);
-  border-left-color: var(--background-modifier-border);
-}
-
-.pdf-annot-card-comment {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.35;
-}
-
-.pdf-annot-card-comment.mod-empty {
-  color: var(--text-faint);
-  font-style: italic;
-}
-
-.pdf-annot-card-linked-note {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--interactive-accent);
-  margin-top: 2px;
-}
 
 /* Scroll Area & Page View */
 .pdf-pages-scroll-area {
@@ -1702,6 +2390,83 @@
   gap: 24px;
   padding: 24px;
   background: var(--background-primary-alt);
+  touch-action: pan-x pan-y;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pdf-pages-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  margin: 0 auto;
+  margin-left: auto;
+  margin-right: auto;
+  width: fit-content;
+  min-width: min-content;
+  max-width: 100%;
+  transform-origin: 0 0;
+  will-change: transform;
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.pdf-theme-light .pdf-pages-scroll-area {
+  background: var(--background-primary-alt);
+}
+
+.pdf-theme-light .pdf-page-view {
+  background: #ffffff;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+
+/* Sepia Theme */
+.pdf-theme-sepia .pdf-pages-scroll-area {
+  background: #ebe4d8;
+}
+
+.pdf-theme-sepia .pdf-page-view {
+  background: #fbf0da;
+  box-shadow: 0 4px 18px rgba(88, 64, 36, 0.18);
+}
+
+.pdf-theme-sepia .pdf-page-canvas {
+  filter: sepia(0.35) contrast(0.96) brightness(0.98);
+}
+
+.pdf-theme-sepia .pdf-text-layer ::selection,
+.pdf-theme-sepia .textLayer ::selection,
+.pdf-theme-sepia .pdf-text-layer ::-moz-selection,
+.pdf-theme-sepia .textLayer ::-moz-selection {
+  background: rgba(180, 130, 60, 0.38) !important;
+  color: transparent !important;
+}
+
+/* Dark Theme */
+.pdf-theme-dark .pdf-pages-scroll-area {
+  background: #18191c;
+}
+
+.pdf-theme-dark .pdf-page-view {
+  background: #202124;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+}
+
+.pdf-theme-dark .pdf-page-canvas {
+  filter: invert(0.88) hue-rotate(180deg) contrast(0.95);
+}
+
+.pdf-theme-dark .pdf-text-layer ::selection,
+.pdf-theme-dark .textLayer ::selection,
+.pdf-theme-dark .pdf-text-layer ::-moz-selection,
+.pdf-theme-dark .textLayer ::-moz-selection {
+  background: rgba(46, 168, 229, 0.5) !important;
+  color: transparent !important;
 }
 
 .pdf-page-view {
@@ -1710,19 +2475,23 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
   user-select: text;
-}
-
-.pdf-theme-dark .pdf-page-view {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  -webkit-user-select: text;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
 }
 
 .pdf-page-canvas {
   display: block;
   width: 100%;
   height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
 }
 
-.pdf-text-layer {
+.pdf-text-layer,
+.textLayer {
   position: absolute;
   top: 0;
   left: 0;
@@ -1732,19 +2501,64 @@
   line-height: 1;
   opacity: 1;
   z-index: 2;
-  user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  pointer-events: auto;
+  box-sizing: border-box;
+  -webkit-text-size-adjust: none;
+  -moz-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
 }
 
-.pdf-text-layer span {
+.pdf-text-layer :is(span, br),
+.textLayer :is(span, br),
+.pdf-text-layer span,
+.textLayer span {
   position: absolute;
-  color: transparent;
-  cursor: text;
+  color: transparent !important;
+  cursor: text !important;
   transform-origin: 0% 0%;
   white-space: pre;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  box-sizing: border-box;
 }
 
-.pdf-text-layer ::selection {
-  background: rgba(30, 64, 175, 0.28);
+.pdf-text-layer span.markedContent,
+.textLayer span.markedContent {
+  top: 0;
+  height: 0;
+}
+
+.pdf-text-layer .endOfContent,
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: -1;
+  cursor: default;
+  pointer-events: none !important;
+}
+
+.pdf-text-layer ::selection,
+.textLayer ::selection {
+  background: rgba(30, 64, 175, 0.35) !important;
+  color: transparent !important;
+}
+
+.pdf-text-layer ::-moz-selection,
+.textLayer ::-moz-selection {
+  background: rgba(30, 64, 175, 0.35) !important;
+  color: transparent !important;
+}
+
+.pdf-text-layer br::selection,
+.textLayer br::selection,
+.pdf-text-layer br::-moz-selection,
+.textLayer br::-moz-selection {
+  background: transparent !important;
 }
 
 /* Annotation SVG Overlay */
@@ -1756,6 +2570,52 @@
   height: 100%;
   z-index: 3;
   overflow: visible;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.pdf-annotation-overlay.is-drawing {
+  pointer-events: auto !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"],
+.pdf-page-view[data-active-tool="underline"] {
+  cursor: text;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="highlight"] .textLayer,
+.pdf-page-view[data-active-tool="highlight"] .textLayer span,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="underline"] .textLayer,
+.pdf-page-view[data-active-tool="underline"] .textLayer span {
+  cursor: text !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-highlight-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-underline-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-highlight-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-underline-group {
+  pointer-events: none !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer ::selection,
+.pdf-page-view[data-active-tool="highlight"] .textLayer ::selection,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer ::-moz-selection,
+.pdf-page-view[data-active-tool="highlight"] .textLayer ::-moz-selection {
+  background: rgba(250, 204, 21, 0.45) !important;
+  color: transparent !important;
+}
+
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer ::selection,
+.pdf-page-view[data-active-tool="underline"] .textLayer ::selection,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer ::-moz-selection,
+.pdf-page-view[data-active-tool="underline"] .textLayer ::-moz-selection {
+  background: rgba(59, 130, 246, 0.35) !important;
+  color: transparent !important;
 }
 
 .pdf-annot-pin-group {
@@ -1780,7 +2640,52 @@
 }
 
 .pdf-annot-highlight-group {
+  cursor: text;
+}
+
+.pdf-annot-highlight-group polygon,
+.pdf-annot-highlight-group rect {
+  pointer-events: none !important;
+  transition: fill-opacity 0.15s ease, stroke-opacity 0.15s ease;
+}
+
+.pdf-annot-highlight-group:hover polygon,
+.pdf-annot-highlight-group:hover rect {
+  fill-opacity: 0.50;
+  stroke-opacity: 0.50;
+}
+
+/* Underline Markup */
+.pdf-annot-underline-group {
+  cursor: text;
+}
+
+.pdf-annot-underline-group line {
+  pointer-events: none !important;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.pdf-annot-underline-group:hover line:not([stroke="transparent"]) {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.4));
+  opacity: 1;
+}
+
+.pdf-annot-underline-group.is-selected line:not([stroke="transparent"]) {
+  filter: drop-shadow(0 0 3px var(--interactive-accent));
+}
+
+/* Zotero Bookmark Ribbon Badge Indicator on Highlights/Underlines with notes */
+.pdf-annot-bookmark-badge {
   cursor: pointer;
+  pointer-events: auto !important;
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1), filter 0.16s ease;
+  transform-origin: center top;
+  z-index: 5;
+}
+
+.pdf-annot-bookmark-badge:hover {
+  transform: scale(1.25);
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55));
 }
 
 .pdf-annot-shape-group {
@@ -1814,6 +2719,8 @@
   z-index: 4;
   pointer-events: none;
   overflow: visible;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .pdf-annot-freetext-box {
@@ -1822,49 +2729,65 @@
   border-radius: 4px;
   border: 1px dashed transparent;
   background: transparent;
-  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
-  user-select: text;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  cursor: move;
 }
 
 .pdf-annot-freetext-box:hover {
   border-color: var(--interactive-accent);
-  background: rgba(var(--interactive-accent-rgb), 0.04);
 }
 
 .pdf-annot-freetext-box.is-selected {
-  border-color: var(--interactive-accent);
-  background: rgba(var(--interactive-accent-rgb), 0.08);
-  box-shadow: 0 0 0 1px var(--interactive-accent);
+  border: 1.5px solid var(--interactive-accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
 }
 
 .pdf-annot-freetext-box.is-editing {
-  border: 1px solid var(--interactive-accent);
-  background: var(--background-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1.5px solid var(--interactive-accent);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.22);
+  user-select: text;
+  cursor: default;
 }
 
+/* Floating Action / Formatting Toolbar above text box */
 .pdf-annot-freetext-handle {
+  position: absolute;
+  bottom: calc(100% + 5px);
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1px 6px;
-  background: var(--background-secondary);
-  border-top-left-radius: 3px;
-  border-top-right-radius: 3px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  gap: 3px;
+  padding: 3px 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s ease;
   cursor: grab;
   font-size: 11px;
   user-select: none;
-  height: 18px;
+  min-height: 24px;
+  z-index: 50;
+  white-space: nowrap;
 }
 
-.pdf-annot-freetext-box:hover .pdf-annot-freetext-handle,
+/* Flip toolbar below box if placed near top edge */
+.pdf-annot-freetext-box.is-top-edge .pdf-annot-freetext-handle {
+  bottom: auto;
+  top: calc(100% + 5px);
+}
+
 .pdf-annot-freetext-box.is-selected .pdf-annot-freetext-handle,
 .pdf-annot-freetext-box.is-editing .pdf-annot-freetext-handle {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .pdf-annot-freetext-handle:active {
@@ -1875,37 +2798,198 @@
   color: var(--text-muted);
   font-weight: bold;
   letter-spacing: -1px;
+  cursor: grab;
+  padding: 0 3px;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.pdf-annot-freetext-format-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pdf-annot-freetext-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  line-height: 1.3;
+  user-select: none;
+}
+
+.pdf-annot-freetext-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdf-annot-freetext-btn.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.pdf-annot-freetext-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--background-modifier-border);
+  margin: 0 3px;
+  display: inline-block;
+}
+
+.pdf-annot-freetext-size-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-normal);
+  min-width: 16px;
+  text-align: center;
+  user-select: none;
+}
+
+.pdf-annot-freetext-color-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 1.5px solid rgba(0, 0, 0, 0.25);
+  transition: transform 0.12s ease;
+  margin: 0 3px;
+  display: inline-block;
+}
+
+.pdf-annot-freetext-color-dot:hover {
+  transform: scale(1.3);
 }
 
 .pdf-annot-freetext-del {
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: bold;
   line-height: 1;
-  padding: 0 3px;
-  border-radius: 2px;
+  padding: 0 4px;
+  border-radius: 3px;
+  margin-left: 2px;
 }
 
 .pdf-annot-freetext-del:hover {
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .pdf-annot-freetext-content {
-  padding: 4px 8px;
-  min-height: 24px;
+  padding: 4px 6px;
+  min-height: 20px;
   outline: none;
-  line-height: 1.4;
+  line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
-  cursor: text;
   font-family: var(--font-text);
+  flex: 1;
+  cursor: move;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.pdf-annot-freetext-box.is-editing .pdf-annot-freetext-content {
+  cursor: text;
+  user-select: text;
 }
 
 .pdf-annot-freetext-content:empty::before {
   content: attr(placeholder);
   color: var(--text-faint);
   pointer-events: none;
+}
+
+/* 8 Transform / Resize Handles for Text Box */
+.pdf-annot-resize-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--background-primary, #ffffff);
+  border: 1.5px solid var(--interactive-accent);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+  box-sizing: border-box;
+}
+
+.pdf-annot-freetext-box.is-selected .pdf-annot-resize-handle,
+.pdf-annot-freetext-box.is-editing .pdf-annot-resize-handle {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pdf-annot-resize-handle:hover {
+  background: var(--interactive-accent);
+  transform: scale(1.25);
+}
+
+.pdf-annot-resize-nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+
+.pdf-annot-resize-n {
+  top: -4px;
+  left: calc(50% - 4px);
+  cursor: ns-resize;
+}
+
+.pdf-annot-resize-ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+
+.pdf-annot-resize-e {
+  top: calc(50% - 4px);
+  right: -4px;
+  cursor: ew-resize;
+}
+
+.pdf-annot-resize-se {
+  bottom: -4px;
+  right: -4px;
+  cursor: nwse-resize;
+}
+
+.pdf-annot-resize-s {
+  bottom: -4px;
+  left: calc(50% - 4px);
+  cursor: ns-resize;
+}
+
+.pdf-annot-resize-sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+
+.pdf-annot-resize-w {
+  top: calc(50% - 4px);
+  left: -4px;
+  cursor: ew-resize;
+}
+
+/* Live drag-to-create preview rectangle */
+.pdf-annot-freetext-preview {
+  position: absolute;
+  border: 1.5px dashed var(--interactive-accent);
+  background: rgba(var(--interactive-accent-rgb), 0.08);
+  pointer-events: none;
+  z-index: 25;
+  border-radius: 4px;
+  box-sizing: border-box;
 }
 
 .pdf-annot-selection-handles rect {
@@ -1931,14 +3015,41 @@
   position: fixed;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  padding: 4px 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  padding: 3px 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
   z-index: 1000;
   transition: opacity 0.12s ease;
+}
+
+.pdf-selection-colors {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding-right: 6px;
+  border-right: 1px solid var(--background-modifier-border);
+  margin-right: 2px;
+}
+
+.pdf-selection-color-dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: transform 0.12s ease;
+}
+
+.pdf-selection-color-dot:hover {
+  transform: scale(1.25);
+}
+
+.pdf-selection-color-dot.is-active {
+  border-color: var(--interactive-accent);
+  transform: scale(1.15);
 }
 
 .pdf-selection-action-bar.is-hidden {
@@ -1950,7 +3061,7 @@
   border: none;
   font-size: 11px;
   font-weight: 500;
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-normal);
@@ -2022,15 +3133,38 @@
   color: var(--text-normal);
 }
 
-.pdf-popover-quote {
+.pdf-popover-quote-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 12px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pdf-popover-quote {
   font-size: 11px;
   font-style: italic;
   color: var(--text-normal);
-  background: var(--background-secondary-alt);
-  border-bottom: 1px solid var(--background-modifier-border);
   line-height: 1.4;
   user-select: text;
+  flex: 1;
+}
+
+.pdf-popover-copy-btn {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.pdf-popover-copy-btn:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 .pdf-popover-body {
@@ -2235,3 +3369,1817 @@
   font-size: 11px;
   color: var(--interactive-accent);
 }
+
+/* ==================== Zotero Color Scheme & Semantic Tagging Styles ==================== */
+
+/* Toolbar Scheme Selector Button */
+.pdf-toolbar-scheme-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  height: 26px;
+  font-size: 11px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 0 2px;
+  transition: all 0.15s ease;
+}
+
+.pdf-toolbar-scheme-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-toolbar-scheme-label {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.pdf-toolbar-scheme-arrow {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* Color Scheme Dropdown Popup */
+.pdf-scheme-dropdown-menu {
+  position: fixed;
+  z-index: 1000;
+  width: 250px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 6px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pdf-scheme-dropdown-header {
+  padding: 4px 12px 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pdf-scheme-dropdown-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.pdf-scheme-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.pdf-scheme-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-normal);
+  transition: background 0.15s ease;
+}
+
+.pdf-scheme-dropdown-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.pdf-scheme-dropdown-item.is-selected {
+  font-weight: 600;
+  color: var(--interactive-accent);
+}
+
+.pdf-scheme-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.pdf-scheme-item-dots {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.pdf-scheme-mini-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.pdf-scheme-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pdf-scheme-item-check {
+  font-size: 12px;
+  color: var(--interactive-accent);
+  margin-left: 6px;
+}
+
+.pdf-scheme-dropdown-sep {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 4px 0;
+}
+
+.pdf-scheme-dropdown-action {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.pdf-scheme-dropdown-action:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* Popover & Sidebar Semantic Tag Badges */
+.pdf-popover-tag-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid;
+  background: rgba(128, 128, 128, 0.12);
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.pdf-popover-tag-badge.is-hidden {
+  display: none;
+}
+
+.pdf-annot-card-tag-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  border: 1px solid;
+  background: rgba(128, 128, 128, 0.1);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* Tag Filter Row in Sidebar */
+.pdf-annot-tag-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+  margin-top: 2px;
+}
+
+.pdf-annot-tag-filter-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.pdf-annot-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: all 0.15s ease;
+}
+
+.pdf-annot-tag-pill:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.pdf-annot-tag-pill.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-annot-tag-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Color Scheme Modal */
+.pdf-color-scheme-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.pdf-scheme-modal-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.pdf-scheme-modal-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.pdf-scheme-file-badge {
+  font-family: monospace;
+  background: var(--background-secondary-alt);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-normal);
+}
+
+.pdf-scheme-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+}
+
+.pdf-scheme-row-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+.pdf-scheme-select {
+  flex: 1;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: 12px;
+  padding: 0 6px;
+}
+
+.pdf-scheme-btn {
+  height: 28px;
+  font-size: 12px;
+  padding: 0 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.pdf-scheme-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.pdf-scheme-btn.mod-cta {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.pdf-scheme-colors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--background-primary);
+}
+
+.pdf-scheme-row-header {
+  display: grid;
+  grid-template-columns: 44px 120px 1fr 32px;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.pdf-scheme-color-row {
+  display: grid;
+  grid-template-columns: 44px 120px 1fr 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.pdf-scheme-swatch-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-scheme-color-picker {
+  -webkit-appearance: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  width: 32px;
+  height: 28px;
+  cursor: pointer;
+  padding: 1px;
+  background: transparent;
+}
+
+.pdf-scheme-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.pdf-scheme-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.pdf-scheme-input {
+  height: 28px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 12px;
+  color: var(--text-normal);
+  background: var(--background-secondary);
+}
+
+.pdf-scheme-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.pdf-scheme-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdf-scheme-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.pdf-scheme-icon-btn.mod-danger:hover {
+  color: #ef4444;
+}
+
+.pdf-scheme-tools-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pdf-scheme-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.pdf-scheme-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* Settings Tab Styling */
+.office-suite-settings-root {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.office-settings-section-header {
+  margin-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 12px;
+}
+
+.office-settings-section-header h3 {
+  margin: 0 0 4px 0;
+}
+
+.office-settings-profiles-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.office-profile-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.office-profile-card.is-default-card {
+  border-color: var(--interactive-accent);
+}
+
+.office-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.office-profile-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.office-profile-name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.office-profile-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+}
+
+.office-profile-badge.mod-default {
+  background: rgba(var(--interactive-accent-rgb), 0.15);
+  color: var(--interactive-accent);
+  border: 1px solid var(--interactive-accent);
+}
+
+.office-profile-badge.mod-builtin {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.office-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.office-profile-btn {
+  height: 26px;
+  font-size: 11px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.office-profile-btn:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.office-profile-btn.mod-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+.office-profile-btn.mod-danger:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.office-profile-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.office-profile-swatches-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.office-profile-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.office-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.office-chip-label {
+  white-space: nowrap;
+}
+
+/* Profile Editor Inside Card */
+.office-profile-editor {
+  border-top: 1px solid var(--background-modifier-border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.office-profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.office-profile-meta-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.office-profile-name-input {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  flex: 1;
+}
+
+.office-profile-table-header {
+  display: grid;
+  grid-template-columns: 44px 130px 1fr 32px;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  padding-top: 6px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding-bottom: 4px;
+}
+
+.office-profile-rows-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.office-profile-color-row {
+  display: grid;
+  grid-template-columns: 44px 130px 1fr 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.col-swatch-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.office-color-picker {
+  -webkit-appearance: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  width: 32px;
+  height: 26px;
+  cursor: pointer;
+  padding: 1px;
+  background: transparent;
+}
+
+.office-color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.office-color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.office-profile-input {
+  height: 26px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--text-normal);
+  background: var(--background-primary);
+}
+
+.office-profile-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.office-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.office-icon-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.office-icon-btn.mod-danger:hover {
+  color: #ef4444;
+}
+
+.office-profile-editor-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+
+/* ==========================================================================
+   POWERPOINT (PPTX) PRESENTATION VIEW & SLIDESHOW STYLING
+   ========================================================================== */
+
+.office-pptx-view-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  user-select: none;
+}
+
+/* --- Top Toolbar --- */
+.office-pptx-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background-color: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+
+.office-pptx-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.office-pptx-toolbar-btn {
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-s);
+  padding: 4px 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: all 0.15s ease;
+  height: 28px;
+}
+
+.office-pptx-toolbar-btn:hover:not(:disabled) {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.office-pptx-toolbar-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.office-pptx-toolbar-btn.is-active {
+  background-color: var(--background-modifier-active-hover);
+  color: var(--interactive-accent);
+}
+
+.office-pptx-toolbar-btn.mod-cta {
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-weight: 500;
+  padding: 4px 10px;
+  gap: 6px;
+}
+
+.office-pptx-toolbar-btn.mod-cta:hover {
+  background-color: var(--interactive-accent-hover);
+}
+
+.office-pptx-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background-color: var(--background-modifier-border);
+  margin: 0 4px;
+}
+
+/* Slide Counter Input */
+.office-pptx-counter-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.office-pptx-slide-input {
+  width: 44px;
+  height: 26px;
+  text-align: center;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  padding: 0 4px;
+  -moz-appearance: textfield;
+}
+
+.office-pptx-slide-input::-webkit-outer-spin-button,
+.office-pptx-slide-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.office-pptx-slide-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.office-pptx-total-slides {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* Segmented View Mode */
+.office-pptx-mode-segment {
+  display: flex;
+  background-color: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  padding: 2px;
+  gap: 2px;
+}
+
+.office-pptx-mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.office-pptx-mode-btn:hover {
+  color: var(--text-normal);
+}
+
+.office-pptx-mode-btn.is-active {
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Dropdowns & Selects */
+.office-pptx-toolbar-select {
+  height: 26px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.office-pptx-toolbar-select:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+}
+
+.office-pptx-trans-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.office-pptx-search-wrap {
+  display: flex;
+  align-items: center;
+}
+
+.office-pptx-search-input {
+  width: 130px;
+  height: 26px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 12px;
+  padding: 0 8px;
+}
+
+.office-pptx-search-input:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  width: 160px;
+  transition: width 0.2s ease;
+}
+
+/* --- Main Body Workspace --- */
+.office-pptx-main-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+/* --- Left Sidebar (Thumbnails) --- */
+.office-pptx-sidebar-wrap {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s ease;
+}
+
+.office-pptx-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.office-pptx-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 6px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.office-pptx-sidebar-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.office-pptx-sidebar-count {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.office-pptx-thumbnail-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.office-pptx-thumbnail-card {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.office-pptx-thumbnail-card:hover {
+  border-color: var(--interactive-accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.office-pptx-thumbnail-card.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
+  background-color: var(--background-primary-alt);
+}
+
+.office-pptx-thumbnail-card.is-match {
+  border-color: #eab308;
+  box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.4);
+}
+
+.office-pptx-thumbnail-num {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  background-color: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border-radius: 9px;
+  font-size: 10px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.office-pptx-thumbnail-card.is-active .office-pptx-thumbnail-num {
+  background-color: var(--interactive-accent);
+}
+
+.office-pptx-thumbnail-preview {
+  margin: 0 auto;
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-s);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.office-pptx-thumbnail-info {
+  margin-top: 6px;
+  padding: 0 2px;
+}
+
+.office-pptx-thumbnail-title {
+  font-size: 11px;
+  color: var(--text-normal);
+  font-weight: 500;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Center Stage Area --- */
+.office-pptx-center-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--background-primary-alt);
+}
+
+.office-pptx-stage-host {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.office-pptx-stage-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: auto;
+}
+
+.office-pptx-stage-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.office-pptx-stage-inner.mode-scroll,
+.office-pptx-stage-inner.mode-grid {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow-y: auto;
+}
+
+.office-pptx-viewport-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.office-pptx-transition-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16), 0 3px 10px rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+  background-color: #ffffff;
+}
+
+/* --- Slide Container --- */
+.office-pptx-slide {
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  background-size: cover;
+  background-position: center center;
+  user-select: text;
+  color: #000000;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.25;
+}
+
+.office-pptx-element {
+  position: absolute;
+  box-sizing: border-box;
+  transform-origin: center center;
+}
+
+.office-pptx-element.mod-valign-middle {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.office-pptx-element.mod-valign-bottom {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.office-pptx-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  display: block;
+  pointer-events: none;
+}
+
+.office-pptx-text-content {
+  width: 100%;
+}
+
+.office-pptx-table {
+  width: 100%;
+  height: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.office-pptx-cell {
+  box-sizing: border-box;
+  padding: 4px 8px;
+  vertical-align: top;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.office-pptx-cell.mod-valign-middle {
+  vertical-align: middle;
+}
+
+.office-pptx-cell.mod-valign-bottom {
+  vertical-align: bottom;
+}
+
+/* Slide Badge (Slide X of Y) */
+.office-pptx-slide-badge {
+  position: absolute;
+  bottom: 12px;
+  right: 16px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+}
+
+.office-pptx-slide-number-field {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hover Navigation Overlay Arrows */
+.office-pptx-nav-overlay {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 64px;
+  background-color: rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: all 0.2s ease;
+  z-index: 1000;
+}
+
+.office-pptx-viewport-wrapper:hover .office-pptx-nav-overlay {
+  opacity: 0.7;
+}
+
+.office-pptx-nav-overlay:hover {
+  opacity: 1 !important;
+  background-color: rgba(0, 0, 0, 0.65);
+  transform: translateY(-50%) scale(1.05);
+}
+
+.office-pptx-nav-overlay.nav-left {
+  left: -22px;
+}
+
+.office-pptx-nav-overlay.nav-right {
+  right: -22px;
+}
+
+/* --- TRANSITIONS ANIMATION ENGINE --- */
+@keyframes pptxAnimFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes pptxAnimFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pptx-trans-fade-out {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimFadeOut;
+  animation-fill-mode: forwards;
+  will-change: opacity;
+}
+.pptx-trans-fade-in {
+  position: relative;
+  animation-name: pptxAnimFadeIn;
+  animation-fill-mode: forwards;
+  will-change: opacity;
+}
+
+/* Push / Slide Animations */
+@keyframes pptxAnimPushLeftOut {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+@keyframes pptxAnimPushLeftIn {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes pptxAnimPushRightOut {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
+}
+@keyframes pptxAnimPushRightIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.pptx-trans-push-out-l, .pptx-trans-push-out {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimPushLeftOut;
+  animation-fill-mode: forwards;
+  will-change: transform;
+}
+.pptx-trans-push-in-l, .pptx-trans-push-in {
+  position: relative;
+  animation-name: pptxAnimPushLeftIn;
+  animation-fill-mode: forwards;
+  will-change: transform;
+}
+.pptx-trans-push-out-r {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimPushRightOut;
+  animation-fill-mode: forwards;
+  will-change: transform;
+}
+.pptx-trans-push-in-r {
+  position: relative;
+  animation-name: pptxAnimPushRightIn;
+  animation-fill-mode: forwards;
+  will-change: transform;
+}
+
+/* Wipe Animations */
+@keyframes pptxAnimWipeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes pptxAnimWipeIn {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+.pptx-trans-wipe-out {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimWipeOut;
+  animation-fill-mode: forwards;
+}
+.pptx-trans-wipe-in {
+  position: relative;
+  animation-name: pptxAnimWipeIn;
+  animation-fill-mode: forwards;
+  will-change: clip-path;
+}
+
+/* Zoom Animations */
+@keyframes pptxAnimZoomOut {
+  from { transform: scale(1); opacity: 1; }
+  to { transform: scale(1.15); opacity: 0; }
+}
+@keyframes pptxAnimZoomIn {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.pptx-trans-zoom-out {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimZoomOut;
+  animation-fill-mode: forwards;
+}
+.pptx-trans-zoom-in {
+  position: relative;
+  animation-name: pptxAnimZoomIn;
+  animation-fill-mode: forwards;
+}
+
+/* 3D Flip Animations */
+@keyframes pptxAnimFlipOut {
+  from { transform: perspective(1200px) rotateY(0deg); opacity: 1; }
+  to { transform: perspective(1200px) rotateY(90deg); opacity: 0; }
+}
+@keyframes pptxAnimFlipIn {
+  from { transform: perspective(1200px) rotateY(-90deg); opacity: 0; }
+  to { transform: perspective(1200px) rotateY(0deg); opacity: 1; }
+}
+.pptx-trans-flip-out {
+  position: absolute;
+  top: 0;
+  left: 0;
+  animation-name: pptxAnimFlipOut;
+  animation-fill-mode: forwards;
+}
+.pptx-trans-flip-in {
+  position: relative;
+  animation-name: pptxAnimFlipIn;
+  animation-fill-mode: forwards;
+}
+
+/* --- Continuous Scroll View --- */
+.office-pptx-scroll-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  padding: 28px;
+}
+
+.office-pptx-scroll-card {
+  background-color: var(--background-primary);
+  border-radius: var(--radius-m);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.office-pptx-scroll-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.office-pptx-scroll-num-badge {
+  font-size: 11px;
+  font-weight: bold;
+  background-color: var(--interactive-accent);
+  color: var(--text-on-accent);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.office-pptx-scroll-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-normal);
+}
+
+/* --- Slide Sorter Grid View --- */
+.office-pptx-sorter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+  padding: 24px;
+}
+
+.office-pptx-grid-card {
+  background-color: var(--background-secondary);
+  border: 2px solid transparent;
+  border-radius: var(--radius-m);
+  padding: 10px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.office-pptx-grid-card:hover {
+  border-color: var(--interactive-accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  background-color: var(--background-primary);
+}
+
+.office-pptx-grid-card.is-active {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.35);
+  background-color: var(--background-primary);
+}
+
+.office-pptx-grid-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  background-color: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.office-pptx-grid-card.is-active .office-pptx-grid-badge {
+  background-color: var(--interactive-accent);
+}
+
+.office-pptx-grid-preview {
+  margin: 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: var(--radius-s);
+  background-color: #ffffff;
+}
+
+.office-pptx-grid-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+
+/* --- Speaker Notes Drawer --- */
+.office-pptx-notes-drawer {
+  border-top: 1px solid var(--background-modifier-border);
+  background-color: var(--background-secondary);
+  max-height: 200px;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.office-pptx-notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.office-pptx-notes-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.office-pptx-notes-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-normal);
+}
+
+.office-pptx-notes-line {
+  margin: 0 0 6px 0;
+}
+
+.office-pptx-notes-empty {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* --- Slideshow / Fullscreen Mode --- */
+.office-pptx-slideshow-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: #000000;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.office-pptx-slideshow-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.office-pptx-blank-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100001;
+  pointer-events: none;
+}
+
+.office-pptx-laser-dot {
+  position: fixed;
+  width: 12px;
+  height: 12px;
+  background-color: #ef4444;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #ef4444, 0 0 20px #ef4444;
+  pointer-events: none;
+  z-index: 100002;
+  transform: translate(-50%, -50%);
+}
+
+.office-pptx-slideshow-hud {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(24, 24, 27, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 30px;
+  padding: 6px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #ffffff;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  z-index: 100003;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.office-pptx-slideshow-hud.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.office-pptx-hud-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.office-pptx-hud-btn:hover {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.office-pptx-hud-btn.mod-exit:hover {
+  background-color: rgba(239, 68, 68, 0.4);
+  color: #fca5a5;
+}
+
+.office-pptx-hud-counter {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.office-pptx-hud-timer {
+  font-family: monospace;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.office-pptx-hud-sep {
+  width: 1px;
+  height: 16px;
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* --- Dropdown Menu --- */
+.office-pptx-dropdown-menu {
+  position: fixed;
+  z-index: var(--layer-menu, 9999);
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  min-width: 220px;
+}
+
+.office-pptx-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-s);
+  font-size: 13px;
+  color: var(--text-normal);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.office-pptx-dropdown-item:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.office-pptx-dropdown-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+/* --- PPTX CRUD, Selection & In-Place Editing --- */
+.office-pptx-element {
+  cursor: pointer;
+  transition: outline 0.1s ease, box-shadow 0.1s ease;
+}
+
+.office-pptx-element.is-selected {
+  outline: 2px solid var(--interactive-accent) !important;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb), 0.25);
+}
+
+.office-pptx-element.is-editing {
+  outline: 2px dashed var(--interactive-accent) !important;
+  outline-offset: 2px;
+  background-color: rgba(var(--interactive-accent-rgb), 0.05);
+}
+
+.office-pptx-element.is-editing .office-pptx-text-content {
+  cursor: text;
+  user-select: text;
+  outline: none;
+}
+
+/* Toolbar Buttons Variants */
+.office-pptx-toolbar-btn.mod-danger:hover:not(:disabled) {
+  background-color: var(--background-modifier-error-hover);
+  color: var(--text-error);
+}
+
+/* Save Status Pill */
+.office-pptx-save-status {
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 12px;
+  user-select: none;
+  cursor: pointer;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  transition: all 0.15s ease;
+}
+
+.office-pptx-save-status.is-saved {
+  color: var(--text-muted);
+}
+
+.office-pptx-save-status.is-unsaved {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.4);
+  background-color: rgba(245, 158, 11, 0.08);
+}
+
+.office-pptx-save-status.is-saving {
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+  background-color: rgba(var(--interactive-accent-rgb), 0.08);
+}
+
+.office-pptx-save-status.is-error {
+  color: var(--text-error);
+  border-color: var(--text-error);
+  background-color: var(--background-modifier-error);
+}
+
+.office-pptx-save-icon {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+/* Sidebar Header Controls */
+.office-pptx-sidebar-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.office-pptx-sidebar-add-btn {
+  width: 22px;
+  height: 22px;
+}
+
+/* Thumbnail Card Hover Action Buttons */
+.office-pptx-thumbnail-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 20;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 2px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.office-pptx-thumbnail-card:hover .office-pptx-thumbnail-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.office-pptx-thumb-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  transition: all 0.1s ease;
+}
+
+.office-pptx-thumb-btn:hover:not(:disabled) {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.office-pptx-thumb-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.office-pptx-thumb-btn.mod-danger:hover:not(:disabled) {
+  background-color: var(--background-modifier-error-hover);
+  color: var(--text-error);
+}
+
+/* Speaker Notes Editor Textarea */
+.office-pptx-notes-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 90px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  resize: none;
+  box-sizing: border-box;
+}
+
+.office-pptx-notes-editor:focus {
+  border-color: var(--interactive-accent);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.office-pptx-notes-host.is-hidden {
+  display: none !important;
+}
+
+

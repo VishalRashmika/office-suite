@@ -190,8 +190,8 @@ export class DocxImageView implements NodeView {
 
     const altBtn = actionsGroup.createEl("button", {
       cls: "docx-img-btn",
-      text: "Alt Text",
-      attr: { title: "Edit Alt Text / Caption" },
+      text: "Alt text",
+      attr: { title: "Edit alt text / caption" },
     });
     altBtn.onclick = (e) => {
       e.preventDefault();

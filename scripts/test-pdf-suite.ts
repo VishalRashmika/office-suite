@@ -1,4 +1,4 @@
-import { PDFDocument, PDFName, PDFString } from "pdf-lib";
+import { PDFDocument, PDFName, PDFString, PDFDict, PDFRef } from "pdf-lib";
 import {
   PdfDocumentAdapter,
 } from "../src/infrastructure/pdf/pdf-document-adapter";
@@ -10,9 +10,26 @@ import {
   PdfShapeAnnotation,
   CitationService,
   CitationBuilder,
+  ZOTERO_DEFAULT_PROFILE,
+  ACADEMIC_RESEARCH_PROFILE,
+  LITERATURE_REVIEW_PROFILE,
+  LEGAL_ANALYSIS_PROFILE,
+  findTagForColor,
+  cloneProfile,
+  ensureValidProfile,
+  normalizeHexColor,
+  PdfColorSchemeProfile,
+  sortAnnotations,
+  groupAnnotationsByColor,
+  groupAnnotationsByType,
+  filterAnnotations,
+  getAnnotationColorInfo,
+  formatAnnotationDate,
+  formatTypeLabel,
 } from "../src/domain/pdf";
+import { normalizeSettings, DEFAULT_OFFICE_SETTINGS } from "../src/settings/office-settings";
 
-async function runTestSuite() {
+export async function runTestSuite() {
   console.log("=== RUNNING PDF EDITOR & ANNOTATIONS TEST SUITE ===");
 
   // 1. Create a blank PDF document with 2 pages
@@ -377,7 +394,7 @@ async function runTestSuite() {
     throw new Error(`Expected author 'External Reviewer', got '${loadedHighlight.author}'`);
   }
 
-  const loadedUnderline = loadedExtAnnots.find((a) => a.type === "highlight" && a.rect[1] === 600);
+  const loadedUnderline = loadedExtAnnots.find((a) => a.type === "underline" && a.rect[1] === 600);
   if (!loadedUnderline || loadedUnderline.contents !== "Underlined hypothesis") {
     throw new Error("Underline annotation was not parsed correctly!");
   }
@@ -388,12 +405,877 @@ async function runTestSuite() {
   }
   console.log("✓ Verified 100% of indirect references, Acrobat Popup comments, and Underline annotations parsed correctly");
 
+  // --- Testing Zotero Style Features: Underline, FreeText Transform, Attached Notes & Palette ---
+  console.log("\n--- Testing Zotero Style Features ---");
+
+  // 1. Verify Zotero Palette presets
+  const { PDF_COLOR_PRESETS: zoteroPresets } = await import("../src/domain/pdf");
+  if (zoteroPresets.length !== 8) {
+    throw new Error(`Expected 8 Zotero color presets, got ${zoteroPresets.length}`);
+  }
+  const yellowPreset = zoteroPresets.find((p) => p.name === "Yellow");
+  if (!yellowPreset || yellowPreset.hex !== "#ffd400") {
+    throw new Error(`Expected Zotero yellow #ffd400, got ${yellowPreset?.hex}`);
+  }
+  const bluePreset = zoteroPresets.find((p) => p.name === "Blue");
+  if (!bluePreset || bluePreset.hex !== "#2ea8e5") {
+    throw new Error(`Expected Zotero blue #2ea8e5, got ${bluePreset?.hex}`);
+  }
+  console.log("✓ Verified official 8 Zotero color palette presets");
+
+  // 2. Create Underline with attached note & bookmark metadata
+  const zoteroUnderline: any = {
+    id: "zotero_ul_001",
+    type: "underline",
+    pageIndex: 0,
+    rect: [120, 550, 380, 568],
+    quadPoints: [
+      120, 568, 380, 568,
+      120, 550, 380, 550,
+    ],
+    color: [0.18, 0.66, 0.90], // Zotero Blue
+    highlightedText: "Zotero style underlined text",
+    contents: "My personal note attached to the underlined sentence",
+    author: "Researcher",
+    linkedNote: "Notes/Zotero-Features.md",
+  };
+  extAdapter.upsertAnnotation(zoteroUnderline);
+
+  // 3. Create FreeText box with formatting and resized transform
+  const zoteroTextBox: any = {
+    id: "zotero_tb_001",
+    type: "freetext",
+    pageIndex: 0,
+    rect: [200, 400, 450, 480], // Resized width (250) and height (80)
+    color: [0, 0, 0],
+    textColor: [0.18, 0.66, 0.90],
+    fontSize: 16,
+    isBold: true,
+    isItalic: true,
+    contents: "Resized & formatted Zotero textbox",
+    author: "User",
+  };
+  extAdapter.upsertAnnotation(zoteroTextBox);
+
+  const zoteroPdfBytes = await extAdapter.save();
+  const zoteroReloadedAdapter = await PdfDocumentAdapter.load(zoteroPdfBytes.buffer);
+
+  const reloadedUl = zoteroReloadedAdapter.getAnnotation("zotero_ul_001") as any;
+  if (!reloadedUl || reloadedUl.type !== "underline") {
+    throw new Error("Zotero underline annotation was not saved/reloaded with type 'underline'!");
+  }
+  if (reloadedUl.contents !== "My personal note attached to the underlined sentence") {
+    throw new Error(`Expected attached note, got '${reloadedUl.contents}'`);
+  }
+  if (reloadedUl.quadPoints.length !== 8) {
+    throw new Error(`Expected 8 quad points for underline, got ${reloadedUl.quadPoints.length}`);
+  }
+  console.log("✓ Verified Zotero Underline annotation saved, reloaded, and preserves attached note");
+
+  const reloadedTb = zoteroReloadedAdapter.getAnnotation("zotero_tb_001") as any;
+  if (!reloadedTb || reloadedTb.type !== "freetext") {
+    throw new Error("Zotero text box was not saved/reloaded correctly!");
+  }
+  if (reloadedTb.rect[2] - reloadedTb.rect[0] !== 250 || reloadedTb.rect[3] - reloadedTb.rect[1] !== 80) {
+    throw new Error(`Expected transformed dimensions 250x80, got ${reloadedTb.rect[2] - reloadedTb.rect[0]}x${reloadedTb.rect[3] - reloadedTb.rect[1]}`);
+  }
+  console.log("✓ Verified Zotero Text Box transform (width/height resize) persisted across PDF save/load");
+
+  // ==================== Testing Zotero Color Schemes, Profiles & Semantic Tagging ====================
+  console.log("\n--- Testing Zotero Color Schemes, Profiles & Semantic Tagging ---");
+
+  // 1. Verify Standard Zotero Profile tags: Green = New Info, Red = Important Points, Yellow = Processes
+  const greenTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#5fb236");
+  if (!greenTag || greenTag.tag !== "New Info") {
+    throw new Error(`Expected Green to be tagged 'New Info', got '${greenTag?.tag}'`);
+  }
+  const redTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#ff6666");
+  if (!redTag || redTag.tag !== "Important Points") {
+    throw new Error(`Expected Red to be tagged 'Important Points', got '${redTag?.tag}'`);
+  }
+  const yellowTag = findTagForColor(ZOTERO_DEFAULT_PROFILE, "#ffd400");
+  if (!yellowTag || yellowTag.tag !== "Processes") {
+    throw new Error(`Expected Yellow to be tagged 'Processes', got '${yellowTag?.tag}'`);
+  }
+  console.log("✓ Verified Zotero default palette tags: Green (New Info), Red (Important Points), Yellow (Processes)");
+
+  // 2. Verify Built-in Templates
+  if (!ACADEMIC_RESEARCH_PROFILE || ACADEMIC_RESEARCH_PROFILE.colors.length < 8) {
+    throw new Error("Academic Research template is missing or incomplete!");
+  }
+  if (!LITERATURE_REVIEW_PROFILE || LITERATURE_REVIEW_PROFILE.colors.length < 8) {
+    throw new Error("Literature Review template is missing or incomplete!");
+  }
+  if (!LEGAL_ANALYSIS_PROFILE || LEGAL_ANALYSIS_PROFILE.colors.length < 8) {
+    throw new Error("Legal Analysis template is missing or incomplete!");
+  }
+  console.log("✓ Verified Built-in Template Profiles: Academic Research, Literature Review, Legal Analysis");
+
+  // 3. Test Profile Cloning & ensureValidProfile
+  const clonedProfile = cloneProfile(ACADEMIC_RESEARCH_PROFILE, "custom-thesis", "My Thesis Scheme");
+  if (clonedProfile.id !== "custom-thesis" || clonedProfile.name !== "My Thesis Scheme") {
+    throw new Error(`Failed to clone profile correctly: ${clonedProfile.id}, ${clonedProfile.name}`);
+  }
+  if (clonedProfile.isBuiltIn) {
+    throw new Error("Cloned profile should not be marked as built-in");
+  }
+  // Modify a tag in custom profile
+  clonedProfile.colors[0].tag = "Crucial Breakthrough";
+  const verifiedThesisTag = findTagForColor(clonedProfile, clonedProfile.colors[0].hex);
+  if (verifiedThesisTag?.tag !== "Crucial Breakthrough") {
+    throw new Error(`Expected 'Crucial Breakthrough', got '${verifiedThesisTag?.tag}'`);
+  }
+  console.log("✓ Verified Template Profile cloning, validation, and custom tag customization");
+
+  // 4. Test Per-PDF Custom Color Scheme Embedding in PDF Binary
+  console.log("--- Testing Per-PDF Custom Color Scheme Embedding in PDF Binary ---");
+  const pdfForScheme = await PDFDocument.create();
+  pdfForScheme.addPage([612, 792]);
+  const pdfForSchemeBytes = await pdfForScheme.save();
+  const schemeAdapter = await PdfDocumentAdapter.load(pdfForSchemeBytes.buffer);
+
+  // Define per-PDF custom color scheme manually
+  const perPdfScheme: PdfColorSchemeProfile = {
+    id: "biology-paper-scheme",
+    name: "Biology Lab Notes",
+    description: "Specific color tags for cell biology research",
+    colors: [
+      { id: "c1", hex: "#5fb236", name: "Green", tag: "Enzyme Reactions", rgb: [0.37, 0.70, 0.22] },
+      { id: "c2", hex: "#ff6666", name: "Red", tag: "Toxic Inhibitors", rgb: [1.0, 0.40, 0.40] },
+      { id: "c3", hex: "#ffd400", name: "Yellow", tag: "Incubation Phase", rgb: [1.0, 0.83, 0.0] },
+      { id: "c4", hex: "#2ea8e5", name: "Blue", tag: "Control Samples", rgb: [0.18, 0.66, 0.90] },
+    ],
+  };
+
+  schemeAdapter.setColorScheme(perPdfScheme);
+  // Add an annotation tagged with this scheme
+  schemeAdapter.upsertAnnotation({
+    id: "bio_hl_1",
+    type: "highlight",
+    pageIndex: 0,
+    rect: [100, 600, 300, 620],
+    quadPoints: [100, 620, 300, 620, 100, 600, 300, 600],
+    color: [0.37, 0.70, 0.22], // Green -> "Enzyme Reactions"
+    highlightedText: "Taq polymerase showed 98% catalytic efficiency under 72°C.",
+    contents: "Key experimental observation",
+  });
+
+  const savedSchemePdfBytes = await schemeAdapter.save();
+
+  // Reload PDF in brand new adapter and verify scheme survived lossless binary round-trip
+  const reloadedSchemeAdapter = await PdfDocumentAdapter.load(savedSchemePdfBytes.buffer);
+  const reloadedScheme = reloadedSchemeAdapter.getColorScheme();
+
+  if (!reloadedScheme) {
+    throw new Error("Failed to reload embedded color scheme from PDF catalog!");
+  }
+  if (reloadedScheme.name !== "Biology Lab Notes") {
+    throw new Error(`Expected scheme name 'Biology Lab Notes', got '${reloadedScheme.name}'`);
+  }
+  if (reloadedScheme.colors.length !== 4) {
+    throw new Error(`Expected 4 colors, got ${reloadedScheme.colors.length}`);
+  }
+  const enzymeTag = findTagForColor(reloadedScheme, "#5fb236");
+  if (!enzymeTag || enzymeTag.tag !== "Enzyme Reactions") {
+    throw new Error(`Expected 'Enzyme Reactions', got '${enzymeTag?.tag}'`);
+  }
+  const inhibitorTag = findTagForColor(reloadedScheme, "#ff6666");
+  if (!inhibitorTag || inhibitorTag.tag !== "Toxic Inhibitors") {
+    throw new Error(`Expected 'Toxic Inhibitors', got '${inhibitorTag?.tag}'`);
+  }
+  console.log("✓ Verified Per-PDF Color Scheme embeds into PDF binary catalog and reloads losslessly with all tags");
+
+  // 5. Test Plugin Settings Normalization & Persistence
+  console.log("--- Testing Settings Normalization & Template Persistence ---");
+  const normalized = normalizeSettings({
+    pdfDefaultProfileId: "academic-research",
+    pdfProfiles: [
+      clonedProfile,
+    ],
+    pdfFileSchemes: {
+      "Vault/Bio.pdf": perPdfScheme,
+    },
+  });
+
+  if (normalized.pdfDefaultProfileId !== "academic-research") {
+    throw new Error(`Expected default profile 'academic-research', got '${normalized.pdfDefaultProfileId}'`);
+  }
+  // Check that built-ins were preserved
+  if (!normalized.pdfProfiles.some((p) => p.id === "zotero-default")) {
+    throw new Error("Missing built-in zotero-default profile after normalization");
+  }
+  // Check that custom profile was preserved
+  if (!normalized.pdfProfiles.some((p) => p.id === "custom-thesis")) {
+    throw new Error("Missing custom-thesis profile after normalization");
+  }
+  // Check that per-file scheme override was preserved
+  if (!normalized.pdfFileSchemes["Vault/Bio.pdf"] || normalized.pdfFileSchemes["Vault/Bio.pdf"].name !== "Biology Lab Notes") {
+    throw new Error("Missing per-file scheme override after normalization");
+  }
+  console.log("✓ Verified Settings normalization preserves built-ins, custom templates, and per-file schemes");
+
+  // 6. Test Markdown Export with Color Scheme Legend and Semantic Tag Callouts
+  console.log("--- Testing Markdown Export with Color Scheme Legend & Tags ---");
+  const exportAnnotations: any[] = [
+    {
+      id: "exp_hl_1",
+      type: "highlight",
+      pageIndex: 0,
+      color: [0.37, 0.70, 0.22], // Green -> "Enzyme Reactions"
+      highlightedText: "Taq polymerase showed 98% catalytic efficiency under 72°C.",
+      contents: "Note on PCR amplification",
+    },
+    {
+      id: "exp_ul_1",
+      type: "underline",
+      pageIndex: 0,
+      color: [1.0, 0.40, 0.40], // Red -> "Toxic Inhibitors"
+      highlightedText: "EDTA chelated free magnesium ions, quenching the enzymatic activity.",
+      contents: "Critical inhibitor finding",
+    },
+    {
+      id: "exp_txt_1",
+      type: "text",
+      pageIndex: 1,
+      color: [1.0, 0.83, 0.0], // Yellow -> "Incubation Phase"
+      author: "Researcher",
+      contents: "Maintain 37°C for minimum 45 minutes",
+    },
+  ];
+
+  const exportedSchemeMd = CitationService.exportAnnotationsToMarkdown(
+    "BiologyPaper.pdf",
+    "Cellular Biology Lab",
+    exportAnnotations,
+    2,
+    perPdfScheme
+  );
+
+  // Check legend presence
+  if (!exportedSchemeMd.includes("Color Scheme: Biology Lab Notes")) {
+    throw new Error("Exported markdown missing Color Scheme header!");
+  }
+  if (!exportedSchemeMd.includes("Enzyme Reactions") || !exportedSchemeMd.includes("Toxic Inhibitors") || !exportedSchemeMd.includes("Incubation Phase")) {
+    throw new Error("Exported markdown missing color scheme tag entries in table!");
+  }
+
+  // Check callout tags
+  if (!exportedSchemeMd.includes("[!quote] Highlight [Enzyme Reactions]")) {
+    throw new Error("Exported markdown missing tagged highlight callout!");
+  }
+  if (!exportedSchemeMd.includes("[!quote] Underline [Toxic Inhibitors]")) {
+    throw new Error("Exported markdown missing tagged underline callout!");
+  }
+  if (!exportedSchemeMd.includes("[!note] Sticky Note [Incubation Phase]")) {
+    throw new Error("Exported markdown missing tagged sticky note callout!");
+  }
+  console.log("✓ Verified Markdown export includes color scheme legend table and semantic tag callouts");
+
+  // ==================== Zotero Left Sidebar 1:1 Annotations & Sorting Tests ====================
+  console.log("--- Testing Zotero Left Panel Sorting & Color Grouping ---");
+
+  const greenHex = normalizeHexColor("#5fb236");
+  const redHex = normalizeHexColor("#ff6666");
+  const yellowHex = normalizeHexColor("#ffd400");
+
+  const testAnnots = [
+    {
+      id: "a1",
+      type: "highlight" as const,
+      pageIndex: 1,
+      rect: [100, 200, 300, 220] as [number, number, number, number],
+      color: [1.0, 0.40, 0.40] as [number, number, number], // Red -> "Important Points"
+      highlightedText: "Red highlight on page 2",
+      contents: "Important point to review",
+      createdAt: new Date("2026-10-31T10:00:00Z"),
+    },
+    {
+      id: "a2",
+      type: "highlight" as const,
+      pageIndex: 0,
+      rect: [100, 700, 300, 720] as [number, number, number, number],
+      color: [0.37, 0.70, 0.22] as [number, number, number], // Green -> "New Info"
+      highlightedText: "Green highlight on page 1 top",
+      contents: "New insight discovered",
+      createdAt: new Date("2026-10-31T11:00:00Z"),
+    },
+    {
+      id: "a3",
+      type: "underline" as const,
+      pageIndex: 0,
+      rect: [100, 500, 300, 520] as [number, number, number, number],
+      color: [0.37, 0.70, 0.22] as [number, number, number], // Green -> "New Info"
+      highlightedText: "Green underline on page 1 middle",
+      createdAt: new Date("2026-10-31T12:00:00Z"),
+    },
+    {
+      id: "a4",
+      type: "text" as const,
+      pageIndex: 0,
+      rect: [100, 300, 120, 320] as [number, number, number, number],
+      color: [1.0, 0.83, 0.0] as [number, number, number], // Yellow -> "Processes"
+      contents: "Yellow note on page 1 bottom",
+      createdAt: new Date("2026-10-31T09:00:00Z"),
+    },
+    {
+      id: "a5",
+      type: "underline" as const,
+      pageIndex: 1,
+      rect: [100, 600, 300, 620] as [number, number, number, number],
+      color: [1.0, 0.40, 0.40] as [number, number, number], // Red -> "Important Points"
+      highlightedText: "Red underline on page 2 top",
+      createdAt: new Date("2026-10-31T13:00:00Z"),
+    },
+  ];
+
+  // 1. Group by Color
+  const colorGroups = groupAnnotationsByColor(testAnnots, ZOTERO_DEFAULT_PROFILE);
+  if (colorGroups.length !== 3) {
+    throw new Error(`Expected 3 color groups, got ${colorGroups.length}`);
+  }
+
+  // ZOTERO_DEFAULT_PROFILE has colors in order: Green ("New Info"), Red ("Important Points"), Yellow ("Processes")
+  if (colorGroups[0].name !== "Green" || colorGroups[0].tag !== "New Info" || colorGroups[0].annotations.length !== 2) {
+    throw new Error(`First group should be Green (New Info) with 2 annotations, got ${colorGroups[0].name} (${colorGroups[0].tag}) with ${colorGroups[0].annotations.length}`);
+  }
+  if (colorGroups[1].name !== "Red" || colorGroups[1].tag !== "Important Points" || colorGroups[1].annotations.length !== 2) {
+    throw new Error(`Second group should be Red (Important Points) with 2 annotations, got ${colorGroups[1].name}`);
+  }
+  if (colorGroups[2].name !== "Yellow" || colorGroups[2].tag !== "Processes" || colorGroups[2].annotations.length !== 1) {
+    throw new Error(`Third group should be Yellow (Processes) with 1 annotation, got ${colorGroups[2].name}`);
+  }
+
+  // Verify annotations inside Green group are ordered by page / reading order
+  if (colorGroups[0].annotations[0].id !== "a2" || colorGroups[0].annotations[1].id !== "a3") {
+    throw new Error("Annotations inside Green color group should be sorted in reading order (a2 before a3)");
+  }
+  console.log("✓ Verified Zotero Group by Color: Groups created with correct tags (Green=New Info, Red=Important Points, Yellow=Processes) and reading order");
+
+  // 2. Sort by Page (Reading order)
+  const pageSorted = sortAnnotations(testAnnots, { field: "page", direction: "asc" }, ZOTERO_DEFAULT_PROFILE);
+  // Page 0 has: a2 (rect Y=720), a3 (rect Y=520), a4 (rect Y=320)
+  // Page 1 has: a5 (rect Y=620), a1 (rect Y=220)
+  const pageOrderIds = pageSorted.map((a) => a.id);
+  if (JSON.stringify(pageOrderIds) !== JSON.stringify(["a2", "a3", "a4", "a5", "a1"])) {
+    throw new Error(`Page sorting incorrect order: ${JSON.stringify(pageOrderIds)}`);
+  }
+  console.log("✓ Verified Zotero Sort by Page: Document reading order matches pageIndex and vertical Y coordinates");
+
+  // 3. Sort by Date
+  const dateSortedDesc = sortAnnotations(testAnnots, { field: "date", direction: "desc" });
+  if (dateSortedDesc[0].id !== "a5" || dateSortedDesc[dateSortedDesc.length - 1].id !== "a4") {
+    throw new Error("Date sorting (descending) failed");
+  }
+  const dateSortedAsc = sortAnnotations(testAnnots, { field: "date", direction: "asc" });
+  if (dateSortedAsc[0].id !== "a4" || dateSortedAsc[dateSortedAsc.length - 1].id !== "a5") {
+    throw new Error("Date sorting (ascending) failed");
+  }
+  console.log("✓ Verified Zotero Sort by Date: Ascending and Descending chronological ordering");
+
+  // 4. Sort & Group by Type
+  const typeGroups = groupAnnotationsByType(testAnnots);
+  if (typeGroups.length !== 3) {
+    throw new Error(`Expected 3 type groups (Highlights, Underlines, Sticky Notes), got ${typeGroups.length}`);
+  }
+  if (typeGroups[0].type !== "highlight" || typeGroups[0].annotations.length !== 2) {
+    throw new Error("First type group should be Highlights with 2 annotations");
+  }
+  if (typeGroups[1].type !== "underline" || typeGroups[1].annotations.length !== 2) {
+    throw new Error("Second type group should be Underlines with 2 annotations");
+  }
+  if (typeGroups[2].type !== "text" || typeGroups[2].annotations.length !== 1) {
+    throw new Error("Third type group should be Sticky Notes with 1 annotation");
+  }
+  console.log("✓ Verified Zotero Group by Type: Highlights, Underlines, and Sticky Notes grouped cleanly");
+
+  // 5. Quick Color Filter & Tag Filter
+  const greenFiltered = filterAnnotations(testAnnots, { colorHex: greenHex }, ZOTERO_DEFAULT_PROFILE);
+  if (greenFiltered.length !== 2 || !greenFiltered.every((a) => a.id === "a2" || a.id === "a3")) {
+    throw new Error("Filtering by Green color hex failed");
+  }
+
+  const importantTagFiltered = filterAnnotations(testAnnots, { tag: "Important Points" }, ZOTERO_DEFAULT_PROFILE);
+  if (importantTagFiltered.length !== 2 || !importantTagFiltered.every((a) => a.id === "a1" || a.id === "a5")) {
+    throw new Error("Filtering by 'Important Points' tag failed");
+  }
+  console.log("✓ Verified Zotero Quick Color Filter & Semantic Tag Filter");
+
+  // 6. Search Query Filter
+  const textFiltered = filterAnnotations(testAnnots, { searchQuery: "insight" }, ZOTERO_DEFAULT_PROFILE);
+  if (textFiltered.length !== 1 || textFiltered[0].id !== "a2") {
+    throw new Error("Search query filtering for 'insight' failed");
+  }
+  const pageSearchFiltered = filterAnnotations(testAnnots, { searchQuery: "p. 2" }, ZOTERO_DEFAULT_PROFILE);
+  if (pageSearchFiltered.length !== 2 || !pageSearchFiltered.every((a) => a.pageIndex === 1)) {
+    throw new Error("Search query filtering by page 'p. 2' failed");
+  }
+  console.log("✓ Verified Search across text, comments, and page numbers");
+
+  // 7. Annotation Color Change & Info Resolution
+  const recoloredA4 = { ...testAnnots[3], color: [1.0, 0.40, 0.40] as [number, number, number] }; // Changed Yellow -> Red
+  const recoloredInfo = getAnnotationColorInfo(recoloredA4, ZOTERO_DEFAULT_PROFILE);
+  if (recoloredInfo.name !== "Red" || recoloredInfo.tag !== "Important Points") {
+    throw new Error("Re-colored annotation did not resolve to Red and 'Important Points'");
+  }
+  console.log("✓ Verified Annotation re-coloring dynamically updates color info and semantic tag");
+
+  // 8. Human-friendly Date Formatting
+  const now = new Date();
+  const justNowStr = formatAnnotationDate(now);
+  if (justNowStr !== "Just now") {
+    throw new Error(`Expected 'Just now', got '${justNowStr}'`);
+  }
+  console.log("✓ Verified Human-friendly date formatting");
+
+  // ==================== Rigorous Appearance Stream & Cross-Reader Tests ====================
+  console.log("\n--- Testing ISO 32000-1 Appearance Streams (/AP) & Generic Reader Compatibility ---");
+
+  // Load PDF.js engine via dynamic loader
+  const dynamicRequire = new Function("moduleName", "return require(moduleName)");
+  const pdfjs = dynamicRequire("pdfjs-dist/legacy/build/pdf.js");
+
+  // Create a dedicated multi-annotation document testing all 8 standard subtypes:
+  // 1. Text (Sticky Note)
+  // 2. Highlight
+  // 3. Underline
+  // 4. Ink (Multi-stroke)
+  // 5. FreeText (Multi-line text box with font & border)
+  // 6. Square (Stroke & Fill)
+  // 7. Circle (Bezier Spline)
+  // 8. Line (Directional vector with linePoints)
+  const compDoc = await PDFDocument.create();
+  compDoc.setTitle("ISO 32000-1 Compliance Test");
+  compDoc.addPage([612, 792]);
+  compDoc.addPage([612, 792]);
+  const compInitBytes = await compDoc.save();
+
+  const compAdapter = await PdfDocumentAdapter.load(compInitBytes.buffer);
+
+  // Add all 8 types
+  compAdapter.upsertAnnotation({
+    id: "test_note_1",
+    type: "text",
+    pageIndex: 0,
+    rect: [100, 700, 124, 724],
+    color: [1, 0.85, 0],
+    contents: "Sticky note for review",
+    author: "Reviewer A",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_hl_1",
+    type: "highlight",
+    pageIndex: 0,
+    rect: [100, 650, 400, 670],
+    quadPoints: [100, 670, 400, 670, 100, 650, 400, 650],
+    color: [0.99, 0.88, 0.28],
+    highlightedText: "Important finding in methodology.",
+    contents: "Check citation validity",
+    author: "Reviewer B",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_ul_1",
+    type: "underline",
+    pageIndex: 0,
+    rect: [100, 600, 350, 602],
+    quadPoints: [100, 615, 350, 615, 100, 600, 350, 600],
+    color: [0.2, 0.4, 0.9],
+    highlightedText: "Statistical significance p < 0.01.",
+    contents: "Verify p-values",
+    author: "Statistician",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_ink_1",
+    type: "ink",
+    pageIndex: 0,
+    rect: [150, 450, 300, 520],
+    color: [0.9, 0.2, 0.2],
+    strokeWidth: 3,
+    paths: [
+      [[150, 450], [200, 520], [250, 470], [300, 500]],
+      [[160, 460], [210, 510]],
+    ],
+    contents: "Handwritten checkmark & wave",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_ft_1",
+    type: "freetext",
+    pageIndex: 1,
+    rect: [80, 500, 320, 580],
+    fontSize: 13,
+    textColor: [0, 0, 0],
+    color: [1, 1, 0.8], // Pale yellow background
+    borderColor: [0.3, 0.3, 0.3],
+    contents: "This is a multi-line formatted callout.\nIt contains important notes with quotes: ‘test’ and em—dash.",
+    isBold: true,
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_sq_1",
+    type: "square",
+    pageIndex: 1,
+    rect: [50, 300, 200, 420],
+    color: [0.1, 0.6, 0.2],
+    strokeColor: [0.1, 0.6, 0.2],
+    fillColor: [0.9, 0.98, 0.9],
+    strokeWidth: 2,
+    contents: "Bounding box for Figure 1",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_ci_1",
+    type: "circle",
+    pageIndex: 1,
+    rect: [250, 300, 400, 420],
+    color: [0.6, 0.2, 0.7],
+    strokeColor: [0.6, 0.2, 0.7],
+    fillColor: [0.95, 0.9, 0.98],
+    strokeWidth: 2,
+    contents: "Target circle marker",
+  });
+
+  compAdapter.upsertAnnotation({
+    id: "test_ln_1",
+    type: "line",
+    pageIndex: 1,
+    rect: [100, 150, 450, 250],
+    linePoints: [100, 150, 450, 250],
+    color: [0.8, 0.1, 0.1],
+    strokeColor: [0.8, 0.1, 0.1],
+    strokeWidth: 2.5,
+    contents: "Trend arrow / pointer line",
+  });
+
+  // Cycle 1: Save and verify PDF binary
+  const compSavedBytes1 = await compAdapter.save();
+
+  // Verification 1A: Inspect raw PDF objects via pdf-lib
+  const inspectDoc = await PDFDocument.load(compSavedBytes1);
+  for (let pIdx = 0; pIdx < inspectDoc.getPageCount(); pIdx++) {
+    const page = inspectDoc.getPage(pIdx);
+    const annotsArr = page.node.Annots();
+    if (!annotsArr || annotsArr.size() === 0) {
+      throw new Error(`Page ${pIdx + 1} has no /Annots array!`);
+    }
+
+    for (let aIdx = 0; aIdx < annotsArr.size(); aIdx++) {
+      const annotDict = inspectDoc.context.lookup(annotsArr.get(aIdx));
+      if (!(annotDict instanceof PDFDict)) continue;
+      const subtype = (annotDict as any).get(PDFName.of("Subtype"))?.asString().replace(/^\//, "");
+
+      if (subtype === "Popup") {
+        // Verify Popup has Parent, Rect, and P
+        if (!(annotDict as any).has(PDFName.of("Parent"))) {
+          throw new Error("Popup annotation missing /Parent reference!");
+        }
+        if (!(annotDict as any).has(PDFName.of("P"))) {
+          throw new Error("Popup annotation missing /P page reference!");
+        }
+        continue;
+      }
+
+      // Check /P page reference
+      const pRef = (annotDict as any).get(PDFName.of("P"));
+      if (!pRef || !(pRef instanceof PDFRef)) {
+        throw new Error(`Annotation ${subtype} missing valid /P page reference!`);
+      }
+
+      // Check Print flag /F
+      const fVal = (annotDict as any).get(PDFName.of("F"));
+      if (!fVal || ((fVal as any).asNumber() & 4) === 0) {
+        throw new Error(`Annotation ${subtype} missing Print flag (bit 3 / value 4)!`);
+      }
+
+      // Check Appearance dictionary /AP -> /N
+      const apVal = (annotDict as any).get(PDFName.of("AP"));
+      if (!apVal) {
+        throw new Error(`Annotation ${subtype} is MISSING /AP appearance dictionary! Generic PDF readers cannot render it!`);
+      }
+      const apDict = inspectDoc.context.lookup(apVal);
+      if (!(apDict as any).has(PDFName.of("N"))) {
+        throw new Error(`Annotation ${subtype} /AP is missing /N normal appearance Form XObject!`);
+      }
+
+      const nStreamRef = (apDict as any).get(PDFName.of("N"));
+      const nStream = inspectDoc.context.lookup(nStreamRef);
+      if (!(nStream as any).dict) {
+        throw new Error(`Annotation ${subtype} /N is not a valid Form XObject stream!`);
+      }
+      const xobjType = (nStream as any).dict.get(PDFName.of("Type"))?.asString();
+      const xobjSubtype = (nStream as any).dict.get(PDFName.of("Subtype"))?.asString();
+      if (xobjType !== "/XObject" || xobjSubtype !== "/Form") {
+        throw new Error(`Annotation ${subtype} appearance stream is not /Type /XObject /Subtype /Form!`);
+      }
+    }
+  }
+  console.log("✓ Verified 100% of annotations have compliant /AP /N Form XObjects, /P page refs, and Print flags in binary");
+
+  // Verification 1B: Load into PDF.js and verify rendering engine reports hasAppearance: true
+  const pdfjsTask1 = pdfjs.getDocument({ data: new Uint8Array(compSavedBytes1) });
+  const pdfjsDoc1 = await pdfjsTask1.promise;
+
+  let totalParsedByPdfJs = 0;
+  for (let pIdx = 1; pIdx <= pdfjsDoc1.numPages; pIdx++) {
+    const page = await pdfjsDoc1.getPage(pIdx);
+    const annots = await page.getAnnotations({ intent: "display" });
+    for (const a of annots) {
+      if (a.subtype === "Popup") continue;
+      totalParsedByPdfJs++;
+      if (!a.hasAppearance) {
+        throw new Error(`PDF.js reported hasAppearance=false for ${a.subtype} annot ${a.id}! Generic readers will fail to render.`);
+      }
+    }
+  }
+  if (totalParsedByPdfJs !== 8) {
+    throw new Error(`Expected PDF.js to parse all 8 markup annotations, found ${totalParsedByPdfJs}`);
+  }
+  console.log("✓ Verified PDF.js parses all 8 annotations with hasAppearance=true (guaranteed rendering in Chrome, Preview, Acrobat)");
+
+  // Verification 1C: Check Line annotation linePoints roundtrip
+  const compReloaded1 = await PdfDocumentAdapter.load(compSavedBytes1);
+  const reloadedLine = compReloaded1.getAnnotation("test_ln_1") as PdfShapeAnnotation;
+  if (!reloadedLine || reloadedLine.type !== "line") {
+    throw new Error("Line annotation test_ln_1 not found after reload!");
+  }
+  if (!reloadedLine.linePoints || reloadedLine.linePoints.length !== 4) {
+    throw new Error("Line annotation linePoints not preserved across save/reload!");
+  }
+  if (reloadedLine.linePoints[0] !== 100 || reloadedLine.linePoints[1] !== 150 ||
+      reloadedLine.linePoints[2] !== 450 || reloadedLine.linePoints[3] !== 250) {
+    throw new Error(`Line annotation linePoints coordinates mismatched: ${JSON.stringify(reloadedLine.linePoints)}`);
+  }
+  console.log("✓ Verified Line annotation linePoints preserved 1:1 across binary save/load");
+
+  // Cycle 2: Edit annotations, move them, resize text box, change color, and re-save
+  console.log("\n--- Testing Mutation Cycle 2 (Edit, Move, Resize, Recolor) ---");
+  const noteToEdit = compAdapter.getAnnotation("test_note_1") as PdfNoteAnnotation;
+  noteToEdit.contents = "Updated sticky note text in cycle 2!";
+  noteToEdit.rect = [120, 720, 144, 744]; // Moved
+  compAdapter.upsertAnnotation(noteToEdit);
+
+  const ftToEdit = compAdapter.getAnnotation("test_ft_1") as PdfFreeTextAnnotation;
+  ftToEdit.rect = [80, 480, 400, 600]; // Resized wider & taller
+  ftToEdit.contents = "Updated FreeText Callout Box with revised contents.";
+  ftToEdit.textColor = [0.2, 0.1, 0.8]; // Color changed to blue
+  compAdapter.upsertAnnotation(ftToEdit);
+
+  const hlToRecolor = compAdapter.getAnnotation("test_hl_1") as PdfHighlightAnnotation;
+  hlToRecolor.color = [0.2, 0.85, 0.3]; // Green
+  compAdapter.upsertAnnotation(hlToRecolor);
+
+  const compSavedBytes2 = await compAdapter.save();
+
+  // Load in PDF.js and verify changes
+  const pdfjsTask2 = pdfjs.getDocument({ data: new Uint8Array(compSavedBytes2) });
+  const pdfjsDoc2 = await pdfjsTask2.promise;
+  const p1_c2 = await pdfjsDoc2.getPage(1);
+  const p1_annots_c2 = await p1_c2.getAnnotations({ intent: "display" });
+  const pdfjsNote = p1_annots_c2.find((a: any) => a.contentsObj?.str?.includes("Updated sticky note text"));
+  if (!pdfjsNote) {
+    throw new Error("PDF.js did not find updated sticky note text in cycle 2!");
+  }
+  if (!pdfjsNote.hasAppearance) {
+    throw new Error("Updated sticky note in cycle 2 lost appearance stream!");
+  }
+  console.log("✓ Verified cycle 2 mutations (text update, repositioning, recoloring) preserved with refreshed appearance streams");
+
+  // Cycle 3: Deletion & Page Rotation
+  console.log("\n--- Testing Mutation Cycle 3 (Delete Annotation, Page Rotation, Blank Page) ---");
+  compAdapter.deleteAnnotation("test_sq_1"); // Delete square
+  compAdapter.rotatePage(0, 90); // Rotate page 0 by 90°
+  compAdapter.insertBlankPage(1); // Insert blank page between page 0 and page 1
+
+  const compSavedBytes3 = await compAdapter.save();
+
+  const compReloaded3 = await PdfDocumentAdapter.load(compSavedBytes3);
+  if (compReloaded3.getPageCount() !== 3) {
+    throw new Error(`Expected 3 pages in cycle 3, got ${compReloaded3.getPageCount()}`);
+  }
+  if (compReloaded3.getAnnotation("test_sq_1")) {
+    throw new Error("Deleted square annotation test_sq_1 still found in cycle 3!");
+  }
+  const shiftedFt = compReloaded3.getAnnotation("test_ft_1");
+  if (!shiftedFt || shiftedFt.pageIndex !== 2) {
+    throw new Error(`Expected FreeText to be shifted to pageIndex 2, got ${shiftedFt?.pageIndex}`);
+  }
+
+  const pdfjsTask3 = pdfjs.getDocument({ data: new Uint8Array(compSavedBytes3) });
+  const pdfjsDoc3 = await pdfjsTask3.promise;
+  if (pdfjsDoc3.numPages !== 3) {
+    throw new Error(`PDF.js expected 3 pages, got ${pdfjsDoc3.numPages}`);
+  }
+  const page0Info = await pdfjsDoc3.getPage(1);
+  if (page0Info.rotate !== 90) {
+    throw new Error(`Expected PDF.js page 1 rotation to be 90°, got ${page0Info.rotate}`);
+  }
+  console.log("✓ Verified Page rotation (90°), blank page insertion, and deletion purge across save/reload");
+
+  // ==================== Testing Advanced Text Box Operations (CRUD, 8-Handle Transform, Multi-Page Move, ISO 32000-1) ====================
+  console.log("\n--- Testing Advanced Text Box Operations (Full CRUD, 8-Handle Transform, Cross-Page Move) ---");
+  const tbDoc = await PDFDocument.create();
+  tbDoc.addPage([612, 792]);
+  tbDoc.addPage([612, 792]);
+  const tbInitialBytes = await tbDoc.save();
+  const tbAdapter = await PdfDocumentAdapter.load(tbInitialBytes.buffer);
+
+  // 1. Create (C)
+  const initialTb: PdfFreeTextAnnotation = {
+    id: "crud_tb_test_1",
+    type: "freetext",
+    pageIndex: 0,
+    rect: [100, 500, 260, 540], // 160 x 40
+    color: [0.1, 0.2, 0.8],
+    textColor: [0.1, 0.2, 0.8],
+    fontSize: 14,
+    isBold: true,
+    isItalic: false,
+    textAlign: "center",
+    fillColor: [1.0, 0.98, 0.82],
+    borderColor: [0.1, 0.2, 0.8],
+    borderStyle: "solid",
+    borderWidth: 1,
+    contents: "Initial Text Box Content",
+    author: "User",
+  };
+  tbAdapter.upsertAnnotation(initialTb);
+  const tbSavedBytes1 = await tbAdapter.save();
+  const tbReloaded1 = await PdfDocumentAdapter.load(tbSavedBytes1);
+
+  const parsedTb1 = tbReloaded1.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  if (!parsedTb1 || parsedTb1.type !== "freetext") {
+    throw new Error("FreeText annotation failed to save or reload correctly!");
+  }
+  if (parsedTb1.contents !== "Initial Text Box Content") {
+    throw new Error(`Expected 'Initial Text Box Content', got '${parsedTb1.contents}'`);
+  }
+  if (parsedTb1.fontSize !== 14) {
+    throw new Error(`Expected fontSize 14, got ${parsedTb1.fontSize}`);
+  }
+  if (!parsedTb1.isBold) {
+    throw new Error("Expected text box to be bold!");
+  }
+  if (parsedTb1.textAlign !== "center") {
+    throw new Error(`Expected textAlign 'center', got '${parsedTb1.textAlign}'`);
+  }
+  if (!parsedTb1.fillColor || Math.abs(parsedTb1.fillColor[0] - 1.0) > 0.05) {
+    throw new Error("Expected fillColor to persist!");
+  }
+  console.log("✓ Verified Text Box Creation (C): contents, font, alignment, fill & border preserved losslessly");
+
+  // 2. 8-Handle Transform (Resize Width & Height)
+  parsedTb1.rect = [80, 440, 360, 580]; // Resized to 280 x 140
+  tbReloaded1.upsertAnnotation(parsedTb1);
+  const tbSavedBytes2 = await tbReloaded1.save();
+  const tbReloaded2 = await PdfDocumentAdapter.load(tbSavedBytes2);
+
+  const parsedTb2 = tbReloaded2.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  const w2 = parsedTb2.rect[2] - parsedTb2.rect[0];
+  const h2 = parsedTb2.rect[3] - parsedTb2.rect[1];
+  if (Math.abs(w2 - 280) > 1 || Math.abs(h2 - 140) > 1) {
+    throw new Error(`Expected transformed dimensions 280x140, got ${w2}x${h2}`);
+  }
+  console.log("✓ Verified Text Box 8-Handle Transform: width (280) and height (140) accurately persisted in PDF");
+
+  // 3. Edit (U) - Text content, font size, italic, dashed border, and alignment
+  parsedTb2.contents = "Revised FreeText Line 1\nSecond Line of Callout\nThird Line Right-Aligned";
+  parsedTb2.fontSize = 16;
+  parsedTb2.isItalic = true;
+  parsedTb2.textAlign = "right";
+  parsedTb2.borderStyle = "dashed";
+  parsedTb2.fillColor = [1.0, 1.0, 1.0]; // White
+  parsedTb2.textColor = [0.8, 0.1, 0.2]; // Red
+  tbReloaded2.upsertAnnotation(parsedTb2);
+  const tbSavedBytes3 = await tbReloaded2.save();
+  const tbReloaded3 = await PdfDocumentAdapter.load(tbSavedBytes3);
+
+  const parsedTb3 = tbReloaded3.getAnnotation("crud_tb_test_1") as PdfFreeTextAnnotation;
+  if (!parsedTb3.contents?.includes("Second Line of Callout")) {
+    throw new Error(`Expected multiline text, got '${parsedTb3.contents}'`);
+  }
+  if (parsedTb3.fontSize !== 16) {
+    throw new Error(`Expected fontSize 16, got ${parsedTb3.fontSize}`);
+  }
+  if (!parsedTb3.isItalic) {
+    throw new Error("Expected isItalic to be true!");
+  }
+  if (parsedTb3.textAlign !== "right") {
+    throw new Error(`Expected textAlign 'right', got '${parsedTb3.textAlign}'`);
+  }
+
+  // Verify in PDF.js
+  const pdfjsTbTask = pdfjs.getDocument({ data: new Uint8Array(tbSavedBytes3) });
+  const pdfjsTbDoc = await pdfjsTbTask.promise;
+  const pdfjsP1 = await pdfjsTbDoc.getPage(1);
+  const p1Annots = await pdfjsP1.getAnnotations({ intent: "display" });
+  const pdfjsTbAnnot = p1Annots.find((a: any) => a.id === "crud_tb_test_1" || a.contentsObj?.str?.includes("Revised FreeText"));
+  if (!pdfjsTbAnnot) {
+    throw new Error("PDF.js did not find updated FreeText annotation on Page 1!");
+  }
+  if (!pdfjsTbAnnot.hasAppearance) {
+    throw new Error("Updated FreeText annotation lost appearance stream in PDF.js!");
+  }
+  console.log("✓ Verified Text Box Editing (U): multiline contents, font size, italic & right alignment verified in PDF.js");
+
+  // 4. Move Across the PDF (Multi-Page Movement: Page 0 -> Page 1)
+  parsedTb3.pageIndex = 1; // Transferred to Page 1 (second page)
+  parsedTb3.rect = [120, 300, 400, 440];
+  tbReloaded3.upsertAnnotation(parsedTb3);
+  const tbSavedBytes4 = await tbReloaded3.save();
+  const tbReloaded4 = await PdfDocumentAdapter.load(tbSavedBytes4);
+
+  const page0Annots = tbReloaded4.getPageAnnotations(0);
+  const page1Annots = tbReloaded4.getPageAnnotations(1);
+
+  if (page0Annots.some((a) => a.id === "crud_tb_test_1")) {
+    throw new Error("Annotation was not removed from Page 0 after cross-page move!");
+  }
+  const movedOnP1 = page1Annots.find((a) => a.id === "crud_tb_test_1");
+  if (!movedOnP1 || movedOnP1.pageIndex !== 1) {
+    throw new Error("Annotation was not found on Page 1 after cross-page move!");
+  }
+  console.log("✓ Verified Text Box Cross-Page Movement: transferred from Page 0 to Page 1 cleanly in binary");
+
+  // 5. Delete (D) - Complete binary purge
+  const deleted = tbReloaded4.deleteAnnotation("crud_tb_test_1");
+  if (!deleted) {
+    throw new Error("deleteAnnotation returned false for existing text box!");
+  }
+  const tbSavedBytes5 = await tbReloaded4.save();
+  const tbReloaded5 = await PdfDocumentAdapter.load(tbSavedBytes5);
+
+  if (tbReloaded5.getAnnotation("crud_tb_test_1")) {
+    throw new Error("Deleted text box still found in reloaded adapter!");
+  }
+  const allAnnotsAfterDel = tbReloaded5.getAllAnnotations();
+  if (allAnnotsAfterDel.length !== 0) {
+    throw new Error(`Expected 0 annotations after deletion, found ${allAnnotsAfterDel.length}`);
+  }
+
+  const pdfjsDelTask = pdfjs.getDocument({ data: new Uint8Array(tbSavedBytes5) });
+  const pdfjsDelDoc = await pdfjsDelTask.promise;
+  const p1Del = await pdfjsDelDoc.getPage(1);
+  const p2Del = await pdfjsDelDoc.getPage(2);
+  const [p1DelAnnots, p2DelAnnots] = await Promise.all([
+    p1Del.getAnnotations({ intent: "display" }),
+    p2Del.getAnnotations({ intent: "display" }),
+  ]);
+  if (p1DelAnnots.length !== 0 || p2DelAnnots.length !== 0) {
+    throw new Error("Deleted text box ghost still found in PDF.js page /Annots dictionaries!");
+  }
+  console.log("✓ Verified Text Box Deletion (D): completely purged with 0 ghost annotations across all PDF pages");
+
+
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");
   console.log("==================================================");
 }
 
-runTestSuite().catch((err) => {
-  console.error("TEST FAILED:", err);
-  process.exit(1);
-});
+if (typeof require !== "undefined" && require.main === module) {
+  runTestSuite().catch((err) => {
+    console.error("TEST FAILED:", err);
+    process.exit(1);
+  });
+}

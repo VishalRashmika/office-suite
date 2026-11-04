@@ -18,11 +18,11 @@ export class PdfCiteModal extends Modal {
     contentEl.empty();
     contentEl.addClass("pdf-cite-modal");
 
-    contentEl.createEl("h2", { text: "Cite & Reference PDF" });
+    contentEl.createEl("h2", { text: "Cite & reference PDF" });
 
     if (this.metadata.quotedText) {
       const quoteBox = contentEl.createDiv({ cls: "pdf-cite-preview-quote" });
-      quoteBox.createSpan({ cls: "pdf-cite-preview-label", text: "Selected Text:" });
+      quoteBox.createSpan({ cls: "pdf-cite-preview-label", text: "Selected text:" });
       quoteBox.createEl("p", { text: `“${this.metadata.quotedText}”` });
     }
 

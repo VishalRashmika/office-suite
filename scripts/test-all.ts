@@ -1,0 +1,39 @@
+import { runPptxTestSuite } from "./test-pptx-suite";
+import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
+import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
+import { runPdfTwoFingerZoomTestSuite } from "./test-pdf-two-finger-zoom";
+import { runPdfCenteringAndLayoutTestSuite } from "./test-pdf-centering-and-layout";
+import { runPdfSidebarAnnotationsTestSuite } from "./test-pdf-sidebar-annotations";
+
+async function main() {
+  console.log("==================================================");
+  console.log("🚀 RUNNING FULL OFFICE SUITE TEST RUNNER");
+  console.log("==================================================");
+
+  // 1. Run PPTX Suite
+  await runPptxTestSuite();
+
+  // 2. Run PDF Suite
+  await runPdfTestSuite();
+
+  // 3. Run PDF Text Layer & Selection Suite
+  await runPdfTextSelectionTestSuite();
+
+  // 4. Run PDF Two-Finger Zoom & Pinch Gestures Suite
+  await runPdfTwoFingerZoomTestSuite();
+
+  // 5. Run PDF Centering & Layout Suite
+  await runPdfCenteringAndLayoutTestSuite();
+
+  // 6. Run PDF Sidebar & Zotero Annotations Suite
+  await runPdfSidebarAnnotationsTestSuite();
+
+  console.log("==================================================");
+  console.log("⭐ ALL TEST SUITES PASSED! OFFICE SUITE READY! ⭐");
+  console.log("==================================================");
+}
+
+main().catch((err) => {
+  console.error("Test execution failed:", err);
+  process.exit(1);
+});

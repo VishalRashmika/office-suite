@@ -19,6 +19,7 @@ import {
   PdfAnnotation,
   PdfNoteAnnotation,
   PdfHighlightAnnotation,
+  PdfUnderlineAnnotation,
   PdfInkAnnotation,
   PdfFreeTextAnnotation,
   PdfShapeAnnotation,
@@ -41,7 +42,7 @@ export class PdfAnnotationParser {
     if (!annots) {
       const rawAnnots = page.node.get(PDFName.of("Annots"));
       if (rawAnnots) {
-        let lookedUp = rawAnnots;
+        let lookedUp: any = rawAnnots;
         while (lookedUp instanceof PDFRef && context) {
           lookedUp = context.lookup(lookedUp);
         }
@@ -56,7 +57,7 @@ export class PdfAnnotationParser {
     const annotCount = annots.size();
     for (let i = 0; i < annotCount; i++) {
       try {
-        let item = annots.get(i);
+        let item: any = annots.get(i);
         while (item instanceof PDFRef && context) {
           item = context.lookup(item);
         }
@@ -81,7 +82,7 @@ export class PdfAnnotationParser {
     const raw = dict.get(PDFName.of(key));
     if (!raw) return undefined;
     const ctx = context || dict.context;
-    let current = raw;
+    let current: any = raw;
     while (current instanceof PDFRef && ctx) {
       current = ctx.lookup(current);
     }
@@ -95,10 +96,11 @@ export class PdfAnnotationParser {
     const subtypeItem = this.lookupItem(dict, "Subtype", context);
     if (!(subtypeItem instanceof PDFName)) return null;
 
-    const subtype = subtypeItem.asString().replace(/^\//, "");
+    const rawSubtype = subtypeItem.asString().replace(/^\//, "");
+    const subtype = rawSubtype.toLowerCase();
 
     // Skip non-markup system annotations
-    if (subtype === "Popup" || subtype === "Link" || subtype === "Widget") {
+    if (subtype === "popup" || subtype === "link" || subtype === "widget") {
       return null;
     }
 
@@ -121,10 +123,15 @@ export class PdfAnnotationParser {
     const author = this.extractString(dict, "T", context) || "Author";
     const linkedNote = this.extractString(dict, "ObsidianNote", context);
 
+    const mStr = this.extractString(dict, "M", context);
+    const crStr = this.extractString(dict, "CreationDate", context);
+    const modifiedAt = mStr ? this.parsePdfDate(mStr) : undefined;
+    const createdAt = crStr ? this.parsePdfDate(crStr) : (modifiedAt || undefined);
+
     switch (subtype) {
-      case "Text":
-      case "Caret":
-      case "Stamp": {
+      case "text":
+      case "caret":
+      case "stamp": {
         const iconName = (this.extractName(dict, "Name", context) as any) || "Comment";
         const note: PdfNoteAnnotation = {
           id,
@@ -136,14 +143,15 @@ export class PdfAnnotationParser {
           author,
           iconName,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return note;
       }
 
-      case "Highlight":
-      case "Underline":
-      case "StrikeOut":
-      case "Squiggly": {
+      case "highlight":
+      case "strikeout":
+      case "squiggly": {
         const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
         const highlight: PdfHighlightAnnotation = {
           id,
@@ -159,12 +167,36 @@ export class PdfAnnotationParser {
           ],
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return highlight;
       }
 
-      case "Ink":
-      case "PolyLine": {
+      case "underline": {
+        const quadPoints = this.extractNumberArray(dict, "QuadPoints", context);
+        const underline: PdfUnderlineAnnotation = {
+          id,
+          type: "underline",
+          pageIndex,
+          rect,
+          color,
+          contents,
+          highlightedText: contents,
+          quadPoints: quadPoints.length > 0 ? quadPoints : [
+            rect[0], rect[3], rect[2], rect[3],
+            rect[0], rect[1], rect[2], rect[1]
+          ],
+          author,
+          linkedNote,
+          createdAt,
+          modifiedAt,
+        };
+        return underline;
+      }
+
+      case "ink":
+      case "polyline": {
         const paths = this.extractInkList(dict, context);
         const strokeWidth = this.extractBorderWidth(dict, context) || 2;
         const ink: PdfInkAnnotation = {
@@ -178,14 +210,42 @@ export class PdfAnnotationParser {
           strokeWidth,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return ink;
       }
 
-      case "FreeText": {
+      case "freetext": {
         const da = this.extractString(dict, "DA", context) || "";
-        const sizeMatch = da.match(/Tf\s+(\d+(?:\.\d+)?)/) || da.match(/(\d+(?:\.\d+)?)\s+Tf/);
+        const sizeMatch = da.match(/(\d+(?:\.\d+)?)\s+Tf/) || da.match(/Tf\s+(\d+(?:\.\d+)?)/);
         const fontSize = sizeMatch ? parseFloat(sizeMatch[1]) : 12;
+
+        let textColor = color;
+        const colorMatch = da.match(/([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s+rg/);
+        if (colorMatch) {
+          textColor = [
+            parseFloat(colorMatch[1]),
+            parseFloat(colorMatch[2]),
+            parseFloat(colorMatch[3]),
+          ];
+        }
+
+        const isBold = /(Bold|Black)/i.test(da);
+        const isItalic = /(Italic|Oblique)/i.test(da);
+
+        const qVal = this.extractNumber(dict, "Q", context);
+        const textAlign = qVal === 1 ? "center" : qVal === 2 ? "right" : "left";
+
+        const fillColor = this.extractColorByKey(dict, "IC", context);
+        const borderWidth = this.extractBorderWidth(dict, context);
+        let borderColor: PdfRgbColor | undefined;
+        let borderStyle: "none" | "solid" | "dashed" | undefined;
+        if (borderWidth && borderWidth > 0) {
+          borderColor = color;
+          borderStyle = "solid";
+        }
+
         const freeText: PdfFreeTextAnnotation = {
           id,
           type: "freetext",
@@ -194,20 +254,36 @@ export class PdfAnnotationParser {
           color,
           contents,
           fontSize,
-          textColor: color,
+          textColor,
+          isBold: isBold || undefined,
+          isItalic: isItalic || undefined,
+          textAlign,
+          fillColor,
+          borderColor,
+          borderWidth,
+          borderStyle,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return freeText;
       }
 
-      case "Square":
-      case "Circle":
-      case "Line":
-      case "Polygon": {
+      case "square":
+      case "circle":
+      case "line":
+      case "polygon": {
         const strokeWidth = this.extractBorderWidth(dict, context) || 2;
         const fillColor = this.extractColorByKey(dict, "IC", context);
-        const shapeType = (subtype === "Circle" ? "circle" : subtype === "Line" ? "line" : "square") as "square" | "circle" | "line";
+        const shapeType = (subtype === "circle" ? "circle" : subtype === "line" ? "line" : "square") as "square" | "circle" | "line";
+        let linePoints: [number, number, number, number] | undefined;
+        if (subtype === "line") {
+          const lArr = this.extractNumberArray(dict, "L", context);
+          if (lArr.length >= 4) {
+            linePoints = [lArr[0], lArr[1], lArr[2], lArr[3]];
+          }
+        }
         const shape: PdfShapeAnnotation = {
           id,
           type: shapeType,
@@ -216,10 +292,13 @@ export class PdfAnnotationParser {
           color,
           strokeColor: color,
           fillColor,
+          linePoints,
           strokeWidth,
           contents,
           author,
           linkedNote,
+          createdAt,
+          modifiedAt,
         };
         return shape;
       }
@@ -227,6 +306,12 @@ export class PdfAnnotationParser {
       default:
         return null;
     }
+  }
+
+  private static extractNumber(dict: PDFDict, key: string, context?: PDFContext): number | undefined {
+    const val = this.lookupItem(dict, key, context);
+    if (val instanceof PDFNumber) return val.asNumber();
+    return undefined;
   }
 
   private static extractString(dict: PDFDict, key: string, context?: PDFContext): string | undefined {
@@ -249,19 +334,46 @@ export class PdfAnnotationParser {
     return undefined;
   }
 
+  private static parsePdfDate(raw: string): Date | undefined {
+    if (!raw) return undefined;
+    const clean = raw.replace(/^D:/, "").trim();
+    const directDate = new Date(clean);
+    if (!isNaN(directDate.getTime())) {
+      return directDate;
+    }
+    const match = clean.match(/^(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?(\d{2})?/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = match[2] ? parseInt(match[2], 10) - 1 : 0;
+      const day = match[3] ? parseInt(match[3], 10) : 1;
+      const hour = match[4] ? parseInt(match[4], 10) : 0;
+      const min = match[5] ? parseInt(match[5], 10) : 0;
+      const sec = match[6] ? parseInt(match[6], 10) : 0;
+      const d = new Date(Date.UTC(year, month, day, hour, min, sec));
+      if (!isNaN(d.getTime())) {
+        return d;
+      }
+    }
+    return undefined;
+  }
+
   private static extractRect(dict: PDFDict, context?: PDFContext): PdfRect | null {
     const rectArr = this.lookupItem(dict, "Rect", context);
     if (!(rectArr instanceof PDFArray) || rectArr.size() < 4) return null;
     const ctx = context || dict.context;
     const nums: number[] = [];
     for (let i = 0; i < 4; i++) {
-      let item = rectArr.get(i);
+      let item: any = rectArr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
       nums.push(item instanceof PDFNumber ? item.asNumber() : 0);
     }
-    return [nums[0], nums[1], nums[2], nums[3]];
+    const minX = Math.min(nums[0], nums[2]);
+    const maxX = Math.max(nums[0], nums[2]);
+    const minY = Math.min(nums[1], nums[3]);
+    const maxY = Math.max(nums[1], nums[3]);
+    return [minX, minY, maxX, maxY];
   }
 
   private static extractColor(dict: PDFDict, context?: PDFContext): PdfRgbColor | undefined {
@@ -274,7 +386,7 @@ export class PdfAnnotationParser {
     const ctx = context || dict.context;
     const nums: number[] = [];
     for (let i = 0; i < 3; i++) {
-      let item = cArr.get(i);
+      let item: any = cArr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
@@ -290,7 +402,7 @@ export class PdfAnnotationParser {
     const res: number[] = [];
     const size = arr.size();
     for (let i = 0; i < size; i++) {
-      let item = arr.get(i);
+      let item: any = arr.get(i);
       while (item instanceof PDFRef && ctx) {
         item = ctx.lookup(item);
       }
@@ -306,7 +418,7 @@ export class PdfAnnotationParser {
     const paths: number[][][] = [];
     const count = inkList.size();
     for (let i = 0; i < count; i++) {
-      let strokeArr = inkList.get(i);
+      let strokeArr: any = inkList.get(i);
       while (strokeArr instanceof PDFRef && ctx) {
         strokeArr = ctx.lookup(strokeArr);
       }
@@ -314,8 +426,8 @@ export class PdfAnnotationParser {
       const strokeCoords: number[][] = [];
       const coordCount = strokeArr.size();
       for (let j = 0; j < coordCount; j += 2) {
-        let xItem = strokeArr.get(j);
-        let yItem = strokeArr.get(j + 1);
+        let xItem: any = strokeArr.get(j);
+        let yItem: any = strokeArr.get(j + 1);
         while (xItem instanceof PDFRef && ctx) xItem = ctx.lookup(xItem);
         while (yItem instanceof PDFRef && ctx) yItem = ctx.lookup(yItem);
         const x = xItem instanceof PDFNumber ? xItem.asNumber() : 0;
