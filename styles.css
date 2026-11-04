@@ -1970,7 +1970,8 @@
 }
 
 .pdf-annot-quote-text.mod-underlined {
-  /* Underline decoration set via inline style */
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .pdf-annot-card-quote.mod-empty {
@@ -2584,6 +2585,13 @@
   cursor: text;
 }
 
+.pdf-page-view[data-active-tool="draw"] .textLayer,
+.pdf-page-view[data-active-tool="square"] .textLayer,
+.pdf-page-view[data-active-tool="circle"] .textLayer,
+.pdf-page-view[data-active-tool="line"] .textLayer {
+  pointer-events: none !important;
+}
+
 .pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
 .pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
 .pdf-page-view[data-active-tool="highlight"] .textLayer,
@@ -2620,6 +2628,7 @@
 
 .pdf-annot-pin-group {
   cursor: grab;
+  pointer-events: auto;
 }
 
 .pdf-annot-pin-group circle {
@@ -2641,11 +2650,13 @@
 
 .pdf-annot-highlight-group {
   cursor: text;
+  pointer-events: none;
 }
 
 .pdf-annot-highlight-group polygon,
 .pdf-annot-highlight-group rect {
   pointer-events: none !important;
+  mix-blend-mode: multiply;
   transition: fill-opacity 0.15s ease, stroke-opacity 0.15s ease;
 }
 
@@ -2658,6 +2669,7 @@
 /* Underline Markup */
 .pdf-annot-underline-group {
   cursor: text;
+  pointer-events: none;
 }
 
 .pdf-annot-underline-group line {
@@ -2690,6 +2702,7 @@
 
 .pdf-annot-shape-group {
   cursor: move;
+  pointer-events: auto;
   transition: filter 0.15s ease;
 }
 
@@ -2703,6 +2716,7 @@
 
 .pdf-annot-ink-group {
   cursor: move;
+  pointer-events: auto;
 }
 
 .pdf-annot-ink-group:active {
@@ -2984,6 +2998,8 @@
 /* Live drag-to-create preview rectangle */
 .pdf-annot-freetext-preview {
   position: absolute;
+  width: 0;
+  height: 0;
   border: 1.5px dashed var(--interactive-accent);
   background: rgba(var(--interactive-accent-rgb), 0.08);
   pointer-events: none;
@@ -4366,11 +4382,18 @@
 }
 
 .office-pptx-thumbnail-preview {
+  position: relative;
+  overflow: hidden;
   margin: 0 auto;
   background-color: #ffffff;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-s);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.office-pptx-thumbnail-preview .office-pptx-slide {
+  transform-origin: top left;
+  pointer-events: none;
 }
 
 .office-pptx-thumbnail-info {
@@ -4445,6 +4468,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transform-origin: center center;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.16), 0 3px 10px rgba(0, 0, 0, 0.08);
   border-radius: 4px;
   overflow: hidden;
@@ -4812,10 +4836,17 @@
 }
 
 .office-pptx-grid-preview {
+  position: relative;
+  overflow: hidden;
   margin: 0 auto;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--radius-s);
   background-color: #ffffff;
+}
+
+.office-pptx-grid-preview .office-pptx-slide {
+  transform-origin: top left;
+  pointer-events: none;
 }
 
 .office-pptx-grid-title {
@@ -4895,14 +4926,28 @@
   height: 100%;
 }
 
+.office-pptx-slideshow-stage .office-pptx-slide {
+  transform-origin: center center;
+}
+
 .office-pptx-blank-layer {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 100001;
   pointer-events: none;
 }
 
+.office-pptx-blank-layer.mod-black {
+  background-color: #000000;
+}
+
+.office-pptx-blank-layer.mod-white {
+  background-color: #ffffff;
+}
+
 .office-pptx-laser-dot {
+  display: none;
   position: fixed;
   width: 12px;
   height: 12px;
@@ -5181,5 +5226,79 @@
 .office-pptx-notes-host.is-hidden {
   display: none !important;
 }
+
+/* Grabbing cursor during PDF annotation dragging */
+body.is-grabbing,
+body.is-grabbing * {
+  cursor: grabbing !important;
+}
+
+/* PDF Outline Styling */
+.pdf-outline-title.mod-bold {
+  font-weight: bold;
+}
+.pdf-outline-title.mod-italic {
+  font-style: italic;
+}
+
+/* PPTX Paragraphs & Bullets */
+.office-pptx-p {
+  margin: 0;
+  padding: 0;
+}
+.office-pptx-p.mod-bullet {
+  display: flex;
+  align-items: baseline;
+}
+.office-pptx-bullet {
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+/* PPTX Text Runs formatting */
+.office-pptx-run.mod-bold,
+.mod-bold {
+  font-weight: bold;
+}
+.office-pptx-run.mod-italic,
+.mod-italic {
+  font-style: italic;
+}
+.office-pptx-run.mod-underline,
+.mod-underline {
+  text-decoration: underline;
+}
+.office-pptx-run.mod-strikethrough,
+.mod-strikethrough {
+  text-decoration: line-through;
+}
+.office-pptx-run.mod-underline.mod-strikethrough,
+.mod-underline.mod-strikethrough {
+  text-decoration: underline line-through;
+}
+
+/* PPTX Shape Geometry */
+.mod-shape-roundrect {
+  border-radius: 8px;
+}
+.mod-shape-ellipse {
+  border-radius: 50%;
+}
+.mod-shape-triangle {
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+.mod-shape-diamond {
+  clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+.mod-shape-arrow {
+  clip-path: polygon(0% 25%, 65% 25%, 65% 0%, 100% 50%, 65% 100%, 65% 75%, 0% 75%);
+}
+.mod-shape-line {
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  background-color: transparent !important;
+}
+
 
 

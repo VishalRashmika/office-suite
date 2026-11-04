@@ -34,14 +34,14 @@ export async function runPdfCenteringAndLayoutTestSuite() {
     "PdfSidebar.build must have parameter 'initialVisible = false' by default"
   );
   assert.ok(
-    sidebarSource.includes('style.display = "none"'),
-    "PdfSidebar must set style.display = 'none' when collapsed"
+    sidebarSource.includes("is-hidden"),
+    "PdfSidebar must set class 'is-hidden' when collapsed"
   );
   assert.ok(
     sidebarSource.includes("getIsVisible(): boolean"),
     "PdfSidebar must expose getIsVisible() method"
   );
-  console.log("✓ Verified PdfSidebar source: defaults to collapsed (isVisible=false, display: none)");
+  console.log("✓ Verified PdfSidebar source: defaults to collapsed (isVisible=false, is-hidden)");
 
   const toolbarSourcePath = path.resolve(__dirname, "../src/presentation/pdf/pdf-toolbar.ts");
   const toolbarSource = fs.readFileSync(toolbarSourcePath, "utf-8");

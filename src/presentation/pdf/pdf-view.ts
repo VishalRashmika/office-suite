@@ -23,8 +23,6 @@ import {
   PdfColorSchemeProfile,
   ZOTERO_DEFAULT_PROFILE,
   cloneProfile,
-  ensureValidProfile,
-  findTagForColor,
   normalizeHexColor,
 } from "../../domain/pdf";
 import { PdfDocumentAdapter } from "../../infrastructure/pdf";
@@ -419,7 +417,7 @@ export class PdfView
       this.scrollToPage(pageNum - 1);
     }
 
-    const annotMatch = subpath.match(/annot=([a-zA-Z0-9_\-]+)/);
+    const annotMatch = subpath.match(/annot=([a-zA-Z0-9_-]+)/);
     if (annotMatch) {
       const annotId = annotMatch[1];
       window.setTimeout(() => this.pulseAnnotation(annotId), 300);
@@ -777,8 +775,8 @@ export class PdfView
       this.isGesturePinching = false;
 
       if (this.pagesContainerEl) {
-        this.pagesContainerEl.style.transform = "none";
-        this.pagesContainerEl.style.transformOrigin = "";
+        this.pagesContainerEl.style.removeProperty("transform");
+        this.pagesContainerEl.style.removeProperty("transform-origin");
       }
 
       const finalScale = Math.round(this.startWheelZoomScale * this.cumulativeWheelScale * 100) / 100;
@@ -853,8 +851,8 @@ export class PdfView
       this.isTouchPinching = false;
 
       if (this.pagesContainerEl) {
-        this.pagesContainerEl.style.transform = "none";
-        this.pagesContainerEl.style.transformOrigin = "";
+        this.pagesContainerEl.style.removeProperty("transform");
+        this.pagesContainerEl.style.removeProperty("transform-origin");
       }
 
       const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
@@ -906,8 +904,8 @@ export class PdfView
   private onGestureEnd = async (e: any): Promise<void> => {
     e.preventDefault();
     if (this.pagesContainerEl) {
-      this.pagesContainerEl.style.transform = "none";
-      this.pagesContainerEl.style.transformOrigin = "";
+      this.pagesContainerEl.style.removeProperty("transform");
+      this.pagesContainerEl.style.removeProperty("transform-origin");
     }
     const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
     await this.applyZoomWithFocalPoint(finalScale, this.touchStartMidX, this.touchStartMidY);

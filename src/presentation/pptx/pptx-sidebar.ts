@@ -1,5 +1,5 @@
 import { setIcon } from "obsidian";
-import { PptxPresentation, PptxSlide, PptxRenderer } from "../../domain/pptx";
+import { PptxPresentation, PptxRenderer } from "../../domain/pptx";
 
 export interface PptxSidebarDelegate {
   onSlideSelected(slideIndex: number): void;
@@ -129,12 +129,8 @@ export class PptxSidebar {
 
       previewBox.style.width = `${targetW}px`;
       previewBox.style.height = `${targetH}px`;
-      previewBox.style.position = "relative";
-      previewBox.style.overflow = "hidden";
 
       slidePreview.style.transform = `scale(${scale})`;
-      slidePreview.style.transformOrigin = "top left";
-      slidePreview.style.pointerEvents = "none";
       previewBox.appendChild(slidePreview);
 
       // Title / summary
@@ -173,7 +169,7 @@ export class PptxSidebar {
       if (!card) continue;
 
       if (!this.searchQuery) {
-        card.style.display = "";
+        card.show();
         card.classList.remove("is-match");
         continue;
       }
@@ -200,7 +196,7 @@ export class PptxSidebar {
         match = slide.notes.toLowerCase().includes(this.searchQuery);
       }
 
-      card.style.display = match ? "" : "none";
+      card.toggle(match);
       card.classList.toggle("is-match", match);
     }
   }
