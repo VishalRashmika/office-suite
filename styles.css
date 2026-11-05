@@ -2395,8 +2395,6 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .pdf-pages-container {
@@ -2413,8 +2411,6 @@
   transform-origin: 0 0;
   will-change: transform;
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .pdf-theme-light .pdf-pages-scroll-area {
@@ -2475,8 +2471,8 @@
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
-  user-select: none;
-  -webkit-user-select: none;
+  user-select: text !important;
+  -webkit-user-select: text !important;
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
@@ -2539,6 +2535,7 @@
   inset: 100% 0 0;
   z-index: -1;
   cursor: default;
+  pointer-events: none !important;
   user-select: none !important;
   -webkit-user-select: none !important;
 }
@@ -2639,7 +2636,9 @@
 .pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
 .pdf-page-view[data-active-tool="underline"] .textLayer,
 .pdf-page-view[data-active-tool="underline"] .textLayer span,
+.pdf-page-view[data-active-tool="hand"] .pdf-text-layer,
 .pdf-page-view[data-active-tool="hand"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="hand"] .textLayer,
 .pdf-page-view[data-active-tool="hand"] .textLayer span {
   cursor: text !important;
 }

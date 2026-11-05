@@ -2075,6 +2075,8 @@ export class PdfPageView {
 
       const sel = window.getSelection();
       if (!sel || sel.isCollapsed || !sel.rangeCount) {
+        this.lastMouseDownPos = null;
+        this.lastMouseUpPos = null;
         // Collapsed click without dragging in hand mode: check if an existing highlight was clicked
         if (this.currentTool === "hand" && this.coordinateTransformer) {
           const rect = this.containerEl.getBoundingClientRect();
@@ -2127,12 +2129,16 @@ export class PdfPageView {
       // In Highlight tool mode: instantly create highlight!
       if (this.currentTool === "highlight") {
         this.createHighlightFromSelection(cleanText, this.currentColor, lines);
+        this.lastMouseDownPos = null;
+        this.lastMouseUpPos = null;
         return;
       }
 
       // In Underline tool mode: instantly create underline!
       if (this.currentTool === "underline") {
         this.createUnderlineFromSelection(cleanText, this.currentColor, lines);
+        this.lastMouseDownPos = null;
+        this.lastMouseUpPos = null;
         return;
       }
 
@@ -2279,46 +2285,44 @@ export class PdfPageView {
     const startNode = startLeaf?.node;
     const endNode = endLeaf?.node;
 
-    // Approach 1 (Primary): Walk all leaf Text nodes inside this.textLayerEl
-    if (this.textLayerEl && typeof document.createTreeWalker === "function") {
-      let started = false;
-      if (startNode && !this.textLayerEl.contains(startNode)) {
-        try {
-          const comp = startNode.compareDocumentPosition(this.textLayerEl);
-          if (comp & Node.DOCUMENT_POSITION_FOLLOWING) {
-            started = true;
-          }
-        } catch (_) {
-          started = true;
+    // Helper to test if a Range intersects a DOM Node
+    const nodeIntersectsRange = (r: Range, node: Node): boolean => {
+      try {
+        if (typeof (r as any).intersectsNode === "function") {
+          return (r as any).intersectsNode(node);
         }
+        const testRange = document.createRange();
+        testRange.selectNodeContents(node);
+        return (
+          testRange.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
+          testRange.compareBoundaryPoints(Range.START_TO_END, r) > 0
+        );
+      } catch (_) {
+        return false;
       }
+    };
 
+    // Approach 1 (Primary): Check all leaf Text nodes inside this.textLayerEl that intersect range
+    if (this.textLayerEl && typeof document.createTreeWalker === "function") {
       const walker = document.createTreeWalker(this.textLayerEl, NodeFilter.SHOW_TEXT);
       let textNode: Text | null = null;
 
       while ((textNode = walker.nextNode() as Text | null)) {
         if (!textNode.textContent || textNode.textContent.length === 0) continue;
 
+        if (!nodeIntersectsRange(range, textNode)) continue;
+
+        const nodeLen = textNode.textContent.length;
         const isStartNode = startNode ? textNode === startNode : range.startContainer === textNode;
         const isEndNode = endNode ? textNode === endNode : range.endContainer === textNode;
 
-        if (isStartNode) {
-          started = true;
-        }
-
-        if (!started) {
-          try {
-            if (range.comparePoint(textNode, 0) >= 0) {
-              started = true;
-            }
-          } catch (_) {}
-        }
-
-        if (!started) continue;
-
-        const nodeLen = textNode.textContent.length;
         let sliceStart = (isStartNode && startLeaf) ? startLeaf.offset : 0;
         let sliceEnd = (isEndNode && endLeaf) ? endLeaf.offset : nodeLen;
+
+        if (isStartNode && isEndNode && startLeaf && endLeaf) {
+          sliceStart = Math.min(startLeaf.offset, endLeaf.offset);
+          sliceEnd = Math.max(startLeaf.offset, endLeaf.offset);
+        }
 
         sliceStart = Math.max(0, Math.min(nodeLen, sliceStart));
         sliceEnd = Math.max(0, Math.min(nodeLen, sliceEnd));
@@ -2344,10 +2348,6 @@ export class PdfPageView {
               }
             }
           } catch (_) {}
-        }
-
-        if (isEndNode) {
-          break;
         }
       }
     }
@@ -2472,7 +2472,19 @@ export class PdfPageView {
             bottom: lineBottom,
             text: r.text || "",
           };
-        } else if (r.left <= currentSeg.right + maxWordGap) {
+          continue;
+        }
+
+        const gap = r.left - currentSeg.right;
+        // In 2-column papers, prevent fusing across the central column gutter:
+        const isTwoColumnGutter =
+          gap >= 16 &&
+          currentSeg.left <= pageRect.width * 0.45 &&
+          currentSeg.right <= pageRect.width * 0.55 &&
+          r.left >= pageRect.width * 0.45 &&
+          r.right >= pageRect.width * 0.65;
+
+        if (gap <= maxWordGap && !isTwoColumnGutter) {
           currentSeg.right = Math.max(currentSeg.right, r.right);
           if (r.text) {
             if (!currentSeg.text) {
@@ -2502,33 +2514,74 @@ export class PdfPageView {
       }
     }
 
-    // Multi-column isolation: Only isolate columns if multiple lines have > 1 segment
-    // AND there is a genuine column gutter >= 35px between columns
+    // Multi-column isolation: Detect gutters (gap >= 14px) between parallel column segments
     const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
-    const gutterLeft = multiSegmentLines.length >= 2 ? Math.max(...multiSegmentLines.map((segs) => segs[0].right)) : 0;
-    const gutterRight = multiSegmentLines.length >= 2 ? Math.min(...multiSegmentLines.map((segs) => segs[1].left)) : 0;
-    const hasGenuineMultiColumn = multiSegmentLines.length >= 2 && (gutterRight - gutterLeft >= 35) && gutterLeft >= 60;
+    const gutters: { left: number; right: number }[] = [];
+    for (const segs of multiSegmentLines) {
+      for (let i = 0; i < segs.length - 1; i++) {
+        const gLeft = segs[i].right;
+        const gRight = segs[i + 1].left;
+        if (gRight - gLeft >= 14 && gLeft <= pageRect.width * 0.55 && gRight >= pageRect.width * 0.45) {
+          gutters.push({ left: gLeft, right: gRight });
+        }
+      }
+    }
+
+    const hasGutter = gutters.length > 0;
+    const pageMidpoint = pageRect.width / 2;
+    const avgGutterCenter = hasGutter
+      ? gutters.reduce((sum, g) => sum + (g.left + g.right) / 2, 0) / gutters.length
+      : pageMidpoint;
+    const gutterLeft = hasGutter ? Math.min(...gutters.map((g) => g.left)) : avgGutterCenter - 10;
+    const gutterRight = hasGutter ? Math.max(...gutters.map((g) => g.right)) : avgGutterCenter + 10;
+
+    let userMinX: number | null = null;
+    let userMaxX: number | null = null;
+    if (this.lastMouseDownPos && this.lastMouseUpPos) {
+      userMinX = Math.min(this.lastMouseDownPos.x, this.lastMouseUpPos.x) - pageRect.left;
+      userMaxX = Math.max(this.lastMouseDownPos.x, this.lastMouseUpPos.x) - pageRect.left;
+    }
+
+    // Did user explicitly drag across the gutter into the other column?
+    const draggedAcrossGutter =
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMinX <= gutterLeft &&
+      userMaxX >= gutterRight;
+
+    // Is the drag strictly confined to Column 1 (left of gutter)?
+    const isStrictlyCol1 =
+      hasGutter &&
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMaxX <= avgGutterCenter &&
+      !draggedAcrossGutter;
+
+    // Is the drag strictly confined to Column 2 (right of gutter)?
+    const isStrictlyCol2 =
+      hasGutter &&
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMinX >= avgGutterCenter &&
+      !draggedAcrossGutter;
 
     const resultLines: SelectionLineRect[] = [];
 
-    if (hasGenuineMultiColumn && anchorLocalX !== null) {
-      const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
-      for (const segments of lineGroupSegments) {
-        for (const seg of segments) {
-          if (isAnchorInLeftCol) {
-            if (seg.left <= gutterLeft + 15) {
-              resultLines.push(seg);
-            }
-          } else {
-            if (seg.right >= gutterRight - 15) {
-              resultLines.push(seg);
-            }
+    for (const segments of lineGroupSegments) {
+      for (const seg of segments) {
+        if (isStrictlyCol1) {
+          // Keep Column 1 segments and full-width headings/abstracts; omit Column 2 scanline bleed
+          if (seg.left < avgGutterCenter) {
+            resultLines.push(seg);
           }
-        }
-      }
-    } else {
-      for (const segments of lineGroupSegments) {
-        for (const seg of segments) {
+        } else if (isStrictlyCol2) {
+          // Keep Column 2 segments and full-width headings/abstracts; omit Column 1 scanline bleed
+          if (seg.right > avgGutterCenter) {
+            resultLines.push(seg);
+          }
+        } else {
+          // User dragged across gutter, or single-column document, or keyboard selection:
+          // Keep 100% of all segments! Make sure all text can be selected!
           resultLines.push(seg);
         }
       }
