@@ -152,6 +152,10 @@ export class PdfPageView {
     // In draw and shape creation modes, SVG overlay captures all pointer events to draw
     const isDrawingTool = tool === "draw" || tool === "square" || tool === "circle" || tool === "line";
     this.svgOverlayEl.classList.toggle("is-drawing", isDrawingTool);
+    if (isDrawingTool && this.selectedAnnotId) {
+      this.selectedAnnotId = null;
+      this.renderAnnotations();
+    }
   }
 
   setAnnotations(annotations: PdfAnnotation[]): void {
@@ -779,7 +783,7 @@ export class PdfPageView {
     g.dataset.annotId = annot.id;
 
     for (const stroke of annot.paths) {
-      if (stroke.length < 2) continue;
+      if (stroke.length === 0) continue;
       const d = this.pointsToSvgPath(stroke);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", d);
@@ -1495,34 +1499,37 @@ export class PdfPageView {
           return;
         }
 
-        // Highlights and underlines do not intercept pointerdown or drag; text selection takes precedence!
-        if (annot.type === "highlight" || annot.type === "underline") {
-          return;
-        }
+        // Only the Move tool ("hand" / Select & Pan) can select and drag/move drawn annotations or shapes!
+        if (this.currentTool === "hand") {
+          // Highlights and underlines do not intercept pointerdown or drag; text selection takes precedence!
+          if (annot.type === "highlight" || annot.type === "underline") {
+            return;
+          }
 
-        // Existing annotation hit! DO NOT create a new note/shape/text.
-        e.stopPropagation();
-        this.selectedAnnotId = annot.id;
+          // Existing annotation hit! DO NOT create a new note/shape/text.
+          e.stopPropagation();
+          this.selectedAnnotId = annot.id;
 
-        // If it's a freetext annotation, FreeText handles its own drag and transform
-        if (annot.type === "freetext") {
+          // If it's a freetext annotation, FreeText handles its own drag and transform
+          if (annot.type === "freetext") {
+            this.renderAnnotations();
+            return;
+          }
+
+          // Prepare drag state
+          this.dragState = {
+            annot,
+            startScreen: { x: sx, y: sy },
+            startPdfRect: [...annot.rect] as PdfRect,
+            startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
+            startQuadPoints: (annot as any).quadPoints ? [...(annot as any).quadPoints] : undefined,
+            startLinePoints: (annot as any).linePoints ? ([...(annot as any).linePoints] as [number, number, number, number]) : undefined,
+            hasMoved: false,
+          };
+
           this.renderAnnotations();
           return;
         }
-
-        // Prepare drag state
-        this.dragState = {
-          annot,
-          startScreen: { x: sx, y: sy },
-          startPdfRect: [...annot.rect] as PdfRect,
-          startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
-          startQuadPoints: (annot as any).quadPoints ? [...(annot as any).quadPoints] : undefined,
-          startLinePoints: (annot as any).linePoints ? ([...(annot as any).linePoints] as [number, number, number, number]) : undefined,
-          hasMoved: false,
-        };
-
-        this.renderAnnotations();
-        return;
       }
     }
 
@@ -1542,6 +1549,7 @@ export class PdfPageView {
       this.liveDrawEl.setAttribute("stroke-linecap", "round");
       this.liveDrawEl.setAttribute("stroke-linejoin", "round");
       this.liveDrawEl.setAttribute("fill", "none");
+      this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
       this.svgOverlayEl.appendChild(this.liveDrawEl);
     } else if (this.currentTool === "square" || this.currentTool === "circle" || this.currentTool === "line") {
       this.isDrawing = true;
@@ -1649,8 +1657,11 @@ export class PdfPageView {
     if (!this.isDrawing) return;
 
     if (this.currentTool === "draw" && this.liveDrawEl) {
-      this.activePath.push([sx, sy]);
-      this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
+      const last = this.activePath[this.activePath.length - 1];
+      if (!last || Math.hypot(sx - last[0], sy - last[1]) >= 2) {
+        this.activePath.push([sx, sy]);
+        this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
+      }
     } else if (this.shapeStartPoint && this.liveShapeEl) {
       this.updateLiveShapeElement(this.shapeStartPoint.x, this.shapeStartPoint.y, sx, sy);
     }
@@ -1749,7 +1760,14 @@ export class PdfPageView {
     if (!this.isDrawing) return;
     this.isDrawing = false;
 
-    if (this.currentTool === "draw" && this.activePath.length > 1 && this.coordinateTransformer) {
+    if (this.currentTool === "draw" && this.activePath.length >= 1 && this.coordinateTransformer) {
+      const last = this.activePath[this.activePath.length - 1];
+      const rect = this.containerEl.getBoundingClientRect();
+      const endX = e.clientX - rect.left;
+      const endY = e.clientY - rect.top;
+      if (last && Math.hypot(endX - last[0], endY - last[1]) >= 1) {
+        this.activePath.push([endX, endY]);
+      }
       this.finishDrawing();
     } else if (this.shapeStartPoint && this.coordinateTransformer) {
       const rect = this.containerEl.getBoundingClientRect();
@@ -2737,15 +2755,29 @@ export class PdfPageView {
 
   private screenPointsToSvgPath(pts: [number, number][]): string {
     if (pts.length === 0) return "";
-    if (pts.length === 1) return `M ${pts[0][0]} ${pts[0][1]} L ${pts[0][0]} ${pts[0][1]}`;
-
-    let d = `M ${pts[0][0]} ${pts[0][1]}`;
-    for (let i = 1; i < pts.length; i++) {
-      const midX = (pts[i - 1][0] + pts[i][0]) / 2;
-      const midY = (pts[i - 1][1] + pts[i][1]) / 2;
-      d += ` Q ${pts[i - 1][0]} ${pts[i - 1][1]}, ${midX} ${midY}`;
+    if (pts.length === 1) {
+      return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L ${(pts[0][0] + 0.1).toFixed(1)} ${(pts[0][1] + 0.1).toFixed(1)}`;
     }
-    d += ` L ${pts[pts.length - 1][0]} ${pts[pts.length - 1][1]}`;
+    if (pts.length === 2) {
+      return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L ${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}`;
+    }
+    if (pts.length === 3) {
+      return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} Q ${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}, ${pts[2][0].toFixed(1)} ${pts[2][1].toFixed(1)}`;
+    }
+
+    let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+    const mid0X = (pts[0][0] + pts[1][0]) / 2;
+    const mid0Y = (pts[0][1] + pts[1][1]) / 2;
+    d += ` L ${mid0X.toFixed(1)} ${mid0Y.toFixed(1)}`;
+
+    for (let i = 1; i < pts.length - 1; i++) {
+      const midX = (pts[i][0] + pts[i + 1][0]) / 2;
+      const midY = (pts[i][1] + pts[i + 1][1]) / 2;
+      d += ` Q ${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+    }
+
+    const last = pts[pts.length - 1];
+    d += ` L ${last[0].toFixed(1)} ${last[1].toFixed(1)}`;
     return d;
   }
 
