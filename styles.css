@@ -2585,11 +2585,38 @@
   cursor: text;
 }
 
+.pdf-page-view[data-active-tool="draw"],
+.pdf-page-view[data-active-tool="square"],
+.pdf-page-view[data-active-tool="circle"],
+.pdf-page-view[data-active-tool="line"] {
+  cursor: crosshair;
+}
+
 .pdf-page-view[data-active-tool="draw"] .textLayer,
 .pdf-page-view[data-active-tool="square"] .textLayer,
 .pdf-page-view[data-active-tool="circle"] .textLayer,
 .pdf-page-view[data-active-tool="line"] .textLayer {
   pointer-events: none !important;
+}
+
+.pdf-page-view[data-active-tool="draw"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="draw"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="draw"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="draw"] .pdf-annot-freetext-box,
+.pdf-page-view[data-active-tool="square"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="square"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="square"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="square"] .pdf-annot-freetext-box,
+.pdf-page-view[data-active-tool="circle"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="circle"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="circle"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="circle"] .pdf-annot-freetext-box,
+.pdf-page-view[data-active-tool="line"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="line"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="line"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="line"] .pdf-annot-freetext-box {
+  pointer-events: none !important;
+  cursor: crosshair !important;
 }
 
 .pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
@@ -2701,26 +2728,40 @@
 }
 
 .pdf-annot-shape-group {
-  cursor: move;
-  pointer-events: auto;
+  cursor: default;
+  pointer-events: none;
   transition: filter 0.15s ease;
 }
 
-.pdf-annot-shape-group:hover {
+.pdf-annot-ink-group {
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Move Tool ("hand" / Select & Pan): allow selecting and dragging drawn shapes & ink */
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group {
+  cursor: move !important;
+  pointer-events: auto !important;
+}
+
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:hover,
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group:hover {
   filter: drop-shadow(0 0 2px var(--interactive-accent));
 }
 
-.pdf-annot-shape-group:active {
-  cursor: grabbing;
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:active,
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group:active {
+  cursor: grabbing !important;
 }
 
-.pdf-annot-ink-group {
-  cursor: move;
-  pointer-events: auto;
-}
-
-.pdf-annot-ink-group:active {
-  cursor: grabbing;
+/* Eraser Tool: allow clicking shapes and ink to delete */
+.pdf-page-view[data-active-tool="eraser"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="eraser"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="eraser"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="eraser"] .pdf-annot-freetext-box {
+  cursor: pointer !important;
+  pointer-events: auto !important;
 }
 
 /* HTML-based FreeText Annotation Box Overlay */

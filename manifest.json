@@ -1,7 +1,7 @@
 {
   "id": "office-suite",
   "name": "Office Suite",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minAppVersion": "1.4.0",
   "description": "View and edit Word DOCX, Excel XLSX, PowerPoint PPTX, CSV and TSV spreadsheets, and PDF documents with native editing, annotations, highlights, drawings, citations, and note linking.",
   "author": "Vishal Rashmika",
