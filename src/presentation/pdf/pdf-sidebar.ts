@@ -284,6 +284,7 @@ export class PdfSidebar {
       }
     }
 
+    if (!this.isVisible) return;
     this.renderActiveTab();
   }
 

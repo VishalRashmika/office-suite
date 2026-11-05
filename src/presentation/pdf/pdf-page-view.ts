@@ -51,7 +51,6 @@ interface DragState {
   annot: PdfAnnotation;
   startScreen: { x: number; y: number };
   startPdfRect: PdfRect;
-  startPaths?: number[][][];
   startQuadPoints?: number[];
   startLinePoints?: [number, number, number, number];
   hasMoved: boolean;
@@ -97,6 +96,9 @@ export class PdfPageView {
   private liveDrawEl: SVGPathElement | null = null;
   private shapeStartPoint: { x: number; y: number } | null = null;
   private liveShapeEl: SVGElement | null = null;
+  private activePointerId: number | null = null;
+  private cachedContainerRect: DOMRect | null = null;
+  private drawRafId: number | null = null;
 
   // FreeText creation state
   private isCreatingFreeText = false;
@@ -469,7 +471,7 @@ export class PdfPageView {
         break;
       }
       case "ink": {
-        this.renderInkAnnotation(annot as PdfInkAnnotation, colorHex, isSelected);
+        this.renderInkAnnotation(annot as PdfInkAnnotation, colorHex);
         break;
       }
       case "freetext": {
@@ -776,10 +778,10 @@ export class PdfPageView {
     this.svgOverlayEl.appendChild(g);
   }
 
-  private renderInkAnnotation(annot: PdfInkAnnotation, colorHex: string, isSelected: boolean): void {
+  private renderInkAnnotation(annot: PdfInkAnnotation, colorHex: string): void {
     if (!this.coordinateTransformer) return;
     const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-    g.setAttribute("class", `pdf-annot-ink-group ${isSelected ? "is-selected" : ""}`);
+    g.setAttribute("class", "pdf-annot-ink-group");
     g.dataset.annotId = annot.id;
 
     for (const stroke of annot.paths) {
@@ -793,12 +795,6 @@ export class PdfPageView {
       path.setAttribute("stroke-linejoin", "round");
       path.setAttribute("fill", "none");
       g.appendChild(path);
-    }
-
-    if (isSelected) {
-      const screenRect = this.coordinateTransformer.pdfRectToScreenRect(annot.rect, this.scale);
-      const selBox = this.createSelectionBox(screenRect.left - 4, screenRect.top - 4, screenRect.width + 8, screenRect.height + 8);
-      g.appendChild(selBox);
     }
 
     this.svgOverlayEl.appendChild(g);
@@ -1441,11 +1437,27 @@ export class PdfPageView {
   private setupPointerEvents(): void {
     // Listen for pointerdown on both svg overlay and container
     this.containerEl.addEventListener("pointerdown", this.onPointerDown);
+    this.containerEl.addEventListener("pointercancel", this.onPointerCancel);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
   }
 
+  private onPointerCancel = (_e: PointerEvent): void => {
+    this.cancelActiveInteractions();
+  };
+
   public cancelActiveInteractions(): void {
+    if (this.activePointerId !== null) {
+      try {
+        this.containerEl.releasePointerCapture(this.activePointerId);
+      } catch (_) {}
+      this.activePointerId = null;
+    }
+    this.cachedContainerRect = null;
+    if (this.drawRafId) {
+      window.cancelAnimationFrame(this.drawRafId);
+      this.drawRafId = null;
+    }
     if (this.isDrawing) {
       this.isDrawing = false;
       this.activePath = [];
@@ -1474,6 +1486,7 @@ export class PdfPageView {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
+    if (e.button !== 0 || !e.isPrimary) return;
     if (this.delegate?.isPinching?.()) return;
     if (!this.coordinateTransformer) return;
     const targetEl = e.target as HTMLElement | SVGElement;
@@ -1482,6 +1495,7 @@ export class PdfPageView {
     const annotEl = targetEl.closest("[data-annot-id]") as HTMLElement | SVGElement | null;
 
     const rect = this.containerEl.getBoundingClientRect();
+    this.cachedContainerRect = rect;
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
@@ -1501,13 +1515,14 @@ export class PdfPageView {
 
         // Only the Move tool ("hand" / Select & Pan) can select and drag/move drawn annotations or shapes!
         if (this.currentTool === "hand") {
-          // Highlights and underlines do not intercept pointerdown or drag; text selection takes precedence!
-          if (annot.type === "highlight" || annot.type === "underline") {
+          // Highlights, underlines, and ink annotations do not intercept pointerdown or drag; panning/selection takes precedence!
+          if (annot.type === "highlight" || annot.type === "underline" || annot.type === "ink") {
             return;
           }
 
           // Existing annotation hit! DO NOT create a new note/shape/text.
           e.stopPropagation();
+          e.preventDefault();
           this.selectedAnnotId = annot.id;
 
           // If it's a freetext annotation, FreeText handles its own drag and transform
@@ -1516,12 +1531,17 @@ export class PdfPageView {
             return;
           }
 
+          // Capture pointer for dragging
+          try {
+            this.containerEl.setPointerCapture(e.pointerId);
+            this.activePointerId = e.pointerId;
+          } catch (_) {}
+
           // Prepare drag state
           this.dragState = {
             annot,
             startScreen: { x: sx, y: sy },
             startPdfRect: [...annot.rect] as PdfRect,
-            startPaths: annot.type === "ink" ? JSON.parse(JSON.stringify((annot as PdfInkAnnotation).paths)) : undefined,
             startQuadPoints: (annot as any).quadPoints ? [...(annot as any).quadPoints] : undefined,
             startLinePoints: (annot as any).linePoints ? ([...(annot as any).linePoints] as [number, number, number, number]) : undefined,
             hasMoved: false,
@@ -1540,6 +1560,13 @@ export class PdfPageView {
     }
 
     if (this.currentTool === "draw") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        this.containerEl.setPointerCapture(e.pointerId);
+        this.activePointerId = e.pointerId;
+      } catch (_) {}
+
       this.isDrawing = true;
       this.activePath = [[sx, sy]];
 
@@ -1552,6 +1579,11 @@ export class PdfPageView {
       this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
       this.svgOverlayEl.appendChild(this.liveDrawEl);
     } else if (this.currentTool === "square" || this.currentTool === "circle" || this.currentTool === "line") {
+      e.preventDefault();
+      try {
+        this.containerEl.setPointerCapture(e.pointerId);
+        this.activePointerId = e.pointerId;
+      } catch (_) {}
       this.isDrawing = true;
       this.shapeStartPoint = { x: sx, y: sy };
       this.createLiveShapeElement(sx, sy);
@@ -1575,8 +1607,9 @@ export class PdfPageView {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (!this.isDrawing && !this.dragState && !this.isCreatingFreeText) return;
     if (this.delegate?.isPinching?.()) return;
-    const rect = this.containerEl.getBoundingClientRect();
+    const rect = this.cachedContainerRect || this.containerEl.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
 
@@ -1624,13 +1657,6 @@ export class PdfPageView {
           startRect[3] + dPdfY,
         ];
 
-        // Update ink paths
-        if (annot.type === "ink" && this.dragState.startPaths) {
-          (annot as PdfInkAnnotation).paths = this.dragState.startPaths.map((stroke) =>
-            stroke.map(([x, y]) => [x + dPdfX, y + dPdfY])
-          );
-        }
-
         // Update highlight / underline quadpoints
         if ((annot.type === "highlight" || annot.type === "underline") && this.dragState.startQuadPoints) {
           (annot as any).quadPoints = this.dragState.startQuadPoints.map((val, idx) =>
@@ -1657,10 +1683,25 @@ export class PdfPageView {
     if (!this.isDrawing) return;
 
     if (this.currentTool === "draw" && this.liveDrawEl) {
-      const last = this.activePath[this.activePath.length - 1];
-      if (!last || Math.hypot(sx - last[0], sy - last[1]) >= 2) {
-        this.activePath.push([sx, sy]);
-        this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
+      const events: PointerEvent[] = typeof (e as any).getCoalescedEvents === "function" ? (e as any).getCoalescedEvents() : [e];
+      let hasNewPoints = false;
+      for (const ev of events) {
+        const px = ev.clientX - rect.left;
+        const py = ev.clientY - rect.top;
+        const last = this.activePath[this.activePath.length - 1];
+        if (!last || Math.hypot(px - last[0], py - last[1]) >= 1.5) {
+          this.activePath.push([px, py]);
+          hasNewPoints = true;
+        }
+      }
+
+      if (hasNewPoints && !this.drawRafId) {
+        this.drawRafId = window.requestAnimationFrame(() => {
+          this.drawRafId = null;
+          if (this.liveDrawEl && this.activePath.length > 0) {
+            this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
+          }
+        });
       }
     } else if (this.shapeStartPoint && this.liveShapeEl) {
       this.updateLiveShapeElement(this.shapeStartPoint.x, this.shapeStartPoint.y, sx, sy);
@@ -1669,6 +1710,18 @@ export class PdfPageView {
 
   private onPointerUp = (e: PointerEvent): void => {
     document.body.removeClass("is-grabbing");
+    if (this.activePointerId !== null) {
+      try {
+        this.containerEl.releasePointerCapture(this.activePointerId);
+      } catch (_) {}
+      this.activePointerId = null;
+    }
+    this.cachedContainerRect = null;
+    if (this.drawRafId) {
+      window.cancelAnimationFrame(this.drawRafId);
+      this.drawRafId = null;
+    }
+
     if (this.delegate?.isPinching?.()) {
       this.cancelActiveInteractions();
       return;
@@ -1761,12 +1814,15 @@ export class PdfPageView {
     this.isDrawing = false;
 
     if (this.currentTool === "draw" && this.activePath.length >= 1 && this.coordinateTransformer) {
-      const last = this.activePath[this.activePath.length - 1];
       const rect = this.containerEl.getBoundingClientRect();
       const endX = e.clientX - rect.left;
       const endY = e.clientY - rect.top;
+      const last = this.activePath[this.activePath.length - 1];
       if (last && Math.hypot(endX - last[0], endY - last[1]) >= 1) {
         this.activePath.push([endX, endY]);
+        if (this.liveDrawEl) {
+          this.liveDrawEl.setAttribute("d", this.screenPointsToSvgPath(this.activePath));
+        }
       }
       this.finishDrawing();
     } else if (this.shapeStartPoint && this.coordinateTransformer) {
@@ -1815,6 +1871,16 @@ export class PdfPageView {
       createdAt: new Date(),
     };
 
+    if (this.liveDrawEl) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("class", "pdf-annot-ink-group");
+      g.dataset.annotId = annot.id;
+      this.svgOverlayEl.appendChild(g);
+      g.appendChild(this.liveDrawEl);
+      this.liveDrawEl = null;
+    }
+
+    this.annotations.push(annot);
     this.delegate?.onAddAnnotation(annot);
   }
 
@@ -1992,11 +2058,19 @@ export class PdfPageView {
   private setupTextSelection(): void {
     const handleMouseDown = (e: MouseEvent) => {
       this.lastMouseDownPos = { x: e.clientX, y: e.clientY };
+      const end = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
+      if (end) {
+        end.classList.add("active");
+      }
     };
     this.onMouseDownListener = handleMouseDown;
     this.containerEl.addEventListener("mousedown", handleMouseDown);
 
     const handleMouseUp = (e: MouseEvent) => {
+      const end = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
+      if (end) {
+        end.classList.remove("active");
+      }
       this.lastMouseUpPos = { x: e.clientX, y: e.clientY };
 
       const sel = window.getSelection();
@@ -2040,28 +2114,6 @@ export class PdfPageView {
         return;
       }
 
-      // Guard against browser snapping to container or whitespace when dragging up to the last word
-      if (
-        range.endContainer === this.textLayerEl ||
-        range.endContainer === this.containerEl ||
-        (range.endContainer as HTMLElement)?.classList?.contains("endOfContent") ||
-        (range.endContainer as HTMLElement)?.classList?.contains("pdf-text-layer")
-      ) {
-        if (typeof (document as any).caretRangeFromPoint === "function") {
-          const caret = (document as any).caretRangeFromPoint(e.clientX - 2, e.clientY);
-          if (caret && this.textLayerEl.contains(caret.startContainer)) {
-            try {
-              if (caret.startContainer.nodeType === Node.TEXT_NODE) {
-                const maxLen = caret.startContainer.textContent?.length || 0;
-                range.setEnd(caret.startContainer, Math.min(maxLen, Math.max(caret.startOffset, maxLen)));
-              } else {
-                range.setEnd(caret.startContainer, caret.startOffset);
-              }
-            } catch (_) {}
-          }
-        }
-      }
-
       const text = sel.toString().trim();
       if (!text) return;
 
@@ -2069,7 +2121,7 @@ export class PdfPageView {
       if (lines.length === 0) return;
       this.cachedSelectionLines = lines;
 
-      // Reconstruct clean text from kept line rects so discarded columns or section snaps never contaminate text
+      // Reconstruct clean text from kept line rects
       const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || text;
 
       // In Highlight tool mode: instantly create highlight!
@@ -2153,17 +2205,59 @@ export class PdfPageView {
   }
 
   /**
+   * Resolves a DOM container + offset to the exact leaf Text node and character offset.
+   */
+  private resolveTextEndpoint(container: Node, offset: number, isStart: boolean): { node: Text; offset: number } | null {
+    if (container.nodeType === Node.TEXT_NODE) {
+      const text = container as Text;
+      return { node: text, offset: Math.max(0, Math.min(text.length, offset)) };
+    }
+    if (container.nodeType === Node.ELEMENT_NODE) {
+      const el = container as Element;
+      const childNodes = Array.from(el.childNodes);
+      if (childNodes.length > 0) {
+        const targetChild = isStart
+          ? childNodes[Math.min(offset, childNodes.length - 1)]
+          : childNodes[Math.max(0, Math.min(offset - 1, childNodes.length - 1))];
+        if (targetChild) {
+          if (targetChild.nodeType === Node.TEXT_NODE) {
+            const text = targetChild as Text;
+            return { node: text, offset: isStart ? 0 : text.length };
+          }
+          const walker = document.createTreeWalker(targetChild, NodeFilter.SHOW_TEXT);
+          if (isStart) {
+            const first = walker.nextNode() as Text | null;
+            if (first) return { node: first, offset: 0 };
+          } else {
+            let last: Text | null = null;
+            let curr: Text | null = null;
+            while ((curr = walker.nextNode() as Text | null)) last = curr;
+            if (last) return { node: last, offset: last.length };
+          }
+        }
+      }
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      if (isStart) {
+        const first = walker.nextNode() as Text | null;
+        if (first) return { node: first, offset: 0 };
+      } else {
+        let last: Text | null = null;
+        let curr: Text | null = null;
+        while ((curr = walker.nextNode() as Text | null)) last = curr;
+        if (last) return { node: last, offset: last.length };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Extracts precise, granular line rectangles from the user's DOM text selection.
-   * Traverses leaf Text nodes inside textLayerEl to extract exact character bounding boxes,
-   * completely eliminating parent containers, markedContent blocks, or entire-block merging artifacts.
-   * Clusters words on the same line into uniform line rects so mixed-height glyphs (capitals, descenders,
-   * punctuation, subscripts) never drop down or split.
-   * In multi-column layouts (e.g. 2-column research papers), isolates the selection to the active column
-   * and preserves all text within that column, including short final lines.
+   * Walks leaf Text nodes inside textLayerEl to extract exact character sub-ranges and bounding boxes.
+   * Clusters character rects into uniform line heights without dropping a single letter or snapping to whole blocks.
    */
   private getMergedLineRectsFromSelection(): SelectionLineRect[] {
     const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return [];
+    if (!sel || !sel.rangeCount || sel.isCollapsed) return [];
 
     const range = sel.getRangeAt(0);
     const pageRect = this.containerEl.getBoundingClientRect();
@@ -2176,68 +2270,68 @@ export class PdfPageView {
       bottom: number;
       width: number;
       height: number;
-      text?: string;
+      text: string;
     }[] = [];
 
-    // Approach 1 (Primary): Traverse leaf Text nodes inside textLayerEl that intersect range.
-    // By querying only text nodes with character offset clamping, we get the exact character bounding boxes
-    // of the selected text, completely eliminating enclosing container spans, markedContent, or whole-page blocks.
-    try {
-      if (this.textLayerEl && typeof document.createTreeWalker === "function") {
-        const walker = document.createTreeWalker(this.textLayerEl, NodeFilter.SHOW_TEXT);
-        let textNode: Text | null = null;
-        while ((textNode = walker.nextNode() as Text | null)) {
-          if (!textNode.textContent || textNode.textContent.length === 0) continue;
+    const startLeaf = this.resolveTextEndpoint(range.startContainer, range.startOffset, true);
+    const endLeaf = this.resolveTextEndpoint(range.endContainer, range.endOffset, false);
 
-          let intersects = false;
+    const startNode = startLeaf?.node;
+    const endNode = endLeaf?.node;
+
+    // Approach 1 (Primary): Walk all leaf Text nodes inside this.textLayerEl
+    if (this.textLayerEl && typeof document.createTreeWalker === "function") {
+      let started = false;
+      if (startNode && !this.textLayerEl.contains(startNode)) {
+        try {
+          const comp = startNode.compareDocumentPosition(this.textLayerEl);
+          if (comp & Node.DOCUMENT_POSITION_FOLLOWING) {
+            started = true;
+          }
+        } catch (_) {
+          started = true;
+        }
+      }
+
+      const walker = document.createTreeWalker(this.textLayerEl, NodeFilter.SHOW_TEXT);
+      let textNode: Text | null = null;
+
+      while ((textNode = walker.nextNode() as Text | null)) {
+        if (!textNode.textContent || textNode.textContent.length === 0) continue;
+
+        const isStartNode = startNode ? textNode === startNode : range.startContainer === textNode;
+        const isEndNode = endNode ? textNode === endNode : range.endContainer === textNode;
+
+        if (isStartNode) {
+          started = true;
+        }
+
+        if (!started) {
           try {
-            if (typeof (range as any).intersectsNode === "function") {
-              intersects = (range as any).intersectsNode(textNode);
-            } else {
-              const testRange = document.createRange();
-              testRange.selectNodeContents(textNode);
-              intersects =
-                testRange.compareBoundaryPoints(Range.END_TO_START, range) < 0 &&
-                testRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
+            if (range.comparePoint(textNode, 0) >= 0) {
+              started = true;
             }
-          } catch (_) {
-            intersects = false;
-          }
-          if (!intersects) continue;
+          } catch (_) {}
+        }
 
-          // Determine start and end character offsets within this specific text node
-          let startOffset = 0;
-          let endOffset = textNode.textContent.length;
+        if (!started) continue;
 
-          if (range.startContainer === textNode) {
-            startOffset = Math.max(0, Math.min(endOffset, range.startOffset));
-          } else if (range.startContainer === textNode.parentNode) {
-            const childIdx = Array.from(textNode.parentNode?.childNodes || []).indexOf(textNode);
-            if (range.startOffset > childIdx) {
-              startOffset = endOffset;
-            }
-          }
+        const nodeLen = textNode.textContent.length;
+        let sliceStart = (isStartNode && startLeaf) ? startLeaf.offset : 0;
+        let sliceEnd = (isEndNode && endLeaf) ? endLeaf.offset : nodeLen;
 
-          if (range.endContainer === textNode) {
-            endOffset = Math.max(startOffset, Math.min(textNode.textContent.length, range.endOffset));
-          } else if (range.endContainer === textNode.parentNode) {
-            const childIdx = Array.from(textNode.parentNode?.childNodes || []).indexOf(textNode);
-            if (range.endOffset <= childIdx) {
-              endOffset = startOffset;
-            }
-          }
+        sliceStart = Math.max(0, Math.min(nodeLen, sliceStart));
+        sliceEnd = Math.max(0, Math.min(nodeLen, sliceEnd));
 
-          if (startOffset >= endOffset) continue;
-
-          const subRange = document.createRange();
-          subRange.setStart(textNode, startOffset);
-          subRange.setEnd(textNode, endOffset);
-
-          if (!subRange.collapsed) {
+        if (sliceStart < sliceEnd) {
+          try {
+            const subRange = document.createRange();
+            subRange.setStart(textNode, sliceStart);
+            subRange.setEnd(textNode, sliceEnd);
             const subText = subRange.toString();
-            const rects = Array.from(subRange.getClientRects());
-            for (const r of rects) {
-              if (r.width > 0.5 && r.height > 0.5) {
+            const rectList = Array.from(subRange.getClientRects());
+            for (const r of rectList) {
+              if (r.width > 0.05 && r.height > 0.05) {
                 rawRects.push({
                   left: r.left,
                   top: r.top,
@@ -2249,19 +2343,20 @@ export class PdfPageView {
                 });
               }
             }
-          }
+          } catch (_) {}
+        }
+
+        if (isEndNode) {
+          break;
         }
       }
-    } catch (_) {
-      // TreeWalker fallback
     }
 
-    // Approach 2 (Fallback): If no text nodes were extracted via TreeWalker (e.g. synthetic test environments),
-    // get raw client rects from the range directly.
+    // Approach 2 (Fallback): Range getClientRects() for mocked or headless test runners
     if (rawRects.length === 0) {
       const rangeRects = Array.from(range.getClientRects());
       for (const r of rangeRects) {
-        if (r.width > 0.5 && r.height > 0.5) {
+        if (r.width > 0.05 && r.height > 0.05) {
           rawRects.push({
             left: r.left,
             top: r.top,
@@ -2269,6 +2364,7 @@ export class PdfPageView {
             bottom: r.bottom,
             width: r.width,
             height: r.height,
+            text: range.toString(),
           });
         }
       }
@@ -2276,12 +2372,12 @@ export class PdfPageView {
 
     if (rawRects.length === 0) return [];
 
-    // 1. Convert to page-relative coordinates & filter out rects completely outside this page view
-    let localRects = rawRects
+    // Convert to page-relative coordinates
+    const localRects = rawRects
       .filter((r) => {
         const vOverlap = Math.min(r.bottom, pageRect.bottom) - Math.max(r.top, pageRect.top);
         const hOverlap = Math.min(r.right, pageRect.right) - Math.max(r.left, pageRect.left);
-        return vOverlap > 0.5 && hOverlap > 0.5;
+        return vOverlap > 0.05 && hOverlap > 0.05;
       })
       .map((r) => ({
         left: Math.max(0, Math.min(pageRect.width, r.left - pageRect.left)),
@@ -2295,49 +2391,7 @@ export class PdfPageView {
 
     if (localRects.length === 0) return [];
 
-    // 1b. Guard against section-wide jumps when dragging past the last letter:
-    if (this.lastMouseDownPos && this.lastMouseUpPos) {
-      const dragDist = Math.hypot(
-        this.lastMouseUpPos.x - this.lastMouseDownPos.x,
-        this.lastMouseUpPos.y - this.lastMouseDownPos.y
-      );
-      if (dragDist > 10) {
-        const minDragY = Math.min(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top - 35;
-        const maxDragY = Math.max(this.lastMouseDownPos.y, this.lastMouseUpPos.y) - pageRect.top + 35;
-        const inBoundsRects = localRects.filter((r) => r.top <= maxDragY && r.bottom >= minDragY);
-        if (inBoundsRects.length > 0) {
-          localRects = inBoundsRects;
-        }
-      }
-    }
-
-    // 2. Safe container rect filtering:
-    // Only filter out a rect if it is a TRUE multi-line or block container that encompasses other vertically-separated rects.
-    // NEVER discard valid individual letters, punctuation, or words of differing heights!
-    if (localRects.length > 1) {
-      localRects = localRects.filter((r) => {
-        const enclosed = localRects.filter(
-          (other) =>
-            other !== r &&
-            other.left >= r.left - 1.5 &&
-            other.right <= r.right + 1.5 &&
-            other.top >= r.top - 1.5 &&
-            other.bottom <= r.bottom + 1.5
-        );
-        if (enclosed.length >= 2) {
-          const minEnclosedTop = Math.min(...enclosed.map((e) => e.top));
-          const maxEnclosedBottom = Math.max(...enclosed.map((e) => e.bottom));
-          const minEnclosedHeight = Math.min(...enclosed.map((e) => e.height));
-          const verticalSpread = maxEnclosedBottom - minEnclosedTop;
-          if (verticalSpread > minEnclosedHeight * 1.5 && r.height > minEnclosedHeight * 1.8) {
-            return false;
-          }
-        }
-        return true;
-      });
-    }
-
-    // 3. Cluster rects into distinct lines using vertical center alignment and anti-stacking checks.
+    // Cluster rects into distinct lines using vertical overlap and center alignment
     interface LineGroup {
       top: number;
       bottom: number;
@@ -2346,8 +2400,6 @@ export class PdfPageView {
       rects: typeof localRects;
     }
     const lineGroups: LineGroup[] = [];
-
-    // Sort rects top-to-bottom, then left-to-right
     localRects.sort((a, b) => a.top - b.top || a.left - b.left);
 
     for (const r of localRects) {
@@ -2360,38 +2412,12 @@ export class PdfPageView {
         const vOverlap = Math.min(group.bottom, r.bottom) - Math.max(group.top, r.top);
         const refHeight = Math.min(rHeight, group.avgHeight);
 
-        // Check if r belongs to this line:
-        // 1. Substantial vertical overlap (at least 30% of refHeight)
-        const hasStrongOverlap = vOverlap >= refHeight * 0.3;
+        const hasOverlap = vOverlap >= refHeight * 0.35;
+        const isCenterAligned = centerDiff <= Math.max(refHeight * 0.45, 6) && vOverlap >= refHeight * 0.2;
 
-        // 2. Centers aligned within reasonable tolerance
-        const isCenterAligned =
-          centerDiff <= Math.max(refHeight * 0.45, 6) &&
-          vOverlap >= refHeight * 0.2;
-
-        // 3. Punctuation, accents, subscript/superscript
-        const isPunctuationOrAccent =
-          rHeight <= 8 &&
-          r.top >= group.top - 6 &&
-          r.bottom <= group.bottom + 8;
-
-        if (hasStrongOverlap || isCenterAligned || isPunctuationOrAccent) {
-          // Verify that this is not a vertically stacked distinct line in a paragraph
-          const isStackedLine = group.rects.some((existing) => {
-            if (existing.width > 10 && r.width > 10) {
-              const hOverlap = Math.min(existing.right, r.right) - Math.max(existing.left, r.left);
-              const minW = Math.min(existing.width, r.width);
-              if (hOverlap > minW * 0.5) {
-                return centerDiff > refHeight * 0.35;
-              }
-            }
-            return false;
-          });
-
-          if (!isStackedLine) {
-            matchedGroup = group;
-            break;
-          }
+        if (hasOverlap || isCenterAligned) {
+          matchedGroup = group;
+          break;
         }
       }
 
@@ -2414,48 +2440,28 @@ export class PdfPageView {
       }
     }
 
-    // 4. Determine anchorLocalX (horizontal position where selection originated)
+    lineGroups.sort((a, b) => a.top - b.top);
+
+    // Determine anchorLocalX for multi-column isolation if applicable
     let anchorLocalX: number | null = null;
     if (this.lastMouseDownPos) {
       anchorLocalX = Math.max(0, Math.min(pageRect.width, this.lastMouseDownPos.x - pageRect.left));
-    } else {
-      try {
-        const startRange = document.createRange();
-        startRange.setStart(range.startContainer, range.startOffset);
-        startRange.collapse(true);
-        const startRects = startRange.getClientRects();
-        if (startRects.length > 0) {
-          anchorLocalX = Math.max(0, Math.min(pageRect.width, startRects[0].left - pageRect.left));
-        }
-      } catch (_) {}
-      if (anchorLocalX === null && localRects.length > 0) {
-        anchorLocalX = localRects[0].left;
-      }
+    } else if (localRects.length > 0) {
+      anchorLocalX = localRects[0].left;
     }
 
-    // 5. For each line group, normalize all rects to uniform line top/bottom and merge contiguous segments
     const lineGroupSegments: SelectionLineRect[][] = [];
 
     for (const group of lineGroups) {
-      // Find uniform line top and bottom across all rects on this line
       const lineTop = Math.min(...group.rects.map((r) => r.top));
       const lineBottom = Math.max(...group.rects.map((r) => r.bottom));
-      const lineH = Math.max(10, lineBottom - lineTop);
-
-      // Normalize every rect on this line so glyphs with descenders or differing heights NEVER drop down
-      for (const r of group.rects) {
-        r.top = lineTop;
-        r.bottom = lineBottom;
-        r.height = lineH;
-      }
+      const lineH = Math.max(8, lineBottom - lineTop);
 
       group.rects.sort((a, b) => a.left - b.left);
+      const maxWordGap = Math.max(30, lineH * 1.5);
 
       const segments: SelectionLineRect[] = [];
       let currentSeg: SelectionLineRect | null = null;
-      // Normal inter-word spaces in justified or formatted text can be up to 35px.
-      // Column gutters are >= 36px.
-      const maxWordGap = Math.max(36, lineH * 1.8);
 
       for (const r of group.rects) {
         if (!currentSeg) {
@@ -2467,25 +2473,16 @@ export class PdfPageView {
             text: r.text || "",
           };
         } else if (r.left <= currentSeg.right + maxWordGap) {
-          // Merge horizontally on the same line
           currentSeg.right = Math.max(currentSeg.right, r.right);
           if (r.text) {
             if (!currentSeg.text) {
               currentSeg.text = r.text;
-            } else {
-              const isPunctuation = /^[,.!?;:)[\]}]/.test(r.text);
-              const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
-              const afterHyphen = /[-—/]$/.test(currentSeg.text);
-
-              if (isPunctuation || afterOpeningQuote || afterHyphen) {
-                currentSeg.text = `${currentSeg.text}${r.text}`;
-              } else {
-                currentSeg.text = `${currentSeg.text} ${r.text}`;
-              }
+            } else if (!currentSeg.text.endsWith(r.text)) {
+              const sep = (currentSeg.text.endsWith(" ") || r.text.startsWith(" ")) ? "" : " ";
+              currentSeg.text += sep + r.text;
             }
           }
         } else {
-          // Different horizontal column or distant gap on the same line
           segments.push(currentSeg);
           currentSeg = {
             left: r.left,
@@ -2496,6 +2493,7 @@ export class PdfPageView {
           };
         }
       }
+
       if (currentSeg) {
         segments.push(currentSeg);
       }
@@ -2504,29 +2502,24 @@ export class PdfPageView {
       }
     }
 
-    // 6. Multi-column isolation:
-    // Only isolate columns if there is an actual multi-column layout where multiple lines contain parallel
-    // column segments separated by a gutter.
+    // Multi-column isolation: Only isolate columns if multiple lines have > 1 segment
+    // AND there is a genuine column gutter >= 35px between columns
     const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
-    const hasMultiColumn = multiSegmentLines.length >= 2;
+    const gutterLeft = multiSegmentLines.length >= 2 ? Math.max(...multiSegmentLines.map((segs) => segs[0].right)) : 0;
+    const gutterRight = multiSegmentLines.length >= 2 ? Math.min(...multiSegmentLines.map((segs) => segs[1].left)) : 0;
+    const hasGenuineMultiColumn = multiSegmentLines.length >= 2 && (gutterRight - gutterLeft >= 35) && gutterLeft >= 60;
 
     const resultLines: SelectionLineRect[] = [];
 
-    if (hasMultiColumn && anchorLocalX !== null) {
-      // Find gutter boundaries between columns
-      const gutterLeft = Math.max(...multiSegmentLines.map((segs) => segs[0].right));
-      const gutterRight = Math.min(...multiSegmentLines.map((segs) => segs[1].left));
+    if (hasGenuineMultiColumn && anchorLocalX !== null) {
       const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
-
       for (const segments of lineGroupSegments) {
         for (const seg of segments) {
           if (isAnchorInLeftCol) {
-            // Keep segments in left column; discard segments in right column
             if (seg.left <= gutterLeft + 15) {
               resultLines.push(seg);
             }
           } else {
-            // Keep segments in right column; discard segments in left column
             if (seg.right >= gutterRight - 15) {
               resultLines.push(seg);
             }
@@ -2534,7 +2527,6 @@ export class PdfPageView {
         }
       }
     } else {
-      // Single-column layout: keep all segments across all lines!
       for (const segments of lineGroupSegments) {
         for (const seg of segments) {
           resultLines.push(seg);
@@ -2542,7 +2534,6 @@ export class PdfPageView {
       }
     }
 
-    // Sort lines top-to-bottom, then left-to-right
     resultLines.sort((a, b) => a.top - b.top || a.left - b.left);
     return resultLines;
   }
@@ -2761,22 +2752,25 @@ export class PdfPageView {
     if (pts.length === 2) {
       return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L ${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}`;
     }
-    if (pts.length === 3) {
-      return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} Q ${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}, ${pts[2][0].toFixed(1)} ${pts[2][1].toFixed(1)}`;
-    }
 
-    let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-    const mid0X = (pts[0][0] + pts[1][0]) / 2;
-    const mid0Y = (pts[0][1] + pts[1][1]) / 2;
-    d += ` L ${mid0X.toFixed(1)} ${mid0Y.toFixed(1)}`;
-
+    // Pre-filter with a 3-point Gaussian-like kernel [0.25, 0.5, 0.25] to remove quantization noise & mouse stepping
+    const smoothed: [number, number][] = [pts[0]];
     for (let i = 1; i < pts.length - 1; i++) {
-      const midX = (pts[i][0] + pts[i + 1][0]) / 2;
-      const midY = (pts[i][1] + pts[i + 1][1]) / 2;
-      d += ` Q ${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+      smoothed.push([
+        0.25 * pts[i - 1][0] + 0.5 * pts[i][0] + 0.25 * pts[i + 1][0],
+        0.25 * pts[i - 1][1] + 0.5 * pts[i][1] + 0.25 * pts[i + 1][1],
+      ]);
+    }
+    smoothed.push(pts[pts.length - 1]);
+
+    let d = `M ${smoothed[0][0].toFixed(1)} ${smoothed[0][1].toFixed(1)}`;
+    for (let i = 1; i < smoothed.length - 1; i++) {
+      const midX = (smoothed[i][0] + smoothed[i + 1][0]) / 2;
+      const midY = (smoothed[i][1] + smoothed[i + 1][1]) / 2;
+      d += ` Q ${smoothed[i][0].toFixed(1)} ${smoothed[i][1].toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
     }
 
-    const last = pts[pts.length - 1];
+    const last = smoothed[smoothed.length - 1];
     d += ` L ${last[0].toFixed(1)} ${last[1].toFixed(1)}`;
     return d;
   }
@@ -2807,8 +2801,13 @@ export class PdfPageView {
       this.onMouseDownListener = null;
     }
     this.containerEl.removeEventListener("pointerdown", this.onPointerDown);
+    this.containerEl.removeEventListener("pointercancel", this.onPointerCancel);
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointerup", this.onPointerUp);
+    if (this.drawRafId) {
+      window.cancelAnimationFrame(this.drawRafId);
+      this.drawRafId = null;
+    }
     if (this.onKeyDownListener) {
       window.removeEventListener("keydown", this.onKeyDownListener);
       this.onKeyDownListener = null;

@@ -101,6 +101,7 @@ export class PdfView
   private touchCurrentMidY = 0;
   private touchCurrentRatio = 1.0;
   private touchCooldownTimer: number | null = null;
+  private sidebarUpdateTimer: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
@@ -580,6 +581,7 @@ export class PdfView
   onToolChanged(tool: PdfActiveTool): void {
     this.activeTool = tool;
     for (const pv of this.pageViews.values()) {
+      pv.cancelActiveInteractions();
       pv.setTool(tool, this.activeColor, this.strokeWidth);
     }
   }
@@ -1232,6 +1234,10 @@ export class PdfView
 
   async onClose(): Promise<void> {
     this.unregisterColorSchemeListener?.();
+    if (this.sidebarUpdateTimer) {
+      window.clearTimeout(this.sidebarUpdateTimer);
+      this.sidebarUpdateTimer = null;
+    }
     if (this.saveTimer) {
       window.clearTimeout(this.saveTimer);
       this.saveTimer = null;
@@ -1323,7 +1329,9 @@ export class PdfView
   onAddAnnotation(annotation: PdfAnnotation): void {
     if (!this.pdfDoc) return;
     this.pdfDoc.upsertAnnotation(annotation);
-    this.syncAnnotationsToViews();
+    // For ink drawings, the originating page view has already appended the stroke element locally,
+    // so we exclude it from sync to prevent a full page SVG tear-down and re-render.
+    this.syncAnnotationsToViews(annotation.type === "ink" ? annotation.pageIndex : undefined);
     this.scheduleSave();
   }
 
@@ -1338,12 +1346,21 @@ export class PdfView
     this.notePopover.show(element, annotation, this, this.activeColorScheme);
   }
 
-  private syncAnnotationsToViews(): void {
+  private syncAnnotationsToViews(excludePageIndex?: number): void {
     if (!this.pdfDoc) return;
     for (const [idx, pv] of this.pageViews.entries()) {
+      if (idx === excludePageIndex) continue;
       pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
     }
-    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+    if (this.sidebar.getIsVisible()) {
+      if (this.sidebarUpdateTimer) window.clearTimeout(this.sidebarUpdateTimer);
+      this.sidebarUpdateTimer = window.setTimeout(() => {
+        this.sidebarUpdateTimer = null;
+        if (this.pdfDoc) {
+          this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+        }
+      }, 300);
+    }
   }
 
   // ==================== Document Reloading after Page Operations ====================

@@ -950,8 +950,9 @@ export async function runPdfTextSelectionTestSuite() {
               const isPunctuation = /^[,\.!?;:\)\]\}]/.test(r.text);
               const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
               const afterHyphen = /[-—/]$/.test(currentSeg.text);
+              const hasSpace = currentSeg.text.endsWith(" ") || r.text.startsWith(" ");
 
-              if (isPunctuation || afterOpeningQuote || afterHyphen) {
+              if (isPunctuation || afterOpeningQuote || afterHyphen || hasSpace) {
                 currentSeg.text = `${currentSeg.text}${r.text}`;
               } else {
                 currentSeg.text = `${currentSeg.text} ${r.text}`;
@@ -1116,6 +1117,63 @@ export async function runPdfTextSelectionTestSuite() {
     throw new Error(`Line 2 bounds invalid: [${processedJustified[1].left}, ${processedJustified[1].right}]`);
   }
   console.log("✓ Verified 0 middle dropped-down words & 100% last word selection guarantee");
+
+  // ------------------------------------------------------------------
+  // 17. Test Granular Single-Letter & Sub-Word Selection Precision (Zero Whole-Block Snapping)
+  // ------------------------------------------------------------------
+  // A. Single letter selection: User selects only 'A' (width: 8px) in a line with 40 characters
+  const singleLetterSelection = [
+    { left: 120, top: 400, right: 128, bottom: 416, width: 8, height: 16, text: "A" }
+  ];
+  const processedSingleLetter = simulateProcessSelection(singleLetterSelection, 120);
+  if (processedSingleLetter.length !== 1) {
+    throw new Error(`Expected 1 segment for single-letter selection, got ${processedSingleLetter.length}`);
+  }
+  if (processedSingleLetter[0].left !== 120 || processedSingleLetter[0].right !== 128) {
+    throw new Error(`Single letter bounds expanded beyond glyph: [${processedSingleLetter[0].left}, ${processedSingleLetter[0].right}]`);
+  }
+  if (processedSingleLetter[0].text !== "A") {
+    throw new Error(`Single letter text corrupted: "${processedSingleLetter[0].text}"`);
+  }
+
+  // B. Sub-word selection: User selects 'par' (width: 24px) inside word 'paragraph'
+  const subWordSelection = [
+    { left: 200, top: 400, right: 224, bottom: 416, width: 24, height: 16, text: "par" }
+  ];
+  const processedSubWord = simulateProcessSelection(subWordSelection, 200);
+  if (processedSubWord.length !== 1 || processedSubWord[0].left !== 200 || processedSubWord[0].right !== 224) {
+    throw new Error(`Sub-word selection bounds invalid: [${processedSubWord[0].left}, ${processedSubWord[0].right}]`);
+  }
+  if (processedSubWord[0].text !== "par") {
+    throw new Error(`Sub-word text corrupted: "${processedSubWord[0].text}"`);
+  }
+  console.log("✓ Verified granular single-letter and sub-word selection: zero whole-block snapping");
+
+  // ------------------------------------------------------------------
+  // 18. Test DOM Range Leaf Node Extraction & Zero Dropped Letter Guarantee
+  // ------------------------------------------------------------------
+  // Simulates multi-span sentences split across multiple DOM text nodes:
+  // Node 1: "The " (offsets 0..4)
+  // Node 2: "quick " (offsets 0..6)
+  // Node 3: "brown " (offsets 0..6)
+  // Node 4: "fox" (offsets 0..3)
+  // User selects from character 2 of "The " ('e') to character 3 of "brown " ('bro')
+  const multiNodeFragments = [
+    { left: 66, top: 500, right: 80, bottom: 516, width: 14, height: 16, text: "e " },
+    { left: 80, top: 500, right: 130, bottom: 516, width: 50, height: 16, text: "quick " },
+    { left: 130, top: 500, right: 165, bottom: 516, width: 35, height: 16, text: "bro" },
+  ];
+  const processedMultiNode = simulateProcessSelection(multiNodeFragments, 66);
+  if (processedMultiNode.length !== 1) {
+    throw new Error(`Expected 1 merged line for multi-node selection, got ${processedMultiNode.length}`);
+  }
+  if (processedMultiNode[0].left !== 66 || processedMultiNode[0].right !== 165) {
+    throw new Error(`Multi-node horizontal bounds mismatch: [${processedMultiNode[0].left}, ${processedMultiNode[0].right}]`);
+  }
+  if (processedMultiNode[0].text !== "e quick bro") {
+    throw new Error(`Multi-node text was corrupted or dropped: "${processedMultiNode[0].text}"`);
+  }
+  console.log("✓ Verified multi-span leaf text node extraction: 0 dropped letters across span boundaries");
 
   console.log("==================================================");
   console.log("🎉 PDF TEXT LAYER & SELECTION TEST SUITE PASSED 100%!");
