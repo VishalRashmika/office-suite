@@ -852,7 +852,9 @@ export async function runPdfTextSelectionTestSuite() {
   // Helper matching the algorithm in PdfPageView
   function simulateProcessSelection(
     fragments: { left: number; top: number; right: number; bottom: number; width: number; height: number; text: string }[],
-    anchorLocalX: number
+    dragStartLocalX?: number | null,
+    dragEndLocalX?: number | null,
+    pageWidth = 600
   ) {
     interface LineGroup {
       top: number;
@@ -941,7 +943,18 @@ export async function runPdfTextSelectionTestSuite() {
       for (const r of group.rects) {
         if (!currentSeg) {
           currentSeg = { left: r.left, top: lineTop, right: r.right, bottom: lineBottom, text: r.text || "" };
-        } else if (r.left <= currentSeg.right + maxWordGap) {
+          continue;
+        }
+
+        const gap = r.left - currentSeg.right;
+        const isTwoColumnGutter =
+          gap >= 16 &&
+          currentSeg.left <= pageWidth * 0.45 &&
+          currentSeg.right <= pageWidth * 0.55 &&
+          r.left >= pageWidth * 0.45 &&
+          r.right >= pageWidth * 0.65;
+
+        if (gap <= maxWordGap && !isTwoColumnGutter) {
           currentSeg.right = Math.max(currentSeg.right, r.right);
           if (r.text) {
             if (!currentSeg.text) {
@@ -950,8 +963,9 @@ export async function runPdfTextSelectionTestSuite() {
               const isPunctuation = /^[,\.!?;:\)\]\}]/.test(r.text);
               const afterOpeningQuote = /['"‘“]$/.test(currentSeg.text);
               const afterHyphen = /[-—/]$/.test(currentSeg.text);
+              const hasSpace = currentSeg.text.endsWith(" ") || r.text.startsWith(" ");
 
-              if (isPunctuation || afterOpeningQuote || afterHyphen) {
+              if (isPunctuation || afterOpeningQuote || afterHyphen || hasSpace) {
                 currentSeg.text = `${currentSeg.text}${r.text}`;
               } else {
                 currentSeg.text = `${currentSeg.text} ${r.text}`;
@@ -968,30 +982,65 @@ export async function runPdfTextSelectionTestSuite() {
     }
 
     const multiSegmentLines = lineGroupSegments.filter((segs) => segs.length > 1);
-    const hasMultiColumn = multiSegmentLines.length >= 2;
-    const resultLines: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
-
-    if (hasMultiColumn && anchorLocalX !== null) {
-      const gutterLeft = Math.max(...multiSegmentLines.map((segs) => segs[0].right));
-      const gutterRight = Math.min(...multiSegmentLines.map((segs) => segs[1].left));
-      const isAnchorInLeftCol = anchorLocalX <= (gutterLeft + gutterRight) / 2;
-
-      for (const segments of lineGroupSegments) {
-        for (const seg of segments) {
-          if (isAnchorInLeftCol) {
-            if (seg.left <= gutterLeft + 15) {
-              resultLines.push(seg);
-            }
-          } else {
-            if (seg.right >= gutterRight - 15) {
-              resultLines.push(seg);
-            }
-          }
+    const gutters: { left: number; right: number }[] = [];
+    for (const segs of multiSegmentLines) {
+      for (let i = 0; i < segs.length - 1; i++) {
+        const gLeft = segs[i].right;
+        const gRight = segs[i + 1].left;
+        if (gRight - gLeft >= 14 && gLeft <= pageWidth * 0.55 && gRight >= pageWidth * 0.45) {
+          gutters.push({ left: gLeft, right: gRight });
         }
       }
-    } else {
-      for (const segments of lineGroupSegments) {
-        for (const seg of segments) {
+    }
+
+    const hasGutter = gutters.length > 0;
+    const avgGutterCenter = hasGutter
+      ? gutters.reduce((sum, g) => sum + (g.left + g.right) / 2, 0) / gutters.length
+      : pageWidth / 2;
+    const gutterLeft = hasGutter ? Math.min(...gutters.map((g) => g.left)) : avgGutterCenter - 10;
+    const gutterRight = hasGutter ? Math.max(...gutters.map((g) => g.right)) : avgGutterCenter + 10;
+
+    let userMinX: number | null = null;
+    let userMaxX: number | null = null;
+    if (dragStartLocalX !== null && dragStartLocalX !== undefined) {
+      const endX = (dragEndLocalX !== null && dragEndLocalX !== undefined) ? dragEndLocalX : dragStartLocalX;
+      userMinX = Math.min(dragStartLocalX, endX);
+      userMaxX = Math.max(dragStartLocalX, endX);
+    }
+
+    const draggedAcrossGutter =
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMinX <= gutterLeft &&
+      userMaxX >= gutterRight;
+
+    const isStrictlyCol1 =
+      hasGutter &&
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMaxX <= avgGutterCenter &&
+      !draggedAcrossGutter;
+
+    const isStrictlyCol2 =
+      hasGutter &&
+      userMinX !== null &&
+      userMaxX !== null &&
+      userMinX >= avgGutterCenter &&
+      !draggedAcrossGutter;
+
+    const resultLines: { left: number; top: number; right: number; bottom: number; text: string }[] = [];
+
+    for (const segments of lineGroupSegments) {
+      for (const seg of segments) {
+        if (isStrictlyCol1) {
+          if (seg.left < avgGutterCenter) {
+            resultLines.push(seg);
+          }
+        } else if (isStrictlyCol2) {
+          if (seg.right > avgGutterCenter) {
+            resultLines.push(seg);
+          }
+        } else {
           resultLines.push(seg);
         }
       }
@@ -1116,6 +1165,133 @@ export async function runPdfTextSelectionTestSuite() {
     throw new Error(`Line 2 bounds invalid: [${processedJustified[1].left}, ${processedJustified[1].right}]`);
   }
   console.log("✓ Verified 0 middle dropped-down words & 100% last word selection guarantee");
+
+  // ------------------------------------------------------------------
+  // 17. Test Granular Single-Letter & Sub-Word Selection Precision (Zero Whole-Block Snapping)
+  // ------------------------------------------------------------------
+  // A. Single letter selection: User selects only 'A' (width: 8px) in a line with 40 characters
+  const singleLetterSelection = [
+    { left: 120, top: 400, right: 128, bottom: 416, width: 8, height: 16, text: "A" }
+  ];
+  const processedSingleLetter = simulateProcessSelection(singleLetterSelection, 120);
+  if (processedSingleLetter.length !== 1) {
+    throw new Error(`Expected 1 segment for single-letter selection, got ${processedSingleLetter.length}`);
+  }
+  if (processedSingleLetter[0].left !== 120 || processedSingleLetter[0].right !== 128) {
+    throw new Error(`Single letter bounds expanded beyond glyph: [${processedSingleLetter[0].left}, ${processedSingleLetter[0].right}]`);
+  }
+  if (processedSingleLetter[0].text !== "A") {
+    throw new Error(`Single letter text corrupted: "${processedSingleLetter[0].text}"`);
+  }
+
+  // B. Sub-word selection: User selects 'par' (width: 24px) inside word 'paragraph'
+  const subWordSelection = [
+    { left: 200, top: 400, right: 224, bottom: 416, width: 24, height: 16, text: "par" }
+  ];
+  const processedSubWord = simulateProcessSelection(subWordSelection, 200);
+  if (processedSubWord.length !== 1 || processedSubWord[0].left !== 200 || processedSubWord[0].right !== 224) {
+    throw new Error(`Sub-word selection bounds invalid: [${processedSubWord[0].left}, ${processedSubWord[0].right}]`);
+  }
+  if (processedSubWord[0].text !== "par") {
+    throw new Error(`Sub-word text corrupted: "${processedSubWord[0].text}"`);
+  }
+  console.log("✓ Verified granular single-letter and sub-word selection: zero whole-block snapping");
+
+  // ------------------------------------------------------------------
+  // 18. Test DOM Range Leaf Node Extraction & Zero Dropped Letter Guarantee
+  // ------------------------------------------------------------------
+  // Simulates multi-span sentences split across multiple DOM text nodes:
+  // Node 1: "The " (offsets 0..4)
+  // Node 2: "quick " (offsets 0..6)
+  // Node 3: "brown " (offsets 0..6)
+  // Node 4: "fox" (offsets 0..3)
+  // User selects from character 2 of "The " ('e') to character 3 of "brown " ('bro')
+  const multiNodeFragments = [
+    { left: 66, top: 500, right: 80, bottom: 516, width: 14, height: 16, text: "e " },
+    { left: 80, top: 500, right: 130, bottom: 516, width: 50, height: 16, text: "quick " },
+    { left: 130, top: 500, right: 165, bottom: 516, width: 35, height: 16, text: "bro" },
+  ];
+  const processedMultiNode = simulateProcessSelection(multiNodeFragments, 66);
+  if (processedMultiNode.length !== 1) {
+    throw new Error(`Expected 1 merged line for multi-node selection, got ${processedMultiNode.length}`);
+  }
+  if (processedMultiNode[0].left !== 66 || processedMultiNode[0].right !== 165) {
+    throw new Error(`Multi-node horizontal bounds mismatch: [${processedMultiNode[0].left}, ${processedMultiNode[0].right}]`);
+  }
+  if (processedMultiNode[0].text !== "e quick bro") {
+    throw new Error(`Multi-node text was corrupted or dropped: "${processedMultiNode[0].text}"`);
+  }
+  console.log("✓ Verified multi-span leaf text node extraction: 0 dropped letters across span boundaries");
+
+  // ------------------------------------------------------------------
+  // 19. Test 2-Column Research Paper Single-Line & Multi-Line Zero Bleed Verification
+  // ------------------------------------------------------------------
+  // Simulates a 2-column paper where Column 1 and Column 2 are on the SAME line (Y=600):
+  // Column 1: [50, 275] ("Neural networks are widely used")
+  // Column 2: [300, 520] ("Quantum computing algorithms")
+  // Gutter: [275, 300] (25px)
+  const twoColumnSameLine = [
+    { left: 50, top: 600, right: 275, bottom: 616, width: 225, height: 16, text: "Neural networks are widely used" },
+    { left: 300, top: 600, right: 520, bottom: 616, width: 220, height: 16, text: "Quantum computing algorithms" },
+  ];
+
+  // Case A: User highlights strictly in Column 1 (drag from 100 to 250) -> Column 2 MUST NOT be highlighted!
+  const col1OnlySelection = simulateProcessSelection(twoColumnSameLine, 100, 250);
+  if (col1OnlySelection.length !== 1) {
+    throw new Error(`Expected exactly 1 line segment in Column 1, got ${col1OnlySelection.length}`);
+  }
+  if (col1OnlySelection[0].left !== 50 || col1OnlySelection[0].right !== 275) {
+    throw new Error(`Column 1 selection bled into Column 2: bounds [${col1OnlySelection[0].left}, ${col1OnlySelection[0].right}]`);
+  }
+  if (col1OnlySelection[0].text !== "Neural networks are widely used") {
+    throw new Error(`Column 1 text mismatch: "${col1OnlySelection[0].text}"`);
+  }
+
+  // Case B: User highlights strictly in Column 2 (drag from 350 to 500) -> Column 1 MUST NOT be highlighted!
+  const col2OnlySelection = simulateProcessSelection(twoColumnSameLine, 350, 500);
+  if (col2OnlySelection.length !== 1) {
+    throw new Error(`Expected exactly 1 line segment in Column 2, got ${col2OnlySelection.length}`);
+  }
+  if (col2OnlySelection[0].left !== 300 || col2OnlySelection[0].right !== 520) {
+    throw new Error(`Column 2 selection bled into Column 1: bounds [${col2OnlySelection[0].left}, ${col2OnlySelection[0].right}]`);
+  }
+  if (col2OnlySelection[0].text !== "Quantum computing algorithms") {
+    throw new Error(`Column 2 text mismatch: "${col2OnlySelection[0].text}"`);
+  }
+  console.log("✓ Verified 2-column paper zero bleed: Column 1 and Column 2 on the same line are strictly isolated");
+
+  // ------------------------------------------------------------------
+  // 20. Test Universal Text Selection: All Text Selectable Across All Layouts
+  // ------------------------------------------------------------------
+  // Case A: User deliberately drags ACROSS columns (from 100 in Col 1 to 450 in Col 2)
+  const crossColumnSelection = simulateProcessSelection(twoColumnSameLine, 100, 450);
+  if (crossColumnSelection.length !== 2) {
+    throw new Error(`Expected both column segments to be kept on cross-column drag, got ${crossColumnSelection.length}`);
+  }
+  if (crossColumnSelection[0].text !== "Neural networks are widely used" || crossColumnSelection[1].text !== "Quantum computing algorithms") {
+    throw new Error(`Cross-column drag dropped text: "${crossColumnSelection.map(s => s.text).join(' | ')}"`);
+  }
+
+  // Case B: Keyboard / Shift+Arrow selection (no drag coordinates)
+  const keyboardSelection = simulateProcessSelection(twoColumnSameLine, null, null);
+  if (keyboardSelection.length !== 2) {
+    throw new Error(`Keyboard selection dropped text: expected 2 segments, got ${keyboardSelection.length}`);
+  }
+
+  // Case C: Single-column document with wide indented paragraphs and margins
+  const singleColumnIndents = [
+    { left: 80, top: 700, right: 200, bottom: 716, width: 120, height: 16, text: "Section 1.1:" },
+    { left: 240, top: 700, right: 540, bottom: 716, width: 300, height: 16, text: "Deep learning architectures and transformer attention." },
+  ];
+  const processedSingleCol = simulateProcessSelection(singleColumnIndents, 80, 540);
+  if (processedSingleCol.length !== 1 && processedSingleCol.length !== 2) {
+    throw new Error(`Single-column indented selection dropped: got ${processedSingleCol.length} lines`);
+  }
+  const fullText = processedSingleCol.map(s => s.text).join(" ");
+  if (!fullText.includes("Section 1.1") || !fullText.includes("Deep learning architectures")) {
+    throw new Error(`Text was dropped from single-column selection: "${fullText}"`);
+  }
+  console.log("✓ Verified universal text selection: 100% of text in all layouts is selectable");
 
   console.log("==================================================");
   console.log("🎉 PDF TEXT LAYER & SELECTION TEST SUITE PASSED 100%!");

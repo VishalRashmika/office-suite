@@ -2395,8 +2395,6 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .pdf-pages-container {
@@ -2413,8 +2411,6 @@
   transform-origin: 0 0;
   will-change: transform;
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 .pdf-theme-light .pdf-pages-scroll-area {
@@ -2475,8 +2471,8 @@
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   border-radius: 2px;
-  user-select: text;
-  -webkit-user-select: text;
+  user-select: text !important;
+  -webkit-user-select: text !important;
   margin-left: auto;
   margin-right: auto;
   box-sizing: border-box;
@@ -2524,7 +2520,6 @@
   white-space: pre;
   user-select: text !important;
   -webkit-user-select: text !important;
-  box-sizing: border-box;
 }
 
 .pdf-text-layer span.markedContent,
@@ -2541,6 +2536,13 @@
   z-index: -1;
   cursor: default;
   pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.pdf-text-layer .endOfContent.active,
+.textLayer .endOfContent.active {
+  top: 0 !important;
 }
 
 .pdf-text-layer ::selection,
@@ -2586,10 +2588,15 @@
 }
 
 .pdf-page-view[data-active-tool="draw"],
+.pdf-page-view[data-active-tool="draw"] .pdf-annotation-overlay,
 .pdf-page-view[data-active-tool="square"],
+.pdf-page-view[data-active-tool="square"] .pdf-annotation-overlay,
 .pdf-page-view[data-active-tool="circle"],
-.pdf-page-view[data-active-tool="line"] {
+.pdf-page-view[data-active-tool="circle"] .pdf-annotation-overlay,
+.pdf-page-view[data-active-tool="line"],
+.pdf-page-view[data-active-tool="line"] .pdf-annotation-overlay {
   cursor: crosshair;
+  touch-action: none !important;
 }
 
 .pdf-page-view[data-active-tool="draw"] .textLayer,
@@ -2619,10 +2626,12 @@
   cursor: crosshair !important;
 }
 
-.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
-.pdf-page-view[data-active-tool="highlight"] .textLayer,
-.pdf-page-view[data-active-tool="highlight"] .textLayer span,
+.pdf-page-view[data-active-tool="highlight"],
+.pdf-page-view[data-active-tool="underline"],
+.pdf-page-view[data-active-tool="hand"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="hand"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="hand"] .textLayer,
+.pdf-page-view[data-active-tool="hand"] .textLayer span,
 .pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
 .pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
 .pdf-page-view[data-active-tool="underline"] .textLayer,
@@ -2630,10 +2639,34 @@
   cursor: text !important;
 }
 
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="highlight"] .textLayer,
+.pdf-page-view[data-active-tool="highlight"] .textLayer span {
+  cursor: crosshair !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-annotation-overlay,
+.pdf-page-view[data-active-tool="underline"] .pdf-annotation-overlay {
+  cursor: text !important;
+  pointer-events: none !important;
+}
+
 .pdf-page-view[data-active-tool="highlight"] .pdf-annot-highlight-group,
 .pdf-page-view[data-active-tool="highlight"] .pdf-annot-underline-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="highlight"] .pdf-annot-freetext-box,
 .pdf-page-view[data-active-tool="underline"] .pdf-annot-highlight-group,
-.pdf-page-view[data-active-tool="underline"] .pdf-annot-underline-group {
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-underline-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-shape-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-ink-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-pin-group,
+.pdf-page-view[data-active-tool="underline"] .pdf-annot-freetext-box {
   pointer-events: none !important;
 }
 
@@ -2734,24 +2767,21 @@
 }
 
 .pdf-annot-ink-group {
-  cursor: default;
-  pointer-events: none;
+  cursor: inherit;
+  pointer-events: none !important;
 }
 
-/* Move Tool ("hand" / Select & Pan): allow selecting and dragging drawn shapes & ink */
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group,
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group {
+/* Move Tool ("hand" / Select & Pan): allow selecting and dragging drawn shapes (rectangles, circles, lines) */
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group {
   cursor: move !important;
   pointer-events: auto !important;
 }
 
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:hover,
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group:hover {
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:hover {
   filter: drop-shadow(0 0 2px var(--interactive-accent));
 }
 
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:active,
-.pdf-page-view[data-active-tool="hand"] .pdf-annot-ink-group:active {
+.pdf-page-view[data-active-tool="hand"] .pdf-annot-shape-group:active {
   cursor: grabbing !important;
 }
 

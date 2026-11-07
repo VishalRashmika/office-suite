@@ -101,6 +101,7 @@ export class PdfView
   private touchCurrentMidY = 0;
   private touchCurrentRatio = 1.0;
   private touchCooldownTimer: number | null = null;
+  private sidebarUpdateTimer: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
@@ -580,6 +581,7 @@ export class PdfView
   onToolChanged(tool: PdfActiveTool): void {
     this.activeTool = tool;
     for (const pv of this.pageViews.values()) {
+      pv.cancelActiveInteractions();
       pv.setTool(tool, this.activeColor, this.strokeWidth);
     }
   }
@@ -1232,6 +1234,10 @@ export class PdfView
 
   async onClose(): Promise<void> {
     this.unregisterColorSchemeListener?.();
+    if (this.sidebarUpdateTimer) {
+      window.clearTimeout(this.sidebarUpdateTimer);
+      this.sidebarUpdateTimer = null;
+    }
     if (this.saveTimer) {
       window.clearTimeout(this.saveTimer);
       this.saveTimer = null;
@@ -1323,8 +1329,12 @@ export class PdfView
   onAddAnnotation(annotation: PdfAnnotation): void {
     if (!this.pdfDoc) return;
     this.pdfDoc.upsertAnnotation(annotation);
-    this.syncAnnotationsToViews();
-    this.scheduleSave();
+    // For ink drawings, the originating page view has already appended the stroke element locally,
+    // so we exclude it from sync to prevent a full page SVG tear-down and re-render.
+    this.syncAnnotationsToViews(annotation.type === "ink" ? annotation.pageIndex : undefined);
+    // Ink strokes are committed on pointer-up and can arrive in rapid succession. Keep the
+    // drawing path responsive by saving only after the user has been idle for a longer interval.
+    this.scheduleSave(annotation.type === "ink" ? 1000 : 400);
   }
 
   onUpdateAnnotation(annotation: PdfAnnotation): void {
@@ -1338,12 +1348,21 @@ export class PdfView
     this.notePopover.show(element, annotation, this, this.activeColorScheme);
   }
 
-  private syncAnnotationsToViews(): void {
+  private syncAnnotationsToViews(excludePageIndex?: number): void {
     if (!this.pdfDoc) return;
     for (const [idx, pv] of this.pageViews.entries()) {
+      if (idx === excludePageIndex) continue;
       pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
     }
-    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+    if (this.sidebar.getIsVisible()) {
+      if (this.sidebarUpdateTimer) window.clearTimeout(this.sidebarUpdateTimer);
+      this.sidebarUpdateTimer = window.setTimeout(() => {
+        this.sidebarUpdateTimer = null;
+        if (this.pdfDoc) {
+          this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+        }
+      }, 300);
+    }
   }
 
   // ==================== Document Reloading after Page Operations ====================
@@ -1406,12 +1425,13 @@ export class PdfView
 
   // ==================== Persistence & Saving ====================
 
-  private scheduleSave(): void {
+  private scheduleSave(delay = 400): void {
     this.toolbar.updateSaveStatus(true);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = null;
       void this.saveNow();
-    }, 400);
+    }, delay);
   }
 
   private async saveNow(): Promise<void> {
@@ -1442,7 +1462,8 @@ export class PdfView
       }, 2000);
       if (this.hasPendingSave) {
         this.hasPendingSave = false;
-        void this.saveNow();
+        // Avoid chaining full PDF serializations while the user is still editing/drawing.
+        this.scheduleSave(1000);
       }
     }
   }
