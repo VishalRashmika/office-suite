@@ -1332,7 +1332,9 @@ export class PdfView
     // For ink drawings, the originating page view has already appended the stroke element locally,
     // so we exclude it from sync to prevent a full page SVG tear-down and re-render.
     this.syncAnnotationsToViews(annotation.type === "ink" ? annotation.pageIndex : undefined);
-    this.scheduleSave();
+    // Ink strokes are committed on pointer-up and can arrive in rapid succession. Keep the
+    // drawing path responsive by saving only after the user has been idle for a longer interval.
+    this.scheduleSave(annotation.type === "ink" ? 1000 : 400);
   }
 
   onUpdateAnnotation(annotation: PdfAnnotation): void {
@@ -1423,12 +1425,13 @@ export class PdfView
 
   // ==================== Persistence & Saving ====================
 
-  private scheduleSave(): void {
+  private scheduleSave(delay = 400): void {
     this.toolbar.updateSaveStatus(true);
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = null;
       void this.saveNow();
-    }, 400);
+    }, delay);
   }
 
   private async saveNow(): Promise<void> {
@@ -1459,7 +1462,8 @@ export class PdfView
       }, 2000);
       if (this.hasPendingSave) {
         this.hasPendingSave = false;
-        void this.saveNow();
+        // Avoid chaining full PDF serializations while the user is still editing/drawing.
+        this.scheduleSave(1000);
       }
     }
   }
