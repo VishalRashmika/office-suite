@@ -97,6 +97,7 @@ View, annotate, and edit PDF documents natively with standard **ISO 32000-1 comp
 | :--- | :--- |
 | **Sticky Notes** | Place standard Sticky Notes (`/Subtype /Text`) anywhere on pages with author, timestamp, Markdown comment editor, and customizable color |
 | **Text Highlights** | Highlight text in 8 preset colors encoded with exact `/QuadPoints` for standard Acrobat/Preview rendering |
+| **Text Selection Precision** | Fine-grained sentence/word/letter selection with robust multi-column isolation (research-paper layouts) and anti-overselection guards to prevent full-page auto-highlights |
 | **Freehand Draw (Ink)** | Smooth vector pen and marker markup (`/Subtype /Ink`) with customizable stroke width, opacity, and eraser tool |
 | **Text Boxes** | Add editable text blocks directly onto PDF pages (`/Subtype /FreeText`) with custom font size and color |
 | **Geometric Shapes** | Insert Rectangles, Circles/Ovals, and Lines (`/Subtype /Square`, `/Circle`, `/Line`) with stroke and fill styles |

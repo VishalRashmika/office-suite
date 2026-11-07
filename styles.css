@@ -2627,20 +2627,26 @@
 }
 
 .pdf-page-view[data-active-tool="highlight"],
-.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
-.pdf-page-view[data-active-tool="highlight"] .textLayer,
-.pdf-page-view[data-active-tool="highlight"] .textLayer span,
 .pdf-page-view[data-active-tool="underline"],
-.pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
-.pdf-page-view[data-active-tool="underline"] .textLayer,
-.pdf-page-view[data-active-tool="underline"] .textLayer span,
 .pdf-page-view[data-active-tool="hand"] .pdf-text-layer,
 .pdf-page-view[data-active-tool="hand"] .pdf-text-layer span,
 .pdf-page-view[data-active-tool="hand"] .textLayer,
-.pdf-page-view[data-active-tool="hand"] .textLayer span {
+.pdf-page-view[data-active-tool="hand"] .textLayer span,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="underline"] .textLayer,
+.pdf-page-view[data-active-tool="underline"] .textLayer span {
   cursor: text !important;
+}
+
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
+.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
+.pdf-page-view[data-active-tool="highlight"] .textLayer,
+.pdf-page-view[data-active-tool="highlight"] .textLayer span {
+  cursor: crosshair !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .pdf-page-view[data-active-tool="highlight"] .pdf-annotation-overlay,

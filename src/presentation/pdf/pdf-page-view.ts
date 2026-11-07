@@ -152,7 +152,7 @@ export class PdfPageView {
     this.containerEl.dataset.activeTool = tool;
 
     // In draw and shape creation modes, SVG overlay captures all pointer events to draw
-    const isDrawingTool = tool === "draw" || tool === "square" || tool === "circle" || tool === "line";
+    const isDrawingTool = tool === "highlight" || tool === "draw" || tool === "square" || tool === "circle" || tool === "line";
     this.svgOverlayEl.classList.toggle("is-drawing", isDrawingTool);
     if (isDrawingTool && this.selectedAnnotId) {
       this.selectedAnnotId = null;
@@ -1559,7 +1559,17 @@ export class PdfPageView {
       this.renderAnnotations();
     }
 
-    if (this.currentTool === "draw") {
+    if (String(this.currentTool) === "highlight") {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        this.containerEl.setPointerCapture(e.pointerId);
+        this.activePointerId = e.pointerId;
+      } catch (_) {}
+      this.isDrawing = true;
+      this.shapeStartPoint = { x: sx, y: sy };
+      this.createLiveHighlightElement();
+    } else if (this.currentTool === "draw") {
       e.preventDefault();
       e.stopPropagation();
       try {
@@ -1682,7 +1692,9 @@ export class PdfPageView {
     // 2. Active drawing or shape creation
     if (!this.isDrawing) return;
 
-    if (this.currentTool === "draw" && this.liveDrawEl) {
+    if (String(this.currentTool) === "highlight" && this.shapeStartPoint && this.liveShapeEl) {
+      this.updateLiveShapeElement(this.shapeStartPoint.x, this.shapeStartPoint.y, sx, sy);
+    } else if (this.currentTool === "draw" && this.liveDrawEl) {
       const events: PointerEvent[] = typeof (e as any).getCoalescedEvents === "function" ? (e as any).getCoalescedEvents() : [e];
       let hasNewPoints = false;
       for (const ev of events) {
@@ -1813,7 +1825,12 @@ export class PdfPageView {
     if (!this.isDrawing) return;
     this.isDrawing = false;
 
-    if (this.currentTool === "draw" && this.activePath.length >= 1 && this.coordinateTransformer) {
+    if (String(this.currentTool) === "highlight" && this.shapeStartPoint && this.coordinateTransformer) {
+      const rect = this.containerEl.getBoundingClientRect();
+      const endX = e.clientX - rect.left;
+      const endY = e.clientY - rect.top;
+      this.finishManualHighlight(this.shapeStartPoint.x, this.shapeStartPoint.y, endX, endY);
+    } else if (this.currentTool === "draw" && this.activePath.length >= 1 && this.coordinateTransformer) {
       const rect = this.containerEl.getBoundingClientRect();
       const endX = e.clientX - rect.left;
       const endY = e.clientY - rect.top;
@@ -1902,6 +1919,16 @@ export class PdfPageView {
     this.svgOverlayEl.appendChild(this.liveShapeEl);
   }
 
+  private createLiveHighlightElement(): void {
+    this.liveShapeEl = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    this.liveShapeEl.setAttribute("fill", rgbToHex(this.currentColor));
+    this.liveShapeEl.setAttribute("fill-opacity", "0.38");
+    this.liveShapeEl.setAttribute("stroke", rgbToHex(this.currentColor));
+    this.liveShapeEl.setAttribute("stroke-width", "1");
+    this.liveShapeEl.setAttribute("stroke-opacity", "0.55");
+    this.svgOverlayEl.appendChild(this.liveShapeEl);
+  }
+
   private updateLiveShapeElement(x1: number, y1: number, x2: number, y2: number): void {
     if (!this.liveShapeEl) return;
     const left = Math.min(x1, x2);
@@ -1953,6 +1980,41 @@ export class PdfPageView {
       strokeColor: this.currentColor,
       strokeWidth: this.strokeWidth,
       linePoints,
+      author: "User",
+      createdAt: new Date(),
+    };
+
+    this.delegate?.onAddAnnotation(annot);
+  }
+
+  private finishManualHighlight(x1: number, y1: number, x2: number, y2: number): void {
+    if (!this.coordinateTransformer) return;
+
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const width = Math.abs(x2 - x1);
+    const height = Math.abs(y2 - y1);
+    if (width < 3 || height < 3) return;
+
+    const topLeft = this.coordinateTransformer.screenToPdf(left, top, this.scale);
+    const topRight = this.coordinateTransformer.screenToPdf(left + width, top, this.scale);
+    const bottomLeft = this.coordinateTransformer.screenToPdf(left, top + height, this.scale);
+    const bottomRight = this.coordinateTransformer.screenToPdf(left + width, top + height, this.scale);
+
+    const annot: PdfHighlightAnnotation = {
+      id: `highlight_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      type: "highlight",
+      pageIndex: this.pageIndex,
+      rect: this.coordinateTransformer.screenRectToPdfRect({ left, top, width, height }, this.scale),
+      quadPoints: [
+        topLeft.x, topLeft.y,
+        topRight.x, topRight.y,
+        bottomLeft.x, bottomLeft.y,
+        bottomRight.x, bottomRight.y,
+      ],
+      color: this.currentColor,
+      contents: "",
+      highlightedText: "",
       author: "User",
       createdAt: new Date(),
     };
@@ -2057,6 +2119,7 @@ export class PdfPageView {
 
   private setupTextSelection(): void {
     const handleMouseDown = (e: MouseEvent) => {
+      if (String(this.currentTool) === "highlight") return;
       this.lastMouseDownPos = { x: e.clientX, y: e.clientY };
       const end = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
       if (end) {
@@ -2067,6 +2130,12 @@ export class PdfPageView {
     this.containerEl.addEventListener("mousedown", handleMouseDown);
 
     const handleMouseUp = (e: MouseEvent) => {
+      if (String(this.currentTool) === "highlight") {
+        this.lastMouseDownPos = null;
+        this.lastMouseUpPos = null;
+        return;
+      }
+
       const end = this.textLayerEl.querySelector(".endOfContent") as HTMLElement | null;
       if (end) {
         end.classList.remove("active");
@@ -2126,9 +2195,8 @@ export class PdfPageView {
       // Reconstruct clean text from kept line rects
       const cleanText = lines.map((l) => l.text).filter(Boolean).join(" ").trim() || text;
 
-      // In Highlight tool mode: instantly create highlight!
-      if (this.currentTool === "highlight") {
-        this.createHighlightFromSelection(cleanText, this.currentColor, lines);
+      // Highlight tool is a manual drag-box selection, not DOM text analysis.
+      if (String(this.currentTool) === "highlight") {
         this.lastMouseDownPos = null;
         this.lastMouseUpPos = null;
         return;
@@ -2279,12 +2347,6 @@ export class PdfPageView {
       text: string;
     }[] = [];
 
-    const startLeaf = this.resolveTextEndpoint(range.startContainer, range.startOffset, true);
-    const endLeaf = this.resolveTextEndpoint(range.endContainer, range.endOffset, false);
-
-    const startNode = startLeaf?.node;
-    const endNode = endLeaf?.node;
-
     // Helper to test if a Range intersects a DOM Node
     const nodeIntersectsRange = (r: Range, node: Node): boolean => {
       try {
@@ -2313,16 +2375,11 @@ export class PdfPageView {
         if (!nodeIntersectsRange(range, textNode)) continue;
 
         const nodeLen = textNode.textContent.length;
-        const isStartNode = startNode ? textNode === startNode : range.startContainer === textNode;
-        const isEndNode = endNode ? textNode === endNode : range.endContainer === textNode;
+        const isStartNode = range.startContainer === textNode;
+        const isEndNode = range.endContainer === textNode;
 
-        let sliceStart = (isStartNode && startLeaf) ? startLeaf.offset : 0;
-        let sliceEnd = (isEndNode && endLeaf) ? endLeaf.offset : nodeLen;
-
-        if (isStartNode && isEndNode && startLeaf && endLeaf) {
-          sliceStart = Math.min(startLeaf.offset, endLeaf.offset);
-          sliceEnd = Math.max(startLeaf.offset, endLeaf.offset);
-        }
+        let sliceStart = isStartNode ? range.startOffset : 0;
+        let sliceEnd = isEndNode ? range.endOffset : nodeLen;
 
         sliceStart = Math.max(0, Math.min(nodeLen, sliceStart));
         sliceEnd = Math.max(0, Math.min(nodeLen, sliceEnd));
@@ -2391,6 +2448,36 @@ export class PdfPageView {
 
     if (localRects.length === 0) return [];
 
+    // Drop large enclosing container rects (browser selection artifacts) while preserving
+    // granular glyph/word rects and legitimate line-height variance.
+    const filteredLocalRects =
+      localRects.length > 1
+        ? localRects.filter((candidate) => {
+            const enclosed = localRects.filter(
+              (other) =>
+                other !== candidate &&
+                other.left >= candidate.left - 1.5 &&
+                other.right <= candidate.right + 1.5 &&
+                other.top >= candidate.top - 1.5 &&
+                other.bottom <= candidate.bottom + 1.5
+            );
+
+            if (enclosed.length < 2) return true;
+
+            const minEnclosedTop = Math.min(...enclosed.map((e) => e.top));
+            const maxEnclosedBottom = Math.max(...enclosed.map((e) => e.bottom));
+            const minEnclosedHeight = Math.max(0.5, Math.min(...enclosed.map((e) => e.height)));
+            const verticalSpread = maxEnclosedBottom - minEnclosedTop;
+
+            const isLikelyContainerRect =
+              verticalSpread > minEnclosedHeight * 1.5 && candidate.height > minEnclosedHeight * 1.8;
+
+            return !isLikelyContainerRect;
+          })
+        : localRects;
+
+    if (filteredLocalRects.length === 0) return [];
+
     // Cluster rects into distinct lines using vertical overlap and center alignment
     interface LineGroup {
       top: number;
@@ -2400,9 +2487,9 @@ export class PdfPageView {
       rects: typeof localRects;
     }
     const lineGroups: LineGroup[] = [];
-    localRects.sort((a, b) => a.top - b.top || a.left - b.left);
+    filteredLocalRects.sort((a, b) => a.top - b.top || a.left - b.left);
 
-    for (const r of localRects) {
+    for (const r of filteredLocalRects) {
       const rCenter = (r.top + r.bottom) / 2;
       const rHeight = r.bottom - r.top;
 
@@ -2441,14 +2528,6 @@ export class PdfPageView {
     }
 
     lineGroups.sort((a, b) => a.top - b.top);
-
-    // Determine anchorLocalX for multi-column isolation if applicable
-    let anchorLocalX: number | null = null;
-    if (this.lastMouseDownPos) {
-      anchorLocalX = Math.max(0, Math.min(pageRect.width, this.lastMouseDownPos.x - pageRect.left));
-    } else if (localRects.length > 0) {
-      anchorLocalX = localRects[0].left;
-    }
 
     const lineGroupSegments: SelectionLineRect[][] = [];
 
