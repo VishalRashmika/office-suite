@@ -6,3 +6,4 @@ export * from "./formula/expression-evaluator";
 export * from "./formula/formula-engine";
 export * from "./services/csv-service";
 export * from "./services/xlsx-service";
+export * from "./services/xlsx-style-service";

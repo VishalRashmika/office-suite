@@ -405,7 +405,7 @@ export function groupAnnotationsByType(
 /**
  * Formats annotation type for user display.
  */
-export function formatTypeLabel(type: PdfAnnotationType | string): string {
+export function formatTypeLabel(type: PdfAnnotationType | (string & {})): string {
   switch (type) {
     case "highlight":
       return "Highlight";

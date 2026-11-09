@@ -1793,16 +1793,27 @@ export class PptxDocument {
 // -------------------------------------------------------------
 
 function getXmlParser(): DOMParser {
-  return typeof DOMParser !== "undefined"
-    ? new DOMParser()
-    : new (require("@xmldom/xmldom").DOMParser)();
+  if (typeof DOMParser !== "undefined") {
+    return new DOMParser();
+  }
+  const globalAny = globalThis as Record<string, any>;
+  if (typeof globalAny.DOMParser !== "undefined") {
+    return new globalAny.DOMParser();
+  }
+  throw new Error("DOMParser is not available in current environment");
 }
 
 function serializeXml(doc: Document): string {
+  const globalAny = globalThis as Record<string, any>;
   const serializer =
     typeof XMLSerializer !== "undefined"
       ? new XMLSerializer()
-      : new (require("@xmldom/xmldom").XMLSerializer)();
+      : typeof globalAny.XMLSerializer !== "undefined"
+      ? new globalAny.XMLSerializer()
+      : null;
+  if (!serializer) {
+    throw new Error("XMLSerializer is not available in current environment");
+  }
   let str = serializer.serializeToString(doc);
   if (!str.startsWith("<?xml")) {
     str = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' + str;

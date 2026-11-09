@@ -1,4 +1,9 @@
 import JSZip from "jszip";
+if (typeof DOMParser === "undefined") {
+  const xmldom = require("@xmldom/xmldom");
+  (globalThis as any).DOMParser = xmldom.DOMParser;
+  (globalThis as any).XMLSerializer = xmldom.XMLSerializer;
+}
 import { PptxDocument } from "../src/infrastructure/pptx/pptx-document";
 import { PptxRenderer } from "../src/domain/pptx/services/pptx-renderer";
 import { PptxExport } from "../src/domain/pptx/services/pptx-export";
