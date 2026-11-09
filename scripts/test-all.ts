@@ -1,4 +1,5 @@
 import { runPptxTestSuite } from "./test-pptx-suite";
+import { runXlsxTestSuite } from "./test-xlsx-suite";
 import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
 import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
 import { runPdfTwoFingerZoomTestSuite } from "./test-pdf-two-finger-zoom";
@@ -13,7 +14,10 @@ async function main() {
   // 1. Run PPTX Suite
   await runPptxTestSuite();
 
-  // 2. Run PDF Suite
+  // 2. Run XLSX Spreadsheet Suite
+  await runXlsxTestSuite();
+
+  // 3. Run PDF Suite
   await runPdfTestSuite();
 
   // 3. Run PDF Text Layer & Selection Suite

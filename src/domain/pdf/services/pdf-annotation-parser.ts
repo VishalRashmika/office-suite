@@ -222,7 +222,7 @@ export class PdfAnnotationParser {
         const fontSize = sizeMatch ? parseFloat(sizeMatch[1]) : 12;
 
         let textColor = color;
-        const colorMatch = da.match(/([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)\s+rg/);
+        const colorMatch = da.match(/([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/);
         if (colorMatch) {
           textColor = [
             parseFloat(colorMatch[1]),

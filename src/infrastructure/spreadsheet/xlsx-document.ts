@@ -6,20 +6,43 @@ import {
   a1ToCoord,
   evaluateSheetFormulas,
   defaultXlsxService,
+  formatCellValue,
+  CellStyle,
 } from "../../domain/spreadsheet";
+import { XlsxStyleService } from "../../domain/spreadsheet/services/xlsx-style-service";
 
 export class XlsxDocument {
   private zip: JSZip;
   private workbookData: WorkbookData;
+  private styleService: XlsxStyleService;
+  private originalWsDocs: Map<string, Document>;
 
-  private constructor(zip: JSZip, workbookData: WorkbookData) {
+  private constructor(
+    zip: JSZip,
+    workbookData: WorkbookData,
+    styleService: XlsxStyleService,
+    originalWsDocs: Map<string, Document>
+  ) {
     this.zip = zip;
     this.workbookData = workbookData;
+    this.styleService = styleService;
+    this.originalWsDocs = originalWsDocs;
   }
 
   static async load(bytes: ArrayBuffer): Promise<XlsxDocument> {
     const zip = await JSZip.loadAsync(bytes);
-    const parser = new DOMParser();
+    const parser =
+      typeof DOMParser !== "undefined"
+        ? new DOMParser()
+        : new (globalThis as any).DOMParser();
+
+    // 0. Parse Styles Table
+    let styleService = new XlsxStyleService();
+    const stylesFile = zip.file("xl/styles.xml");
+    if (stylesFile) {
+      const stylesXml = await stylesFile.async("text");
+      styleService = new XlsxStyleService(stylesXml);
+    }
 
     // 1. Shared Strings Table
     const sharedStrings: string[] = [];
@@ -62,6 +85,7 @@ export class XlsxDocument {
 
     const sheetNodes = wbDoc.getElementsByTagName("sheet");
     const sheets: SheetData[] = [];
+    const originalWsDocs = new Map<string, Document>();
 
     for (let i = 0; i < sheetNodes.length; i++) {
       const sNode = sheetNodes[i];
@@ -75,6 +99,7 @@ export class XlsxDocument {
 
       const wsXml = await wsFile.async("text");
       const wsDoc = parser.parseFromString(wsXml, "application/xml");
+      originalWsDocs.set(targetPath, wsDoc);
 
       const sheetData: SheetData = {
         id: `sheet_${i + 1}`,
@@ -126,6 +151,18 @@ export class XlsxDocument {
           if (coord.col > maxCol) maxCol = coord.col;
 
           const cellType = cEl.getAttribute("t"); // "s" (shared string), "b" (boolean), "str" (formula string)
+          const sAttr = cEl.getAttribute("s");
+          let style: CellStyle | undefined;
+          let rawStyleIndex: number | undefined;
+
+          if (sAttr !== null) {
+            rawStyleIndex = parseInt(sAttr, 10);
+            const resolved = styleService.getStyle(rawStyleIndex);
+            if (resolved && Object.keys(resolved).length > 0) {
+              style = resolved;
+            }
+          }
+
           const fEl = cEl.getElementsByTagName("f")[0];
           const vEl = cEl.getElementsByTagName("v")[0];
 
@@ -154,10 +191,17 @@ export class XlsxDocument {
             }
           }
 
+          let formatted: string | undefined;
+          if (value !== null && value !== undefined && value !== "") {
+            formatted = formatCellValue(value, style?.numberFormat);
+          }
+
           sheetData.cells[cellKey(coord.row, coord.col)] = {
             value,
             formula,
-            formatted: value !== null && value !== undefined && value !== "" ? String(value) : undefined,
+            formatted,
+            style,
+            rawStyleIndex,
           };
         }
       }
@@ -200,10 +244,15 @@ export class XlsxDocument {
       });
     }
 
-    return new XlsxDocument(zip, {
-      sheets,
-      activeSheetIndex: 0,
-    });
+    return new XlsxDocument(
+      zip,
+      {
+        sheets,
+        activeSheetIndex: 0,
+      },
+      styleService,
+      originalWsDocs
+    );
   }
 
   getWorkbookData(): WorkbookData {
@@ -221,17 +270,26 @@ export class XlsxDocument {
       colWidths: {},
       rowHeights: {},
     };
-    return new XlsxDocument(zip, {
-      sheets: [sheet],
-      activeSheetIndex: 0,
-    });
+    return new XlsxDocument(
+      zip,
+      {
+        sheets: [sheet],
+        activeSheetIndex: 0,
+      },
+      new XlsxStyleService(),
+      new Map<string, Document>()
+    );
   }
 
   async save(data: WorkbookData): Promise<ArrayBuffer> {
     this.workbookData = data;
     const zip = this.zip;
 
-    const bundle = defaultXlsxService.buildXmlBundle(data);
+    const bundle = defaultXlsxService.buildXmlBundle(
+      data,
+      this.styleService,
+      this.originalWsDocs
+    );
 
     // 1. Worksheets
     for (const ws of bundle.worksheets) {
@@ -247,7 +305,10 @@ export class XlsxDocument {
     // 4. Relationships
     zip.file("xl/_rels/workbook.xml.rels", bundle.relationshipsXml);
 
-    // 5. Base Content_Types and styles if missing
+    // 5. Styles
+    zip.file("xl/styles.xml", bundle.stylesXml);
+
+    // 6. Base Content_Types and relationships if missing
     if (!zip.file("[Content_Types].xml")) {
       zip.file(
         "[Content_Types].xml",
@@ -269,20 +330,6 @@ export class XlsxDocument {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`
-      );
-    }
-
-    if (!zip.file("xl/styles.xml")) {
-      zip.file(
-        "xl/styles.xml",
-        `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
-  <fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
-  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
-  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
-</styleSheet>`
       );
     }
 

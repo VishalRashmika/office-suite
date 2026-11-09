@@ -42,7 +42,7 @@ export function formatPdfDate(date: Date = new Date()): string {
 
 /** Encodes string safely for PDF: uses UTF-16BE hex string if text contains parentheses, backslashes, or non-ASCII characters to avoid syntax errors */
 export function createPdfTextString(text: string): PDFString | PDFHexString {
-  if (/[\(\)\\\x80-\uFFFF]/.test(text)) {
+  if (/[()\\\x80-\uFFFF]/.test(text)) {
     return PDFHexString.fromText(text);
   }
   return PDFString.of(text);

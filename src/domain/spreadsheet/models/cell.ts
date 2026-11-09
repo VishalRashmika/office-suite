@@ -24,6 +24,7 @@ export interface CellData {
   formula?: string; // e.g. "=SUM(A1:B5)"
   formatted?: string;
   style?: CellStyle;
+  rawStyleIndex?: number;
 }
 
 export function formatCellValue(val: CellValue, numFormat?: string): string {
