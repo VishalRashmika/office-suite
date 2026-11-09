@@ -48,6 +48,8 @@ export interface PdfToolbarDelegate {
   onToggleTheme(): void;
   onThemeChanged?(theme: "light" | "sepia" | "dark"): void;
   onSave(): void;
+  onManualSave(): void;
+  onAutoSaveChanged(enabled: boolean): void;
   onSelectProfile?(profileId: string): void;
   onOpenColorSchemeModal?(): void;
   onSaveSchemeAsProfile?(): void;
@@ -65,6 +67,7 @@ export class PdfToolbar {
   private zoomLevel = 1.0;
   private zoomSelectEl: HTMLSelectElement | null = null;
   private saveStatusEl: HTMLElement | null = null;
+  private autoSaveBtnEl: HTMLElement | null = null;
   private pageInputEl: HTMLInputElement | null = null;
   private sidebarBtnEl: HTMLElement | null = null;
   private toolButtons: Map<PdfActiveTool, HTMLElement> = new Map();
@@ -268,6 +271,24 @@ export class PdfToolbar {
 
     // Save Status Indicator
     this.saveStatusEl = groupEnd.createSpan({ cls: "pdf-toolbar-save-status", text: "Saved" });
+    const saveBtn = groupEnd.createEl("button", {
+      cls: "pdf-toolbar-btn pdf-toolbar-manual-save-btn",
+      attr: { title: "Save PDF changes now" },
+    });
+    setIcon(saveBtn, "save");
+    saveBtn.createSpan({ text: "Save" });
+    saveBtn.onclick = () => this.delegate?.onManualSave();
+
+    this.autoSaveBtnEl = groupEnd.createEl("button", {
+      cls: "pdf-toolbar-btn pdf-toolbar-autosave-btn",
+      attr: { title: "Toggle automatic PDF saving" },
+    });
+    this.autoSaveBtnEl.onclick = () => {
+      const enabled = !this.autoSaveBtnEl?.hasClass("is-active");
+      this.setAutoSaveEnabled(enabled);
+      this.delegate?.onAutoSaveChanged(enabled);
+    };
+    this.setAutoSaveEnabled(true);
 
     // Set default active tool
     this.setActiveTool("hand");
@@ -357,6 +378,16 @@ export class PdfToolbar {
       this.saveStatusEl.setText("Saved");
       this.saveStatusEl.className = "pdf-toolbar-save-status is-saved";
     }
+  }
+
+  setAutoSaveEnabled(enabled: boolean): void {
+    if (!this.autoSaveBtnEl) return;
+    this.autoSaveBtnEl.toggleClass("is-active", enabled);
+    this.autoSaveBtnEl.setAttr("aria-pressed", `${enabled}`);
+    this.autoSaveBtnEl.setAttr("title", enabled ? "Automatic saving is on (click to turn off)" : "Automatic saving is off (click to turn on)");
+    this.autoSaveBtnEl.empty();
+    setIcon(this.autoSaveBtnEl, enabled ? "refresh-cw" : "pause");
+    this.autoSaveBtnEl.createSpan({ text: enabled ? "Auto-save On" : "Auto-save Off" });
   }
 
   private updatePageIndicator(): void {

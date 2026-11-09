@@ -71,6 +71,7 @@ export class PdfView
   private zoomScale = 1.0;
   private currentPage = 1;
   private saveTimer: number | null = null;
+  private autoSaveEnabled = true;
   private undoStack: Array<string> = [];
   private redoStack: Array<string> = [];
   private retractTabEl: HTMLElement | null = null;
@@ -170,10 +171,12 @@ export class PdfView
 
     // Initialize active color scheme for this PDF
     this.initColorSchemeForFile(file.path);
+    this.autoSaveEnabled = this.getPlugin()?.settings.pdfAutoSave ?? true;
 
     // 1. Build Toolbar
     this.toolbarEl = this.contentEl.createDiv({ cls: "pdf-editor-toolbar-wrap" });
     this.toolbar.build(this.toolbarEl, this);
+    this.toolbar.setAutoSaveEnabled(this.autoSaveEnabled);
     this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
     this.toolbar.setPageData(1, this.pdfDoc.getPageCount());
 
@@ -1337,6 +1340,26 @@ export class PdfView
     this.scheduleSave(annotation.type === "ink" ? 1000 : 400);
   }
 
+  onManualSave(): void {
+    void this.requestSave();
+  }
+
+  onAutoSaveChanged(enabled: boolean): void {
+    this.autoSaveEnabled = enabled;
+    const plugin = this.getPlugin();
+    if (plugin) {
+      plugin.settings.pdfAutoSave = enabled;
+      void plugin.saveSettings();
+    }
+    if (!enabled && this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    if (enabled && this.pdfDoc?.dirty) {
+      this.scheduleSave();
+    }
+  }
+
   onUpdateAnnotation(annotation: PdfAnnotation): void {
     if (!this.pdfDoc) return;
     this.pdfDoc.upsertAnnotation(annotation);
@@ -1427,6 +1450,7 @@ export class PdfView
 
   private scheduleSave(delay = 400): void {
     this.toolbar.updateSaveStatus(true);
+    if (!this.autoSaveEnabled) return;
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;

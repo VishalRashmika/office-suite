@@ -1,9 +1,9 @@
 {
   "id": "office-suite",
   "name": "Office Suite",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "minAppVersion": "1.4.0",
-  "description": "View and edit Word DOCX, Excel XLSX, PowerPoint PPTX, CSV and TSV spreadsheets, and PDF documents with native editing, annotations, highlights, drawings, citations, and note linking.",
+  "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV/TSV spreadsheets, and PDF documents directly inside Obsidian with native WYSIWYG editing, formatting, and formulas.",
   "author": "Vishal Rashmika",
   "authorUrl": "https://vishalrashmika.com",
   "fundingUrl": "https://buymeacoffee.com/vishalrashmika",
