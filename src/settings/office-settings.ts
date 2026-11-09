@@ -12,6 +12,7 @@ import {
 } from "../domain/pdf";
 
 export interface OfficeSuiteSettings {
+  pdfAutoSave: boolean;
   pdfDefaultProfileId: string;
   pdfProfiles: PdfColorSchemeProfile[];
   pdfFileSchemes: Record<string, PdfColorSchemeProfile>; // Keyed by file path (e.g. "Papers/AI.pdf")
@@ -22,6 +23,7 @@ export interface OfficeSuiteSettings {
 }
 
 export const DEFAULT_OFFICE_SETTINGS: OfficeSuiteSettings = {
+  pdfAutoSave: true,
   pdfDefaultProfileId: "zotero-default",
   pdfProfiles: [...BUILT_IN_PROFILES],
   pdfFileSchemes: {},
@@ -37,6 +39,7 @@ export const DEFAULT_OFFICE_SETTINGS: OfficeSuiteSettings = {
  */
 export function normalizeSettings(loadedData: any): OfficeSuiteSettings {
   const settings: OfficeSuiteSettings = {
+    pdfAutoSave: DEFAULT_OFFICE_SETTINGS.pdfAutoSave,
     pdfDefaultProfileId: DEFAULT_OFFICE_SETTINGS.pdfDefaultProfileId,
     pdfProfiles: [],
     pdfFileSchemes: {},
@@ -52,6 +55,9 @@ export function normalizeSettings(loadedData: any): OfficeSuiteSettings {
   }
 
   // PPTX Settings
+  if (typeof loadedData.pdfAutoSave === "boolean") {
+    settings.pdfAutoSave = loadedData.pdfAutoSave;
+  }
   if (["single", "scroll", "grid"].includes(loadedData.pptxDefaultViewMode)) {
     settings.pptxDefaultViewMode = loadedData.pptxDefaultViewMode;
   }

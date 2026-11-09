@@ -1231,6 +1231,16 @@
   background: var(--background-modifier-hover);
 }
 
+.pdf-toolbar-manual-save-btn,
+.pdf-toolbar-autosave-btn {
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.pdf-toolbar-autosave-btn:not(.is-active) {
+  color: var(--text-muted);
+}
+
 /* Main Layout */
 .pdf-editor-main-container {
   display: flex;
@@ -5370,6 +5380,5 @@ body.is-grabbing * {
   border-right: none !important;
   background-color: transparent !important;
 }
-
 
 
