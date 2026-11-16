@@ -811,7 +811,7 @@ export class PdfView
       const originX = focalX - rect.left;
       const originY = focalY - rect.top;
       this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
-      this.pagesContainerEl.style.willChange = "transform";
+      this.pagesContainerEl.addClass("is-transforming");
     }
 
     this.cumulativeWheelScale *= zoomFactor;
@@ -832,9 +832,9 @@ export class PdfView
       this.isGesturePinching = false;
 
       if (this.pagesContainerEl) {
+        this.pagesContainerEl.removeClass("is-transforming");
         this.pagesContainerEl.style.removeProperty("transform");
         this.pagesContainerEl.style.removeProperty("transform-origin");
-        this.pagesContainerEl.style.removeProperty("will-change");
       }
 
       const finalScale = Math.round(this.startWheelZoomScale * this.cumulativeWheelScale * 100) / 100;
@@ -870,7 +870,7 @@ export class PdfView
         const originX = this.touchStartMidX - rect.left;
         const originY = this.touchStartMidY - rect.top;
         this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
-        this.pagesContainerEl.style.willChange = "transform";
+        this.pagesContainerEl.addClass("is-transforming");
       }
     } else if (e.touches.length > 2) {
       this.isGesturePinching = true;
@@ -910,9 +910,9 @@ export class PdfView
       this.isTouchPinching = false;
 
       if (this.pagesContainerEl) {
+        this.pagesContainerEl.removeClass("is-transforming");
         this.pagesContainerEl.style.removeProperty("transform");
         this.pagesContainerEl.style.removeProperty("transform-origin");
-        this.pagesContainerEl.style.removeProperty("will-change");
       }
 
       const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
@@ -947,7 +947,7 @@ export class PdfView
       const originX = this.touchStartMidX - rect.left;
       const originY = this.touchStartMidY - rect.top;
       this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
-      this.pagesContainerEl.style.willChange = "transform";
+      this.pagesContainerEl.addClass("is-transforming");
     }
   };
 
@@ -965,9 +965,9 @@ export class PdfView
   private onGestureEnd = async (e: any): Promise<void> => {
     e.preventDefault();
     if (this.pagesContainerEl) {
+      this.pagesContainerEl.removeClass("is-transforming");
       this.pagesContainerEl.style.removeProperty("transform");
       this.pagesContainerEl.style.removeProperty("transform-origin");
-      this.pagesContainerEl.style.removeProperty("will-change");
     }
     const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
     await this.applyZoomWithFocalPoint(finalScale, this.touchStartMidX, this.touchStartMidY);

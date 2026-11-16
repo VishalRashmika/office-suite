@@ -2380,6 +2380,10 @@
   box-sizing: border-box;
 }
 
+.pdf-pages-container.is-transforming {
+  will-change: transform;
+}
+
 .pdf-theme-light .pdf-pages-scroll-area {
   background: var(--background-primary-alt);
 }
