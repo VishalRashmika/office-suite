@@ -1,6 +1,6 @@
 {
   "name": "obsidian-office-suite",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "View and edit Microsoft Word (.docx), Excel (.xlsx), PowerPoint (.pptx), CSV/TSV spreadsheets, and PDF documents with native WYSIWYG editing, formatting, and formulas.",
   "author": "Vishal Rashmika",
   "license": "GPL-3.0-or-later",
@@ -10,6 +10,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",
     "check": "tsc --noEmit",
+    "lint": "eslint src/",
     "test": "node -e \"require('esbuild').buildSync({ entryPoints: ['scripts/test-all.ts'], outfile: 'scripts/test-all.cjs', bundle: true, format: 'cjs', platform: 'node', external: ['obsidian', 'electron'] }); const M = require('module'); const orig = M._load; M._load = (r, p, m) => r === 'obsidian' ? { setIcon: () => {}, Notice: class { constructor(msg){} } } : orig(r, p, m); try { require('./scripts/test-all.cjs'); } finally { try { require('fs').unlinkSync('scripts/test-all.cjs'); } catch(e){} }\""
   },
   "dependencies": {
