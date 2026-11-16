@@ -1294,48 +1294,6 @@
   background: var(--interactive-accent);
 }
 
-/* Retractable Edge Tab when sidebar is collapsed */
-.pdf-sidebar-retract-tab {
-  position: absolute;
-  top: 14px;
-  left: 0;
-  z-index: 20;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-left: none;
-  border-top-right-radius: 6px;
-  border-bottom-right-radius: 6px;
-  padding: 6px 10px;
-  cursor: pointer;
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.12);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-normal);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  user-select: none;
-}
-
-.pdf-sidebar-retract-tab.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-100%);
-}
-
-.pdf-sidebar-retract-tab:hover {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-  transform: translateX(3px);
-  box-shadow: 2px 4px 12px rgba(var(--interactive-accent-rgb), 0.3);
-}
-
-.pdf-sidebar-retract-tab .pdf-sidebar-retract-label {
-  font-size: 11px;
-  font-weight: 500;
-}
 
 .pdf-sidebar-header {
   display: flex;
@@ -2419,7 +2377,6 @@
   min-width: min-content;
   max-width: 100%;
   transform-origin: 0 0;
-  will-change: transform;
   box-sizing: border-box;
 }
 
@@ -2639,20 +2596,14 @@
 .pdf-page-view[data-active-tool="highlight"],
 .pdf-page-view[data-active-tool="underline"],
 .pdf-page-view[data-active-tool="hand"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="hand"] .pdf-text-layer span,
 .pdf-page-view[data-active-tool="hand"] .textLayer,
-.pdf-page-view[data-active-tool="hand"] .textLayer span,
 .pdf-page-view[data-active-tool="underline"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="underline"] .pdf-text-layer span,
-.pdf-page-view[data-active-tool="underline"] .textLayer,
-.pdf-page-view[data-active-tool="underline"] .textLayer span {
+.pdf-page-view[data-active-tool="underline"] .textLayer {
   cursor: text !important;
 }
 
 .pdf-page-view[data-active-tool="highlight"] .pdf-text-layer,
-.pdf-page-view[data-active-tool="highlight"] .pdf-text-layer span,
-.pdf-page-view[data-active-tool="highlight"] .textLayer,
-.pdf-page-view[data-active-tool="highlight"] .textLayer span {
+.pdf-page-view[data-active-tool="highlight"] .textLayer {
   cursor: crosshair !important;
   pointer-events: none !important;
   user-select: none !important;
@@ -5310,7 +5261,9 @@
 
 /* Grabbing cursor during PDF annotation dragging */
 body.is-grabbing,
-body.is-grabbing * {
+body.is-grabbing .pdf-page-view,
+body.is-grabbing .pdf-annotation-overlay,
+body.is-grabbing .pdf-pages-scroll-area {
   cursor: grabbing !important;
 }
 

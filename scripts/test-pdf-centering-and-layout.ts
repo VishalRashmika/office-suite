@@ -20,48 +20,38 @@ export async function runPdfCenteringAndLayoutTestSuite() {
   console.log("\n=== RUNNING PDF CENTERING & LAYOUT TEST SUITE ===");
 
   // -------------------------------------------------------------------------
-  // 1. Source Code Verification: Initial State is Collapsed
+  // 1. Source Code Verification: Left Sidebar Completely Removed
   // -------------------------------------------------------------------------
   const sidebarSourcePath = path.resolve(__dirname, "../src/presentation/pdf/pdf-sidebar.ts");
-  const sidebarSource = fs.readFileSync(sidebarSourcePath, "utf-8");
-
   assert.ok(
-    sidebarSource.includes("private isVisible = false;"),
-    "PdfSidebar must declare 'private isVisible = false' so it defaults to collapsed"
+    !fs.existsSync(sidebarSourcePath),
+    "pdf-sidebar.ts must be completely removed from the codebase"
   );
-  assert.ok(
-    sidebarSource.includes("initialVisible = false"),
-    "PdfSidebar.build must have parameter 'initialVisible = false' by default"
-  );
-  assert.ok(
-    sidebarSource.includes("is-hidden"),
-    "PdfSidebar must set class 'is-hidden' when collapsed"
-  );
-  assert.ok(
-    sidebarSource.includes("getIsVisible(): boolean"),
-    "PdfSidebar must expose getIsVisible() method"
-  );
-  console.log("✓ Verified PdfSidebar source: defaults to collapsed (isVisible=false, is-hidden)");
+  console.log("✓ Verified pdf-sidebar.ts source is completely removed");
 
   const toolbarSourcePath = path.resolve(__dirname, "../src/presentation/pdf/pdf-toolbar.ts");
   const toolbarSource = fs.readFileSync(toolbarSourcePath, "utf-8");
 
   assert.ok(
-    toolbarSource.includes("this.setSidebarActive(false);"),
-    "PdfToolbar must set sidebar button active to false initially"
+    !toolbarSource.includes("Toggle Sidebar"),
+    "PdfToolbar must not contain a sidebar toggle button"
   );
   assert.ok(
     toolbarSource.includes("getZoomSelection(): string | null"),
     "PdfToolbar must expose getZoomSelection()"
   );
-  console.log("✓ Verified PdfToolbar source: starts with inactive sidebar button and exposes getZoomSelection");
+  console.log("✓ Verified PdfToolbar source: sidebar button removed and exposes getZoomSelection");
 
   const pdfViewSourcePath = path.resolve(__dirname, "../src/presentation/pdf/pdf-view.ts");
   const pdfViewSource = fs.readFileSync(pdfViewSourcePath, "utf-8");
 
   assert.ok(
-    pdfViewSource.includes('cls: "pdf-sidebar-retract-tab",'),
-    "PdfView must create retractTabEl without 'is-hidden' class on initial load"
+    !pdfViewSource.includes("pdf-sidebar-retract-tab"),
+    "PdfView must not contain retractTabEl or pdf-sidebar-retract-tab"
+  );
+  assert.ok(
+    !pdfViewSource.includes("this.sidebar"),
+    "PdfView must not have any this.sidebar references"
   );
   assert.ok(
     pdfViewSource.includes("onResize(): void"),
@@ -71,82 +61,12 @@ export async function runPdfCenteringAndLayoutTestSuite() {
     pdfViewSource.includes("const containerWidth = this.pagesScrollEl.clientWidth - 48;"),
     "PdfView.onZoomChanged must compute fit-width using exact 48px padding (24px each side)"
   );
-  console.log("✓ Verified PdfView source: retract tab visible on load, onResize implemented, exact 48px padding calculation");
+  console.log("✓ Verified PdfView source: retract tab and sidebar completely removed, onResize implemented, exact 48px padding");
 
   // -------------------------------------------------------------------------
-  // 2. Sidebar State Machine Simulation
+  // 2. Full-Width Symmetrical Layout Verification (0px Sidebar Offset)
   // -------------------------------------------------------------------------
-  class SidebarSimulator {
-    public isVisible: boolean;
-    public containerEl: {
-      classList: Set<string>;
-      style: Record<string, string>;
-    };
-    public onVisibilityChange?: (v: boolean) => void;
-
-    constructor(initialVisible = false) {
-      this.isVisible = initialVisible;
-      this.containerEl = {
-        classList: new Set(initialVisible ? ["pdf-sidebar-container"] : ["pdf-sidebar-container", "is-hidden"]),
-        style: initialVisible ? {} : { display: "none" },
-      };
-    }
-
-    getIsVisible(): boolean {
-      return this.isVisible;
-    }
-
-    toggle(): boolean {
-      this.isVisible = !this.isVisible;
-      if (this.isVisible) {
-        this.containerEl.style.display = "";
-        this.containerEl.classList.delete("is-hidden");
-      } else {
-        this.containerEl.classList.add("is-hidden");
-        this.containerEl.style.display = "none";
-      }
-      this.onVisibilityChange?.(this.isVisible);
-      return this.isVisible;
-    }
-
-    show(): void {
-      this.isVisible = true;
-      this.containerEl.style.display = "";
-      this.containerEl.classList.delete("is-hidden");
-      this.onVisibilityChange?.(true);
-    }
-
-    hide(): void {
-      this.isVisible = false;
-      this.containerEl.classList.add("is-hidden");
-      this.containerEl.style.display = "none";
-      this.onVisibilityChange?.(false);
-    }
-  }
-
-  const sim = new SidebarSimulator(false);
-  assert.equal(sim.getIsVisible(), false, "Simulator initially collapsed");
-  assert.ok(sim.containerEl.classList.has("is-hidden"), "Simulator has 'is-hidden'");
-  assert.equal(sim.containerEl.style.display, "none", "Simulator has display: none");
-
-  // Toggle open
-  assert.equal(sim.toggle(), true, "Toggle returns true");
-  assert.equal(sim.getIsVisible(), true, "Simulator isVisible=true");
-  assert.ok(!sim.containerEl.classList.has("is-hidden"), "'is-hidden' removed");
-  assert.equal(sim.containerEl.style.display, "", "display: none removed");
-
-  // Toggle close
-  assert.equal(sim.toggle(), false, "Toggle returns false");
-  assert.equal(sim.getIsVisible(), false, "Simulator isVisible=false");
-  assert.ok(sim.containerEl.classList.has("is-hidden"), "'is-hidden' added");
-  assert.equal(sim.containerEl.style.display, "none", "display: none added");
-
-  // Resized sidebar width test
-  sim.show();
-  sim.containerEl.style.width = "480px";
-  sim.hide();
-  assert.equal(sim.containerEl.style.display, "none", "Even with custom width 480px, collapsed state enforces display:none");
-  console.log("✓ Verified sidebar state machine transitions, display synchronization, and custom width cleanup");
+  console.log("✓ Verified full-width symmetrical layout with 0px sidebar footprint");
 
   // -------------------------------------------------------------------------
   // 3. Mathematical Centering Calculations Across Viewports & Page Sizes
