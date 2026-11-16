@@ -27,7 +27,6 @@ import {
 } from "../../domain/pdf";
 import { PdfDocumentAdapter } from "../../infrastructure/pdf";
 import { PdfToolbar, PdfToolbarDelegate, PdfActiveTool } from "./pdf-toolbar";
-import { PdfSidebar, PdfSidebarDelegate } from "./pdf-sidebar";
 import { PdfPageView, PdfPageViewDelegate } from "./pdf-page-view";
 import { PdfNotePopover } from "./pdf-note-popover";
 import { PdfCiteModal } from "./pdf-cite-modal";
@@ -37,9 +36,31 @@ import type OfficeSuitePlugin from "../../main";
 
 export const VIEW_TYPE_PDF = "pdf-editor-view";
 
+export interface PdfUndoAction {
+  type: "add" | "delete" | "modify";
+  annotation: PdfAnnotation;
+  prevAnnotation?: PdfAnnotation;
+}
+
+function cloneAnnotation<T extends PdfAnnotation>(annot: T): T {
+  const copy: any = { ...annot };
+  if (annot.rect) copy.rect = [...annot.rect];
+  if (annot.color) copy.color = [...annot.color];
+  if ((annot as any).paths) {
+    copy.paths = (annot as any).paths.map((p: number[][]) => p.map((pt) => [...pt]));
+  }
+  if ((annot as any).quadPoints) {
+    copy.quadPoints = [...(annot as any).quadPoints];
+  }
+  if ((annot as any).linePoints) {
+    copy.linePoints = [...(annot as any).linePoints];
+  }
+  return copy as T;
+}
+
 export class PdfView
   extends FileView
-  implements PdfToolbarDelegate, PdfSidebarDelegate, PdfPageViewDelegate
+  implements PdfToolbarDelegate, PdfPageViewDelegate
 {
   allowNoFile = false;
   pdfDoc: PdfDocumentAdapter | null = null;
@@ -53,7 +74,6 @@ export class PdfView
   private pdfjsLib: any = null;
   private pdfjsDoc: any = null;
   private toolbar = new PdfToolbar();
-  private sidebar = new PdfSidebar();
   private notePopover: PdfNotePopover;
 
   private rootEl: HTMLElement | null = null;
@@ -72,9 +92,17 @@ export class PdfView
   private currentPage = 1;
   private saveTimer: number | null = null;
   private autoSaveEnabled = true;
-  private undoStack: Array<string> = [];
-  private redoStack: Array<string> = [];
-  private retractTabEl: HTMLElement | null = null;
+  private undoStack: Array<PdfUndoAction> = [];
+  private redoStack: Array<PdfUndoAction> = [];
+  private static readonly MAX_UNDO_STACK = 100;
+
+  private pushUndoAction(action: PdfUndoAction): void {
+    this.undoStack.push(action);
+    if (this.undoStack.length > PdfView.MAX_UNDO_STACK) {
+      this.undoStack.shift();
+    }
+    this.redoStack = [];
+  }
   private isSaving = false;
   private hasPendingSave = false;
   private isInternalSaving = false;
@@ -87,6 +115,8 @@ export class PdfView
   // Trackpad & Wheel zoom state
   private isWheelZooming = false;
   private wheelZoomDebounceTimer: number | null = null;
+  private scrollRafId: number | null = null;
+  private cachedPageTops: number[] = [];
   private startWheelZoomScale = 1.0;
   private cumulativeWheelScale = 1.0;
   private wheelFocalX = 0;
@@ -102,7 +132,6 @@ export class PdfView
   private touchCurrentMidY = 0;
   private touchCurrentRatio = 1.0;
   private touchCooldownTimer: number | null = null;
-  private sidebarUpdateTimer: number | null = null;
 
   constructor(leaf: WorkspaceLeaf, plugin?: OfficeSuitePlugin) {
     super(leaf);
@@ -180,48 +209,8 @@ export class PdfView
     this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
     this.toolbar.setPageData(1, this.pdfDoc.getPageCount());
 
-    // 2. Main split view (Sidebar + Scroll Area)
+    // 2. Main container (Scroll Area)
     this.mainContainerEl = this.contentEl.createDiv({ cls: "pdf-editor-main-container" });
-
-    // Retractable Edge Tab for expanding/retracting sidebar when retracted
-    this.retractTabEl = this.mainContainerEl.createDiv({
-      cls: "pdf-sidebar-retract-tab",
-      attr: { title: "Expand Annotations & Pages Panel" },
-    });
-    this.retractTabEl.createSpan({ text: "📑" });
-    this.retractTabEl.createSpan({ cls: "pdf-sidebar-retract-label", text: "Annotations" });
-    this.retractTabEl.onclick = () => {
-      if (!this.sidebar.getIsVisible()) {
-        this.sidebar.showAnnotationsTab();
-        this.toolbar.setSidebarActive(true);
-        this.retractTabEl?.addClass("is-hidden");
-        const currentZoom = this.toolbar.getZoomSelection();
-        if (currentZoom === "fit-width" || currentZoom === "fit-page") {
-          void this.onZoomChanged(currentZoom);
-        }
-      } else {
-        this.onToggleSidebar();
-      }
-    };
-
-    // Sidebar (collapsed by default so PDF opens cleanly centered)
-    this.sidebar.build(
-      this.mainContainerEl,
-      this.pdfDoc,
-      this.pdfjsDoc,
-      file.name,
-      this,
-      this.activeColorScheme,
-      false
-    );
-    this.sidebar.onVisibilityChange = (visible) => {
-      this.toolbar.setSidebarActive(visible);
-      if (visible) {
-        this.retractTabEl?.addClass("is-hidden");
-      } else {
-        this.retractTabEl?.removeClass("is-hidden");
-      }
-    };
 
     // Enrich annotations from PDF.js (discovers PDF.js parsed annotations & extracts underlying text)
     await this.enrichAnnotationsFromPdfJs();
@@ -290,20 +279,52 @@ export class PdfView
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
+    const activeEl = document.activeElement;
+    const isTextInput =
+      activeEl &&
+      (activeEl.tagName === "INPUT" ||
+        activeEl.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement).isContentEditable);
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault();
       e.stopPropagation();
       void this.requestSave();
+      return;
+    }
+
+    if (isTextInput) {
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onUndo();
+    } else if (
+      ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z") ||
+      ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y")
+    ) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.onRedo();
     }
   };
 
   private onWindowBlur = () => {
+    this.cancelActiveInteractions();
+    document.body.removeClass("is-grabbing");
     if (this.pdfDoc?.dirty) void this.saveNow();
   };
 
   async onUnloadFile(file: TFile): Promise<void> {
     window.removeEventListener("blur", this.onWindowBlur);
     this.contentEl.removeEventListener("keydown", this.onKeyDown);
+    if (this.scrollRafId !== null) {
+      window.cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = null;
+    }
+    this.cachedPageTops = [];
     if (this.saveTimer) window.clearTimeout(this.saveTimer);
     if (this.wheelZoomDebounceTimer) window.clearTimeout(this.wheelZoomDebounceTimer);
     if (this.touchCooldownTimer) window.clearTimeout(this.touchCooldownTimer);
@@ -321,7 +342,6 @@ export class PdfView
 
     this.notePopover.hide();
     this.toolbar.dispose();
-    this.sidebar.dispose();
     for (const pv of this.pageViews.values()) {
       pv.dispose();
     }
@@ -356,7 +376,7 @@ export class PdfView
           }
         }
       }
-      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+      this.updateCachedPageTops();
       return;
     }
 
@@ -384,17 +404,37 @@ export class PdfView
       }
     }
 
-    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
+    this.updateCachedPageTops();
+  }
+
+  private updateCachedPageTops(): void {
+    this.cachedPageTops = [];
+    for (const pv of this.pageViews.values()) {
+      this.cachedPageTops.push(pv.element.offsetTop);
+    }
   }
 
   private onScroll = (): void => {
+    if (this.scrollRafId !== null) return;
+    this.scrollRafId = window.requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      this.updateCurrentPageFromScroll();
+    });
+  };
+
+  private updateCurrentPageFromScroll(): void {
     if (!this.pagesScrollEl) return;
     const scrollTop = this.pagesScrollEl.scrollTop;
+
+    if (this.cachedPageTops.length !== this.pageViews.size) {
+      this.updateCachedPageTops();
+    }
+
     let closestPage = 1;
     let minDistance = Infinity;
 
-    for (const [idx, pv] of this.pageViews.entries()) {
-      const top = pv.element.offsetTop;
+    for (let idx = 0; idx < this.cachedPageTops.length; idx++) {
+      const top = this.cachedPageTops[idx];
       const dist = Math.abs(top - scrollTop);
       if (dist < minDistance) {
         minDistance = dist;
@@ -405,7 +445,6 @@ export class PdfView
     if (closestPage !== this.currentPage) {
       this.currentPage = closestPage;
       this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
-      this.sidebar.setCurrentPage(closestPage - 1);
     }
   };
 
@@ -582,9 +621,20 @@ export class PdfView
   // ==================== PdfToolbarDelegate Implementation ====================
 
   onToolChanged(tool: PdfActiveTool): void {
+    if (this.activeTool === "draw" && tool !== "draw" && this.pdfDoc?.dirty) {
+      void this.requestSave();
+    }
     this.activeTool = tool;
+    this.cancelActiveInteractions();
+    document.body.removeClass("is-grabbing");
+    try {
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) {
+        sel.removeAllRanges();
+      }
+    } catch (_) {}
+    this.hideSelectionBar();
     for (const pv of this.pageViews.values()) {
-      pv.cancelActiveInteractions();
       pv.setTool(tool, this.activeColor, this.strokeWidth);
     }
   }
@@ -608,6 +658,7 @@ export class PdfView
   }
 
   cancelActiveInteractions(): void {
+    document.body.removeClass("is-grabbing");
     for (const pv of this.pageViews.values()) {
       pv.cancelActiveInteractions();
     }
@@ -760,6 +811,7 @@ export class PdfView
       const originX = focalX - rect.left;
       const originY = focalY - rect.top;
       this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+      this.pagesContainerEl.style.willChange = "transform";
     }
 
     this.cumulativeWheelScale *= zoomFactor;
@@ -782,6 +834,7 @@ export class PdfView
       if (this.pagesContainerEl) {
         this.pagesContainerEl.style.removeProperty("transform");
         this.pagesContainerEl.style.removeProperty("transform-origin");
+        this.pagesContainerEl.style.removeProperty("will-change");
       }
 
       const finalScale = Math.round(this.startWheelZoomScale * this.cumulativeWheelScale * 100) / 100;
@@ -817,6 +870,7 @@ export class PdfView
         const originX = this.touchStartMidX - rect.left;
         const originY = this.touchStartMidY - rect.top;
         this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+        this.pagesContainerEl.style.willChange = "transform";
       }
     } else if (e.touches.length > 2) {
       this.isGesturePinching = true;
@@ -858,6 +912,7 @@ export class PdfView
       if (this.pagesContainerEl) {
         this.pagesContainerEl.style.removeProperty("transform");
         this.pagesContainerEl.style.removeProperty("transform-origin");
+        this.pagesContainerEl.style.removeProperty("will-change");
       }
 
       const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
@@ -892,6 +947,7 @@ export class PdfView
       const originX = this.touchStartMidX - rect.left;
       const originY = this.touchStartMidY - rect.top;
       this.pagesContainerEl.style.transformOrigin = `${originX}px ${originY}px`;
+      this.pagesContainerEl.style.willChange = "transform";
     }
   };
 
@@ -911,6 +967,7 @@ export class PdfView
     if (this.pagesContainerEl) {
       this.pagesContainerEl.style.removeProperty("transform");
       this.pagesContainerEl.style.removeProperty("transform-origin");
+      this.pagesContainerEl.style.removeProperty("will-change");
     }
     const finalScale = Math.round(this.touchStartScale * this.touchCurrentRatio * 100) / 100;
     await this.applyZoomWithFocalPoint(finalScale, this.touchStartMidX, this.touchStartMidY);
@@ -967,20 +1024,7 @@ export class PdfView
     new Notice(`Inserted blank page at position ${pageIndex + 1}`);
   }
 
-  onToggleSidebar(): void {
-    const isVisible = this.sidebar.toggle();
-    this.toolbar.setSidebarActive(isVisible);
-    if (isVisible) {
-      this.retractTabEl?.addClass("is-hidden");
-    } else {
-      this.retractTabEl?.removeClass("is-hidden");
-    }
-
-    const currentZoom = this.toolbar.getZoomSelection();
-    if (currentZoom === "fit-width" || currentZoom === "fit-page") {
-      void this.onZoomChanged(currentZoom);
-    }
-  }
+  onToggleSidebar(): void {}
 
   onCite(): void {
     this.openCitationModal(undefined, this.currentPage);
@@ -1029,13 +1073,77 @@ export class PdfView
   }
 
   onUndo(): void {
-    // History stack undo
-    new Notice("Undo action");
+    const action = this.undoStack.pop();
+    if (!action || !this.pdfDoc) {
+      new Notice("Nothing to undo");
+      return;
+    }
+
+    if (action.type === "add") {
+      this.pdfDoc.deleteAnnotation(action.annotation.id);
+      const pv = this.pageViews.get(action.annotation.pageIndex);
+      if (pv) {
+        pv.removeAnnotationLocally(action.annotation.id);
+      }
+      this.redoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice(action.annotation.type === "ink" ? "Undid stroke" : "Undid annotation");
+    } else if (action.type === "delete") {
+      this.pdfDoc.upsertAnnotation(action.annotation);
+      const pv = this.pageViews.get(action.annotation.pageIndex);
+      if (pv) {
+        pv.addAnnotationLocally(action.annotation);
+      }
+      this.redoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice("Restored annotation");
+    } else if (action.type === "modify" && action.prevAnnotation) {
+      this.pdfDoc.upsertAnnotation(action.prevAnnotation);
+      const pv = this.pageViews.get(action.prevAnnotation.pageIndex);
+      if (pv) {
+        pv.updateAnnotationLocally(action.prevAnnotation);
+      }
+      this.redoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice("Undid edit");
+    }
   }
 
   onRedo(): void {
-    // History stack redo
-    new Notice("Redo action");
+    const action = this.redoStack.pop();
+    if (!action || !this.pdfDoc) {
+      new Notice("Nothing to redo");
+      return;
+    }
+
+    if (action.type === "add") {
+      this.pdfDoc.upsertAnnotation(action.annotation);
+      const pv = this.pageViews.get(action.annotation.pageIndex);
+      if (pv) {
+        pv.addAnnotationLocally(action.annotation);
+      }
+      this.undoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice(action.annotation.type === "ink" ? "Redid stroke" : "Redid annotation");
+    } else if (action.type === "delete") {
+      this.pdfDoc.deleteAnnotation(action.annotation.id);
+      const pv = this.pageViews.get(action.annotation.pageIndex);
+      if (pv) {
+        pv.removeAnnotationLocally(action.annotation.id);
+      }
+      this.undoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice("Redid delete");
+    } else if (action.type === "modify") {
+      this.pdfDoc.upsertAnnotation(action.annotation);
+      const pv = this.pageViews.get(action.annotation.pageIndex);
+      if (pv) {
+        pv.updateAnnotationLocally(action.annotation);
+      }
+      this.undoStack.push(action);
+      this.scheduleSave(this.activeTool === "draw" ? 3500 : 400);
+      new Notice("Redid edit");
+    }
   }
 
   onThemeChanged(theme: "light" | "sepia" | "dark"): void {
@@ -1208,10 +1316,7 @@ export class PdfView
     // 1. Update Toolbar
     this.toolbar.setColorScheme(this.activeColorScheme, this.getPlugin()?.settings.pdfProfiles);
 
-    // 2. Update Sidebar
-    this.sidebar.setColorScheme(this.activeColorScheme);
-
-    // 3. Update Note Popover
+    // 2. Update Note Popover
     this.notePopover.setColorScheme(this.activeColorScheme);
 
     // 4. Update Selection Bar
@@ -1237,17 +1342,12 @@ export class PdfView
 
   async onClose(): Promise<void> {
     this.unregisterColorSchemeListener?.();
-    if (this.sidebarUpdateTimer) {
-      window.clearTimeout(this.sidebarUpdateTimer);
-      this.sidebarUpdateTimer = null;
-    }
     if (this.saveTimer) {
       window.clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
     await this.requestSave();
     this.toolbar.dispose();
-    this.sidebar.dispose();
     this.notePopover.hide();
     this.selectionBarEl?.remove();
     this.pageViews.clear();
@@ -1286,7 +1386,6 @@ export class PdfView
       }
       this.currentPage = annotation.pageIndex + 1;
       this.toolbar.setPageData(this.currentPage, this.pdfDoc?.getPageCount() || 1);
-      this.sidebar.setCurrentPage(annotation.pageIndex);
     }
   }
 
@@ -1294,12 +1393,21 @@ export class PdfView
     if (!this.pdfDoc) return;
     const annot = this.pdfDoc.getAllAnnotations().find((a) => a.id === id);
     if (!annot) return;
+    const prev = cloneAnnotation(annot);
     annot.color = color;
     if (annot.type === "square" || annot.type === "circle" || annot.type === "line") {
       (annot as any).strokeColor = color;
     }
+    this.pushUndoAction({
+      type: "modify",
+      annotation: cloneAnnotation(annot),
+      prevAnnotation: prev,
+    });
     this.pdfDoc.upsertAnnotation(annot);
-    this.syncAnnotationsToViews();
+    const pv = this.pageViews.get(annot.pageIndex);
+    if (pv) {
+      pv.updateAnnotationLocally(annot);
+    }
     this.scheduleSave();
     new Notice("Annotation color updated");
   }
@@ -1321,23 +1429,45 @@ export class PdfView
 
   onDeleteAnnotation(id: string): void {
     if (!this.pdfDoc) return;
+    const annot = this.pdfDoc.getAnnotation(id);
+    if (annot) {
+      this.pushUndoAction({ type: "delete", annotation: cloneAnnotation(annot) });
+      const pv = this.pageViews.get(annot.pageIndex);
+      if (pv) {
+        pv.removeAnnotationLocally(id);
+      }
+    }
     this.pdfDoc.deleteAnnotation(id);
-    this.syncAnnotationsToViews();
     this.scheduleSave();
     new Notice("Deleted annotation");
   }
 
   // ==================== PdfPageViewDelegate Implementation ====================
 
+  onDrawingStrokeStarted(): void {
+    if (this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+  }
+
   onAddAnnotation(annotation: PdfAnnotation): void {
     if (!this.pdfDoc) return;
     this.pdfDoc.upsertAnnotation(annotation);
-    // For ink drawings, the originating page view has already appended the stroke element locally,
-    // so we exclude it from sync to prevent a full page SVG tear-down and re-render.
-    this.syncAnnotationsToViews(annotation.type === "ink" ? annotation.pageIndex : undefined);
-    // Ink strokes are committed on pointer-up and can arrive in rapid succession. Keep the
-    // drawing path responsive by saving only after the user has been idle for a longer interval.
-    this.scheduleSave(annotation.type === "ink" ? 1000 : 400);
+    this.pushUndoAction({ type: "add", annotation: cloneAnnotation(annotation) });
+
+    // For ink drawings, the originating page view has already appended the stroke element locally.
+    // Skip full page view teardown to keep drawing at 60/120 fps.
+    if (annotation.type !== "ink") {
+      const pv = this.pageViews.get(annotation.pageIndex);
+      if (pv) {
+        pv.addAnnotationLocally(annotation);
+      }
+    }
+
+    // Freehand ink strokes arrive in rapid bursts. Wait for idle (3500ms) before serializing heavy PDF.
+    const saveDelay = annotation.type === "ink" ? 3500 : 400;
+    this.scheduleSave(saveDelay);
   }
 
   onManualSave(): void {
@@ -1362,8 +1492,19 @@ export class PdfView
 
   onUpdateAnnotation(annotation: PdfAnnotation): void {
     if (!this.pdfDoc) return;
+    const prev = this.pdfDoc.getAnnotation(annotation.id);
+    if (prev) {
+      this.pushUndoAction({
+        type: "modify",
+        annotation: cloneAnnotation(annotation),
+        prevAnnotation: cloneAnnotation(prev),
+      });
+    }
     this.pdfDoc.upsertAnnotation(annotation);
-    this.syncAnnotationsToViews();
+    const pv = this.pageViews.get(annotation.pageIndex);
+    if (pv) {
+      pv.updateAnnotationLocally(annotation);
+    }
     this.scheduleSave();
   }
 
@@ -1376,15 +1517,6 @@ export class PdfView
     for (const [idx, pv] of this.pageViews.entries()) {
       if (idx === excludePageIndex) continue;
       pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));
-    }
-    if (this.sidebar.getIsVisible()) {
-      if (this.sidebarUpdateTimer) window.clearTimeout(this.sidebarUpdateTimer);
-      this.sidebarUpdateTimer = window.setTimeout(() => {
-        this.sidebarUpdateTimer = null;
-        if (this.pdfDoc) {
-          this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
-        }
-      }, 300);
     }
   }
 
@@ -1429,7 +1561,6 @@ export class PdfView
     }).promise;
 
     this.toolbar.setPageData(this.currentPage, this.pdfDoc.getPageCount());
-    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
     await this.renderAllPages();
   }
 
@@ -1518,7 +1649,6 @@ export class PdfView
       await this.enrichAnnotationsFromPdfJs();
 
       this.toolbar.setPageData(this.currentPage, this.pdfDoc.getPageCount());
-      this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
       await this.renderAllPages();
       new Notice(`PDF annotations synchronized from ${this.file.name}`);
     } catch (err) {
@@ -1630,8 +1760,6 @@ export class PdfView
       }
     }
 
-    // Always update sidebar with the complete enriched annotation list
-    this.sidebar.updateData(this.pdfDoc, this.pdfjsDoc);
     if (hasChanges) {
       for (const [idx, pv] of this.pageViews.entries()) {
         pv.setAnnotations(this.pdfDoc.getPageAnnotations(idx));

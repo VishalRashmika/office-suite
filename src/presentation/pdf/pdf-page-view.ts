@@ -45,6 +45,9 @@ export interface PdfPageViewDelegate {
   ): void;
   getPageView?(pageIndex: number): PdfPageView | undefined;
   isPinching?(): boolean;
+  onDrawingStrokeStarted?(): void;
+  onUndo?(): void;
+  onRedo?(): void;
 }
 
 interface DragState {
@@ -104,6 +107,11 @@ export class PdfPageView {
   private isCreatingFreeText = false;
   private freeTextStartPoint: { x: number; y: number } | null = null;
   private liveFreeTextEl: HTMLElement | null = null;
+
+  // Dynamic window listener flags and cleanup handles
+  private hasActivePointerListeners = false;
+  private hasActiveMouseUpListener = false;
+  private activeTransformCleanup: (() => void) | null = null;
 
   constructor(pageIndex: number, parentEl: HTMLElement) {
     this.pageIndex = pageIndex;
@@ -172,6 +180,34 @@ export class PdfPageView {
   selectAnnotation(id: string | null): void {
     this.selectedAnnotId = id;
     this.renderAnnotations();
+  }
+
+  removeAnnotationLocally(id: string): void {
+    const idx = this.annotations.findIndex((a) => a.id === id);
+    if (idx !== -1) {
+      this.annotations.splice(idx, 1);
+    }
+    if (this.selectedAnnotId === id) {
+      this.selectedAnnotId = null;
+    }
+    const svgEl = this.svgOverlayEl.querySelector(`[data-annot-id="${id}"]`);
+    if (svgEl) {
+      svgEl.remove();
+    }
+    const htmlEl = this.htmlOverlayEl.querySelector(`[data-annot-id="${id}"]`);
+    if (htmlEl) {
+      htmlEl.remove();
+    }
+  }
+
+  addAnnotationLocally(annot: PdfAnnotation): void {
+    this.removeAnnotationLocally(annot.id);
+    this.annotations.push(annot);
+    this.renderSingleAnnotation(annot);
+  }
+
+  updateAnnotationLocally(annot: PdfAnnotation): void {
+    this.addAnnotationLocally(annot);
   }
 
   /**
@@ -1199,11 +1235,17 @@ export class PdfPageView {
           }
         };
 
-        const onUp = (ue: PointerEvent) => {
+        const cleanup = () => {
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
           delete box.dataset.isTransforming;
           document.body.removeClass("is-grabbing");
+        };
+        this.activeTransformCleanup = cleanup;
+
+        const onUp = (ue: PointerEvent) => {
+          this.activeTransformCleanup = null;
+          cleanup();
 
           if (!hasMoved) {
             return;
@@ -1335,10 +1377,17 @@ export class PdfPageView {
           lastBounds = { left: newLeft, top: newTop, width: newW, height: newH };
         };
 
-        const onUp = () => {
+        const cleanup = () => {
           window.removeEventListener("pointermove", onMove);
           window.removeEventListener("pointerup", onUp);
           delete box.dataset.isTransforming;
+          document.body.removeClass("is-grabbing");
+        };
+        this.activeTransformCleanup = cleanup;
+
+        const onUp = () => {
+          this.activeTransformCleanup = null;
+          cleanup();
 
           if (this.coordinateTransformer) {
             annot.rect = this.coordinateTransformer.screenRectToPdfRect(lastBounds, this.scale);
@@ -1435,11 +1484,29 @@ export class PdfPageView {
   // ==================== Interactive Pointer, Drag & Move Events ====================
 
   private setupPointerEvents(): void {
-    // Listen for pointerdown on both svg overlay and container
     this.containerEl.addEventListener("pointerdown", this.onPointerDown);
     this.containerEl.addEventListener("pointercancel", this.onPointerCancel);
-    window.addEventListener("pointermove", this.onPointerMove);
-    window.addEventListener("pointerup", this.onPointerUp);
+    this.containerEl.addEventListener("lostpointercapture", this.onLostPointerCapture);
+  }
+
+  private onLostPointerCapture = (): void => {
+    this.cancelActiveInteractions();
+  };
+
+  private attachWindowPointerListeners(): void {
+    if (!this.hasActivePointerListeners) {
+      this.hasActivePointerListeners = true;
+      window.addEventListener("pointermove", this.onPointerMove);
+      window.addEventListener("pointerup", this.onPointerUp);
+    }
+  }
+
+  private detachWindowPointerListeners(): void {
+    if (this.hasActivePointerListeners) {
+      this.hasActivePointerListeners = false;
+      window.removeEventListener("pointermove", this.onPointerMove);
+      window.removeEventListener("pointerup", this.onPointerUp);
+    }
   }
 
   private onPointerCancel = (_e: PointerEvent): void => {
@@ -1447,6 +1514,13 @@ export class PdfPageView {
   };
 
   public cancelActiveInteractions(): void {
+    this.detachWindowPointerListeners();
+    this.detachMouseUpListener();
+    if (this.activeTransformCleanup) {
+      this.activeTransformCleanup();
+      this.activeTransformCleanup = null;
+    }
+    document.body.removeClass("is-grabbing");
     if (this.activePointerId !== null) {
       try {
         this.containerEl.releasePointerCapture(this.activePointerId);
@@ -1547,6 +1621,7 @@ export class PdfPageView {
             hasMoved: false,
           };
 
+          this.attachWindowPointerListeners();
           this.renderAnnotations();
           return;
         }
@@ -1568,10 +1643,12 @@ export class PdfPageView {
       } catch (_) {}
       this.isDrawing = true;
       this.shapeStartPoint = { x: sx, y: sy };
+      this.attachWindowPointerListeners();
       this.createLiveHighlightElement();
     } else if (this.currentTool === "draw") {
       e.preventDefault();
       e.stopPropagation();
+      this.delegate?.onDrawingStrokeStarted?.();
       try {
         this.containerEl.setPointerCapture(e.pointerId);
         this.activePointerId = e.pointerId;
@@ -1579,6 +1656,7 @@ export class PdfPageView {
 
       this.isDrawing = true;
       this.activePath = [[sx, sy]];
+      this.attachWindowPointerListeners();
 
       this.liveDrawEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
       this.liveDrawEl.setAttribute("stroke", rgbToHex(this.currentColor));
@@ -1596,6 +1674,7 @@ export class PdfPageView {
       } catch (_) {}
       this.isDrawing = true;
       this.shapeStartPoint = { x: sx, y: sy };
+      this.attachWindowPointerListeners();
       this.createLiveShapeElement(sx, sy);
     } else if (this.currentTool === "note") {
       // Place new sticky note on empty space
@@ -1604,6 +1683,7 @@ export class PdfPageView {
       // Start drag-to-create or click-to-place text box
       this.isCreatingFreeText = true;
       this.freeTextStartPoint = { x: sx, y: sy };
+      this.attachWindowPointerListeners();
       this.liveFreeTextEl = this.htmlOverlayEl.createDiv({ cls: "pdf-annot-freetext-preview" });
       this.liveFreeTextEl.style.left = `${sx}px`;
       this.liveFreeTextEl.style.top = `${sy}px`;
@@ -1701,7 +1781,7 @@ export class PdfPageView {
         const px = ev.clientX - rect.left;
         const py = ev.clientY - rect.top;
         const last = this.activePath[this.activePath.length - 1];
-        if (!last || Math.hypot(px - last[0], py - last[1]) >= 1.5) {
+        if (!last || Math.hypot(px - last[0], py - last[1]) >= 2.0) {
           this.activePath.push([px, py]);
           hasNewPoints = true;
         }
@@ -1721,6 +1801,7 @@ export class PdfPageView {
   };
 
   private onPointerUp = (e: PointerEvent): void => {
+    this.detachWindowPointerListeners();
     document.body.removeClass("is-grabbing");
     if (this.activePointerId !== null) {
       try {
@@ -2125,11 +2206,13 @@ export class PdfPageView {
       if (end) {
         end.classList.add("active");
       }
+      this.attachMouseUpListener();
     };
     this.onMouseDownListener = handleMouseDown;
     this.containerEl.addEventListener("mousedown", handleMouseDown);
 
     const handleMouseUp = (e: MouseEvent) => {
+      this.detachMouseUpListener();
       if (String(this.currentTool) === "highlight") {
         this.lastMouseDownPos = null;
         this.lastMouseUpPos = null;
@@ -2218,7 +2301,20 @@ export class PdfPageView {
     };
 
     this.onMouseUpListener = handleMouseUp;
-    window.addEventListener("mouseup", handleMouseUp);
+  }
+
+  private attachMouseUpListener(): void {
+    if (!this.hasActiveMouseUpListener && this.onMouseUpListener) {
+      this.hasActiveMouseUpListener = true;
+      window.addEventListener("mouseup", this.onMouseUpListener);
+    }
+  }
+
+  private detachMouseUpListener(): void {
+    if (this.hasActiveMouseUpListener && this.onMouseUpListener) {
+      this.hasActiveMouseUpListener = false;
+      window.removeEventListener("mouseup", this.onMouseUpListener);
+    }
   }
 
   private setupKeyboardShortcuts(): void {
@@ -2273,6 +2369,29 @@ export class PdfPageView {
         this.delegate?.onDeleteAnnotation(this.selectedAnnotId);
         this.selectedAnnotId = null;
         this.renderAnnotations();
+        return;
+      }
+
+      // 4. Undo (Ctrl+Z / Cmd+Z) & Redo (Ctrl+Shift+Z / Cmd+Shift+Z / Ctrl+Y / Cmd+Y)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z" && !e.shiftKey) {
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        if (activeTag !== "input" && activeTag !== "textarea" && !(document.activeElement as HTMLElement)?.isContentEditable) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.delegate?.onUndo?.();
+          return;
+        }
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z") ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y")
+      ) {
+        const activeTag = document.activeElement?.tagName.toLowerCase();
+        if (activeTag !== "input" && activeTag !== "textarea" && !(document.activeElement as HTMLElement)?.isContentEditable) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.delegate?.onRedo?.();
+          return;
+        }
       }
     };
     window.addEventListener("keydown", this.onKeyDownListener);
@@ -2877,32 +2996,23 @@ export class PdfPageView {
   }
 
   private screenPointsToSvgPath(pts: [number, number][]): string {
-    if (pts.length === 0) return "";
-    if (pts.length === 1) {
+    const len = pts.length;
+    if (len === 0) return "";
+    if (len === 1) {
       return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L ${(pts[0][0] + 0.1).toFixed(1)} ${(pts[0][1] + 0.1).toFixed(1)}`;
     }
-    if (pts.length === 2) {
+    if (len === 2) {
       return `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)} L ${pts[1][0].toFixed(1)} ${pts[1][1].toFixed(1)}`;
     }
 
-    // Pre-filter with a 3-point Gaussian-like kernel [0.25, 0.5, 0.25] to remove quantization noise & mouse stepping
-    const smoothed: [number, number][] = [pts[0]];
-    for (let i = 1; i < pts.length - 1; i++) {
-      smoothed.push([
-        0.25 * pts[i - 1][0] + 0.5 * pts[i][0] + 0.25 * pts[i + 1][0],
-        0.25 * pts[i - 1][1] + 0.5 * pts[i][1] + 0.25 * pts[i + 1][1],
-      ]);
-    }
-    smoothed.push(pts[pts.length - 1]);
-
-    let d = `M ${smoothed[0][0].toFixed(1)} ${smoothed[0][1].toFixed(1)}`;
-    for (let i = 1; i < smoothed.length - 1; i++) {
-      const midX = (smoothed[i][0] + smoothed[i + 1][0]) / 2;
-      const midY = (smoothed[i][1] + smoothed[i + 1][1]) / 2;
-      d += ` Q ${smoothed[i][0].toFixed(1)} ${smoothed[i][1].toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
+    let d = `M ${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+    for (let i = 1; i < len - 1; i++) {
+      const midX = (pts[i][0] + pts[i + 1][0]) * 0.5;
+      const midY = (pts[i][1] + pts[i + 1][1]) * 0.5;
+      d += ` Q ${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)}, ${midX.toFixed(1)} ${midY.toFixed(1)}`;
     }
 
-    const last = smoothed[smoothed.length - 1];
+    const last = pts[len - 1];
     d += ` L ${last[0].toFixed(1)} ${last[1].toFixed(1)}`;
     return d;
   }
@@ -2924,18 +3034,16 @@ export class PdfPageView {
     }
     this.pendingRenderParams = null;
     this.cancelActiveInteractions();
-    if (this.onMouseUpListener) {
-      window.removeEventListener("mouseup", this.onMouseUpListener);
-      this.onMouseUpListener = null;
-    }
+    this.detachMouseUpListener();
+    this.onMouseUpListener = null;
     if (this.onMouseDownListener) {
       this.containerEl.removeEventListener("mousedown", this.onMouseDownListener);
       this.onMouseDownListener = null;
     }
     this.containerEl.removeEventListener("pointerdown", this.onPointerDown);
     this.containerEl.removeEventListener("pointercancel", this.onPointerCancel);
-    window.removeEventListener("pointermove", this.onPointerMove);
-    window.removeEventListener("pointerup", this.onPointerUp);
+    this.containerEl.removeEventListener("lostpointercapture", this.onLostPointerCapture);
+    this.detachWindowPointerListeners();
     if (this.drawRafId) {
       window.cancelAnimationFrame(this.drawRafId);
       this.drawRafId = null;

@@ -1267,6 +1267,99 @@ export async function runTestSuite() {
   }
   console.log("✓ Verified Text Box Deletion (D): completely purged with 0 ghost annotations across all PDF pages");
 
+  // 21. Test Draw Tool Undo & Redo Lifecycle with Ink Strokes
+  console.log("\n--- Testing Freehand Draw Tool Undo & Redo Stack ---");
+  const undoTestDoc = await PDFDocument.create();
+  undoTestDoc.addPage([612, 792]);
+  const undoInitBytes = await undoTestDoc.save();
+  const undoAdapter = await PdfDocumentAdapter.load(undoInitBytes.buffer);
+
+  // Simulate drawing 3 strokes
+  const stroke1: PdfInkAnnotation = {
+    id: "stroke_1",
+    type: "ink",
+    pageIndex: 0,
+    rect: [100, 100, 200, 200],
+    color: [0.9, 0.1, 0.1],
+    paths: [[[100, 100], [150, 150], [200, 200]]],
+    strokeWidth: 2,
+    author: "User",
+    createdAt: new Date(),
+  };
+  const stroke2: PdfInkAnnotation = {
+    id: "stroke_2",
+    type: "ink",
+    pageIndex: 0,
+    rect: [120, 120, 220, 220],
+    color: [0.1, 0.8, 0.2],
+    paths: [[[120, 120], [170, 170], [220, 220]]],
+    strokeWidth: 3,
+    author: "User",
+    createdAt: new Date(),
+  };
+  const stroke3: PdfInkAnnotation = {
+    id: "stroke_3",
+    type: "ink",
+    pageIndex: 0,
+    rect: [140, 140, 240, 240],
+    color: [0.2, 0.3, 0.9],
+    paths: [[[140, 140], [190, 190], [240, 240]]],
+    strokeWidth: 2,
+    author: "User",
+    createdAt: new Date(),
+  };
+
+  undoAdapter.upsertAnnotation(stroke1);
+  undoAdapter.upsertAnnotation(stroke2);
+  undoAdapter.upsertAnnotation(stroke3);
+
+  if (undoAdapter.getAllAnnotations().length !== 3) {
+    throw new Error(`Expected 3 ink annotations, got ${undoAdapter.getAllAnnotations().length}`);
+  }
+
+  // Simulate Undo stroke 3
+  undoAdapter.deleteAnnotation(stroke3.id);
+  if (undoAdapter.getAllAnnotations().length !== 2 || undoAdapter.getAnnotation("stroke_3")) {
+    throw new Error("Undo stroke 3 failed to remove annotation from adapter!");
+  }
+  console.log("✓ Verified Undo stroke 3: removed stroke from document model");
+
+  // Simulate Undo stroke 2
+  undoAdapter.deleteAnnotation(stroke2.id);
+  if (undoAdapter.getAllAnnotations().length !== 1 || undoAdapter.getAnnotation("stroke_2")) {
+    throw new Error("Undo stroke 2 failed to remove annotation from adapter!");
+  }
+  console.log("✓ Verified Undo stroke 2: removed stroke from document model");
+
+  // Simulate Redo stroke 2
+  undoAdapter.upsertAnnotation(stroke2);
+  if (undoAdapter.getAllAnnotations().length !== 2 || !undoAdapter.getAnnotation("stroke_2")) {
+    throw new Error("Redo stroke 2 failed to restore annotation to adapter!");
+  }
+  console.log("✓ Verified Redo stroke 2: restored stroke to document model");
+
+  // Simulate Redo stroke 3
+  undoAdapter.upsertAnnotation(stroke3);
+  if (undoAdapter.getAllAnnotations().length !== 3 || !undoAdapter.getAnnotation("stroke_3")) {
+    throw new Error("Redo stroke 3 failed to restore annotation to adapter!");
+  }
+  console.log("✓ Verified Redo stroke 3: restored stroke to document model");
+
+  // Verify full binary save and PDF.js reload of restored strokes
+  const undoSavedBytes = await undoAdapter.save();
+  const pdfjsUndoTask = pdfjs.getDocument({ data: new Uint8Array(undoSavedBytes) });
+  const pdfjsUndoDoc = await pdfjsUndoTask.promise;
+  const undoPage = await pdfjsUndoDoc.getPage(1);
+  const undoAnnots = await undoPage.getAnnotations({ intent: "display" });
+  if (undoAnnots.length !== 3) {
+    throw new Error(`Expected 3 ink annotations in reloaded PDF.js page, got ${undoAnnots.length}`);
+  }
+  for (const a of undoAnnots) {
+    if (a.subtype !== "Ink") {
+      throw new Error(`Expected subtype Ink, got ${a.subtype}`);
+    }
+  }
+  console.log("✓ Verified Undo/Redo PDF binary ISO compliance: 3/3 restored ink annotations valid in PDF.js");
 
   console.log("==================================================");
   console.log("🎉 ALL TESTS PASSED SUCCESSFULLY! 100% VERIFIED!");

@@ -4,7 +4,6 @@ import { runTestSuite as runPdfTestSuite } from "./test-pdf-suite";
 import { runPdfTextSelectionTestSuite } from "./test-pdf-text-selection";
 import { runPdfTwoFingerZoomTestSuite } from "./test-pdf-two-finger-zoom";
 import { runPdfCenteringAndLayoutTestSuite } from "./test-pdf-centering-and-layout";
-import { runPdfSidebarAnnotationsTestSuite } from "./test-pdf-sidebar-annotations";
 
 async function main() {
   console.log("==================================================");
@@ -28,9 +27,6 @@ async function main() {
 
   // 5. Run PDF Centering & Layout Suite
   await runPdfCenteringAndLayoutTestSuite();
-
-  // 6. Run PDF Sidebar & Zotero Annotations Suite
-  await runPdfSidebarAnnotationsTestSuite();
 
   console.log("==================================================");
   console.log("⭐ ALL TEST SUITES PASSED! OFFICE SUITE READY! ⭐");

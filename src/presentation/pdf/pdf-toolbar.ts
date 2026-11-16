@@ -39,7 +39,7 @@ export interface PdfToolbarDelegate {
   onDuplicatePage(): void;
   onDeletePage(): void;
   onInsertBlankPage(): void;
-  onToggleSidebar(): void;
+  onToggleSidebar?(): void;
   onCite(): void;
   onCopyReference(): void;
   onExportMarkdown(): void;
@@ -69,7 +69,6 @@ export class PdfToolbar {
   private saveStatusEl: HTMLElement | null = null;
   private autoSaveBtnEl: HTMLElement | null = null;
   private pageInputEl: HTMLInputElement | null = null;
-  private sidebarBtnEl: HTMLElement | null = null;
   private toolButtons: Map<PdfActiveTool, HTMLElement> = new Map();
   private activeColorScheme: PdfColorSchemeProfile = ZOTERO_DEFAULT_PROFILE;
   private availableProfiles: PdfColorSchemeProfile[] = [];
@@ -82,16 +81,7 @@ export class PdfToolbar {
     this.delegate = delegate;
     this.containerEl = parentEl.createDiv({ cls: "pdf-editor-toolbar" });
 
-    // Group 1: Sidebar Toggle
-    const groupSidebar = this.containerEl.createDiv({ cls: "pdf-toolbar-group" });
-    this.sidebarBtnEl = this.createIconButton(groupSidebar, "panel-left", "Toggle Sidebar (Thumbnails & Annotations)", () => {
-      this.delegate?.onToggleSidebar();
-    });
-    this.setSidebarActive(false);
-
-    this.createSeparator();
-
-    // Group 2: Tools (Select, Highlight, Underline, Sticky Note, Text Box, Draw, Eraser, Shapes)
+    // Group 1: Tools (Select, Highlight, Underline, Sticky Note, Text Box, Draw, Eraser, Shapes)
     const groupTools = this.containerEl.createDiv({ cls: "pdf-toolbar-group" });
 
     this.addToolButton(groupTools, "hand", "mouse-pointer", "Select & Pan");
@@ -294,15 +284,7 @@ export class PdfToolbar {
     this.setActiveTool("hand");
   }
 
-  setSidebarActive(active: boolean): void {
-    if (this.sidebarBtnEl) {
-      if (active) {
-        this.sidebarBtnEl.addClass("is-active");
-      } else {
-        this.sidebarBtnEl.removeClass("is-active");
-      }
-    }
-  }
+  setSidebarActive(_active: boolean): void {}
 
   private addToolButton(
     group: HTMLElement,
