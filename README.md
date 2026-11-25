@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://obsidian.md"><img src="https://img.shields.io/badge/Obsidian-v1.4.0+-purple.svg?style=for-the-badge&logo=obsidian" alt="Obsidian Version" /></a>
-  <a href="https://github.com"><img src="https://img.shields.io/badge/Version-v2.2.1-blue.svg?style=for-the-badge" alt="Release Version" /></a>
+  <a href="https://github.com"><img src="https://img.shields.io/badge/Version-v1.4.1-blue.svg?style=for-the-badge" alt="Release Version" /></a>
   <a href="https://obsidian.md/plugins?id=office-suite"><img src="https://img.shields.io/badge/dynamic/json?logo=obsidian&color=7C3AED&label=Downloads&query=%24%5B%27office-suite%27%5D.downloads&url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json&style=for-the-badge" alt="Obsidian Downloads" /></a>
   <a href="https://community.obsidian.md/plugins/office-suite"><img src="https://img.shields.io/badge/Community%20Plugins-Available-success.svg?style=for-the-badge&logo=obsidian" alt="Community Plugins" /></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-Strict-blue?style=for-the-badge&logo=typescript" alt="TypeScript" /></a>
@@ -38,20 +38,12 @@ No external applications, no converting your files to Markdown, and no loss of f
 
 ### 2. PDF Editing & Highlighting (.pdf)
 <p align="center">
-  <video src="https://res.cloudinary.com/de7qgm8tw/video/upload/v1794228363/pdf-editor_qtafjl.mp4" controls width="100%">
-    <p>Your browser does not support the video tag. <a href="https://res.cloudinary.com/de7qgm8tw/video/upload/v1794228363/pdf-editor_qtafjl.mp4">Watch PDF Editing Demo</a></p>
-  </video>
-  <br>
-  <em>Video 1: Native PDF text selection, Edge-style floating highlight menu, ink pen drawing, and text notes.</em>
+  <img src="https://raw.githubusercontent.com/VishalRashmika/office-suite/assets/pdf-editor.webp" alt="Office Suite PDF Editor Demo" width="100%" />
 </p>
 
 ### 3. PowerPoint Presentation Editing & Slideshow (.pptx)
 <p align="center">
-  <video src="https://res.cloudinary.com/de7qgm8tw/video/upload/v1794228164/pptx-editor_c1wpsf.mp4" controls width="100%">
-    <p>Your browser does not support the video tag. <a href="https://res.cloudinary.com/de7qgm8tw/video/upload/v1794228164/pptx-editor_c1wpsf.mp4">Watch PowerPoint Editing Demo</a></p>
-  </video>
-  <br>
-  <em>Video 2: PowerPoint slide deck editing, text and shape creation, speaker notes drawer, and fullscreen slideshow.</em>
+  <img src="https://raw.githubusercontent.com/VishalRashmika/office-suite/assets/pptx-editor.webp" alt="Office Suite PowerPoint Editor Demo" width="100%" />
 </p>
 
 ---
